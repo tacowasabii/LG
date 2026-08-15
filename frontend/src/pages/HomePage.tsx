@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { Calendar, Image, MessageCircle, AlertCircle, ChevronDown } from 'lucide-react'
-import { getEvents, getMediaList, getGaps, EventListItem, MediaItem, GapsResponse } from '../lib/api'
+import { getEvents, getMediaList, getGaps, EventListItem, MediaItem, GapsResponse, mediaUrl } from '../lib/api'
 
 interface EventMedia {
   id: string;
@@ -119,10 +119,10 @@ export default function HomePage() {
                               {eventMedia[event.id].map((m) => (
                                 <div key={m.id} className="aspect-square rounded-md overflow-hidden bg-gray-100">
                                   {m.media_type === 'video' ? (
-                                    <video src={m.file_path} className="w-full h-full object-cover" muted playsInline />
+                                    <video src={mediaUrl(m.file_path)} className="w-full h-full object-cover" muted playsInline />
                                   ) : (
                                     <img
-                                      src={m.thumbnail_path || m.file_path}
+                                      src={mediaUrl(m.thumbnail_path || m.file_path)}
                                       alt=""
                                       className="w-full h-full object-cover"
                                     />
@@ -158,7 +158,7 @@ export default function HomePage() {
               <div key={item.id} className="aspect-square rounded-lg overflow-hidden bg-gray-100 border border-gray-200 relative">
                 {item.media_type === 'video' ? (
                   <video
-                    src={item.file_path}
+                    src={mediaUrl(item.file_path)}
                     className="w-full h-full object-cover"
                     muted
                     playsInline
@@ -167,7 +167,7 @@ export default function HomePage() {
                   />
                 ) : (
                   <img
-                    src={item.thumbnail_path || item.file_path}
+                    src={mediaUrl(item.thumbnail_path || item.file_path)}
                     alt={item.original_filename}
                     className="w-full h-full object-cover"
                   />

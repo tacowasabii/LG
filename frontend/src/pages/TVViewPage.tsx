@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback } from 'react'
 import { Play, ChevronLeft, ChevronRight, X } from 'lucide-react'
-import { createTVJourney, TVJourney, TVSlide } from '../lib/api'
+import { createTVJourney, TVJourney, TVSlide, mediaUrl } from '../lib/api'
 
 export default function TVViewPage() {
   const [journey, setJourney] = useState<TVJourney | null>(null)
@@ -132,7 +132,7 @@ export default function TVViewPage() {
           <div className="text-center">
             {slide.file_path && (
               <img
-                src={slide.file_path}
+                src={mediaUrl(slide.file_path)}
                 alt={slide.caption}
                 className="max-h-[70vh] max-w-[90vw] object-contain rounded-lg mx-auto"
               />

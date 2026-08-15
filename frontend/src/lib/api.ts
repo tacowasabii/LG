@@ -2,8 +2,19 @@
  * API 클라이언트 - Backend 통신
  */
 
-const BASE_URL = '/api';
+const BASE_URL = import.meta.env.VITE_API_URL || '/api';
 const STATIC_MODE = import.meta.env.VITE_STATIC_MODE === 'true';
+const MEDIA_BASE = import.meta.env.VITE_API_URL
+  ? import.meta.env.VITE_API_URL.replace('/api', '')
+  : '';
+
+/** 미디어 파일 경로를 절대 URL로 변환 */
+export function mediaUrl(path: string | null | undefined): string {
+  if (!path) return '';
+  if (path.startsWith('http')) return path;
+  if (STATIC_MODE) return path.replace('/media-files/', '/mock/photos/');
+  return `${MEDIA_BASE}${path}`;
+}
 
 async function fetchJSON<T>(url: string, options?: RequestInit): Promise<T> {
   // 정적 모드: public/mock/ JSON에서 읽기

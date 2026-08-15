@@ -1,6 +1,6 @@
 import { useState, useCallback, useEffect } from 'react'
 import { Upload, CheckCircle, X, Image, Film, Mic, AlertCircle } from 'lucide-react'
-import { uploadMedia, supplementMedia, getEvents, MediaUploadResult, EventListItem } from '../lib/api'
+import { uploadMedia, supplementMedia, getEvents, MediaUploadResult, EventListItem, mediaUrl } from '../lib/api'
 
 export default function UploadPage() {
   const [dragOver, setDragOver] = useState(false)
@@ -93,7 +93,7 @@ export default function UploadPage() {
                 {/* Thumbnail */}
                 <div className="w-16 h-16 rounded-lg overflow-hidden bg-gray-100 flex-shrink-0">
                   {result.thumbnail_path ? (
-                    <img src={result.thumbnail_path} alt="" className="w-full h-full object-cover" />
+                    <img src={mediaUrl(result.thumbnail_path)} alt="" className="w-full h-full object-cover" />
                   ) : (
                     <div className="w-full h-full flex items-center justify-center">
                       {mediaIcon(result.media_type)}

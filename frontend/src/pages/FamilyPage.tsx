@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { UserPlus, Users, X } from 'lucide-react'
-import { getPersons, createPerson, PersonData } from '../lib/api'
+import { getPersons, createPerson, PersonData, mediaUrl } from '../lib/api'
 
 export default function FamilyPage() {
   const [persons, setPersons] = useState<PersonData[]>([])
@@ -116,7 +116,7 @@ export default function FamilyPage() {
                 {/* Avatar */}
                 <div className="w-14 h-14 rounded-full bg-gray-100 flex items-center justify-center text-xl flex-shrink-0 overflow-hidden">
                   {person.thumbnail_url ? (
-                    <img src={person.thumbnail_url} alt={person.name} className="w-full h-full object-cover" />
+                    <img src={mediaUrl(person.thumbnail_url)} alt={person.name} className="w-full h-full object-cover" />
                   ) : (
                     person.name.charAt(0)
                   )}
@@ -155,7 +155,7 @@ export default function FamilyPage() {
             <div className="flex flex-col items-center mt-2">
               <div className="w-40 h-40 rounded-full overflow-hidden bg-gray-100 border-4 border-primary-100 shadow-lg">
                 {selectedPerson.thumbnail_url ? (
-                  <img src={selectedPerson.thumbnail_url} alt={selectedPerson.name} className="w-full h-full object-cover" />
+                  <img src={mediaUrl(selectedPerson.thumbnail_url)} alt={selectedPerson.name} className="w-full h-full object-cover" />
                 ) : (
                   <div className="w-full h-full flex items-center justify-center text-4xl text-gray-400">
                     {selectedPerson.name.charAt(0)}

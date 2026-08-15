@@ -1,6 +1,6 @@
 import { useEffect, useState, useRef, useCallback } from 'react'
 import ForceGraph2D from 'react-force-graph-2d'
-import { getGraph, GraphData, GraphNode } from '../lib/api'
+import { getGraph, GraphData, GraphNode, mediaUrl } from '../lib/api'
 
 const NODE_COLORS: Record<string, string> = {
   person: '#3b82f6',
@@ -191,7 +191,7 @@ export default function GraphPage() {
 
             {selected.file_path && (
               <div className="rounded-lg overflow-hidden bg-gray-100">
-                <img src={selected.file_path} alt="" className="w-full" />
+                <img src={mediaUrl(selected.file_path)} alt="" className="w-full" />
               </div>
             )}
 
@@ -203,10 +203,10 @@ export default function GraphPage() {
                   {relatedMedia.map((media) => (
                     <div key={media.id} className="aspect-square rounded-md overflow-hidden bg-gray-100">
                       {media.media_type === 'video' ? (
-                        <video src={media.file_path} className="w-full h-full object-cover" muted playsInline />
+                        <video src={mediaUrl(media.file_path)} className="w-full h-full object-cover" muted playsInline />
                       ) : (
                         <img
-                          src={media.thumbnail_path || media.file_path}
+                          src={mediaUrl(media.thumbnail_path || media.file_path)}
                           alt={media.original_filename || ''}
                           className="w-full h-full object-cover"
                         />
