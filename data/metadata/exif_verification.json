@@ -1,0 +1,170 @@
+[
+  {
+    "file": "E01_001.jpg",
+    "DateTimeOriginal": "1998:08:13 14:22:31",
+    "Make": "SyntheticCam",
+    "Model": "FMG-1998",
+    "gps_present": true
+  },
+  {
+    "file": "E01_002.jpg",
+    "DateTimeOriginal": "1998:08:13 14:37:12",
+    "Make": "SyntheticCam",
+    "Model": "FMG-1998",
+    "gps_present": true
+  },
+  {
+    "file": "E01_003.jpg",
+    "DateTimeOriginal": "1998:08:13 15:05:48",
+    "Make": "SyntheticCam",
+    "Model": "FMG-1998",
+    "gps_present": true
+  },
+  {
+    "file": "E02_001.jpg",
+    "DateTimeOriginal": "2003:03:05 09:07:14",
+    "Make": "SyntheticCam",
+    "Model": "FMG-2003",
+    "gps_present": true
+  },
+  {
+    "file": "E02_002.jpg",
+    "DateTimeOriginal": "2003:03:05 09:18:46",
+    "Make": "SyntheticCam",
+    "Model": "FMG-2003",
+    "gps_present": true
+  },
+  {
+    "file": "E02_003.jpg",
+    "DateTimeOriginal": "2003:03:05 09:42:09",
+    "Make": "SyntheticCam",
+    "Model": "FMG-2003",
+    "gps_present": true
+  },
+  {
+    "file": "E03_001.jpg",
+    "DateTimeOriginal": "2006:07:23 10:36:22",
+    "Make": "SyntheticCam",
+    "Model": "FMG-2006",
+    "gps_present": true
+  },
+  {
+    "file": "E03_002.jpg",
+    "DateTimeOriginal": "2006:07:23 11:04:37",
+    "Make": "SyntheticCam",
+    "Model": "FMG-2006",
+    "gps_present": true
+  },
+  {
+    "file": "E03_003.jpg",
+    "DateTimeOriginal": "2006:07:23 12:21:15",
+    "Make": "SyntheticCam",
+    "Model": "FMG-2006",
+    "gps_present": true
+  },
+  {
+    "file": "E04_001.jpg",
+    "DateTimeOriginal": "2010:11:21 12:08:44",
+    "Make": "SyntheticCam",
+    "Model": "FMG-2010",
+    "gps_present": true
+  },
+  {
+    "file": "E04_002.jpg",
+    "DateTimeOriginal": "2010:11:21 12:26:18",
+    "Make": "SyntheticCam",
+    "Model": "FMG-2010",
+    "gps_present": true
+  },
+  {
+    "file": "E04_003.jpg",
+    "DateTimeOriginal": "2010:11:21 12:43:52",
+    "Make": "SyntheticCam",
+    "Model": "FMG-2010",
+    "gps_present": true
+  },
+  {
+    "file": "E05_001.jpg",
+    "DateTimeOriginal": "2015:02:13 10:31:06",
+    "Make": "SyntheticCam",
+    "Model": "FMG-2015",
+    "gps_present": true
+  },
+  {
+    "file": "E05_002.jpg",
+    "DateTimeOriginal": "2015:02:13 10:44:28",
+    "Make": "SyntheticCam",
+    "Model": "FMG-2015",
+    "gps_present": true
+  },
+  {
+    "file": "E05_003.jpg",
+    "DateTimeOriginal": "2015:02:13 10:58:41",
+    "Make": "SyntheticCam",
+    "Model": "FMG-2015",
+    "gps_present": true
+  },
+  {
+    "file": "E06_001.jpg",
+    "DateTimeOriginal": "2017:10:08 18:16:33",
+    "Make": "SyntheticCam",
+    "Model": "FMG-2017",
+    "gps_present": true
+  },
+  {
+    "file": "E06_002.jpg",
+    "DateTimeOriginal": "2017:10:08 19:03:57",
+    "Make": "SyntheticCam",
+    "Model": "FMG-2017",
+    "gps_present": true
+  },
+  {
+    "file": "E06_003.jpg",
+    "DateTimeOriginal": "2017:10:08 20:21:16",
+    "Make": "SyntheticCam",
+    "Model": "FMG-2017",
+    "gps_present": true
+  },
+  {
+    "file": "E07_001.jpg",
+    "DateTimeOriginal": "2021:05:29 13:38:25",
+    "Make": "SyntheticCam",
+    "Model": "FMG-2021",
+    "gps_present": true
+  },
+  {
+    "file": "E07_002.jpg",
+    "DateTimeOriginal": "2021:05:29 13:52:48",
+    "Make": "SyntheticCam",
+    "Model": "FMG-2021",
+    "gps_present": true
+  },
+  {
+    "file": "E07_003.jpg",
+    "DateTimeOriginal": "2021:05:29 14:17:36",
+    "Make": "SyntheticCam",
+    "Model": "FMG-2021",
+    "gps_present": true
+  },
+  {
+    "file": "E08_001.jpg",
+    "DateTimeOriginal": "2024:09:14 18:12:43",
+    "Make": "SyntheticCam",
+    "Model": "FMG-2024",
+    "gps_present": true
+  },
+  {
+    "file": "E08_002.jpg",
+    "DateTimeOriginal": "2024:09:14 18:31:29",
+    "Make": "SyntheticCam",
+    "Model": "FMG-2024",
+    "gps_present": true
+  },
+  {
+    "file": "E08_003.jpg",
+    "DateTimeOriginal": "2024:09:14 19:06:54",
+    "Make": "SyntheticCam",
+    "Model": "FMG-2024",
+    "gps_present": true
+  }
+]

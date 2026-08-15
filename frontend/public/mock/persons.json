@@ -1,0 +1,7 @@
+[
+  {"id":"P01","node_type":"person","name":"김민수","relation":"아빠","birth_year":1970,"thumbnail_url":"/mock/photos/profile_P01.jpg"},
+  {"id":"P02","node_type":"person","name":"박서연","relation":"엄마","birth_year":1973,"thumbnail_url":"/mock/photos/profile_P02.jpg"},
+  {"id":"P03","node_type":"person","name":"김하늘","relation":"딸","birth_year":1996,"thumbnail_url":"/mock/photos/profile_P03.jpg"},
+  {"id":"P04","node_type":"person","name":"김지우","relation":"아들","birth_year":2000,"thumbnail_url":"/mock/photos/profile_P04.jpg"},
+  {"id":"P05","node_type":"person","name":"이정자","relation":"할머니","birth_year":1940,"thumbnail_url":"/mock/photos/profile_P05.jpg"}
+]

@@ -1,0 +1,9 @@
+{
+  "dataset": "Family Memory Graph Synthetic Dataset",
+  "version": "1.0",
+  "photo_count": 24,
+  "event_count": 8,
+  "person_count": 5,
+  "synthetic": true,
+  "note": "Uploaded ZIP had 23 files; E03_003 was restored from the earlier high-resolution generation in this conversation."
+}

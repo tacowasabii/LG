@@ -1,0 +1,32 @@
+[
+  {
+    "person_id": "P01",
+    "name": "김민수",
+    "role": "father",
+    "birth_date": "1970-04-18"
+  },
+  {
+    "person_id": "P02",
+    "name": "박서연",
+    "role": "mother",
+    "birth_date": "1973-09-02"
+  },
+  {
+    "person_id": "P03",
+    "name": "김하늘",
+    "role": "daughter",
+    "birth_date": "1996-05-14"
+  },
+  {
+    "person_id": "P04",
+    "name": "김지우",
+    "role": "son",
+    "birth_date": "2000-11-03"
+  },
+  {
+    "person_id": "P05",
+    "name": "이정자",
+    "role": "grandmother",
+    "birth_date": "1940-11-21"
+  }
+]

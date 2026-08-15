@@ -1,0 +1,50 @@
+[
+  {
+    "memory_id": "M001",
+    "event_id": "E01",
+    "speaker": "P01",
+    "content": "이 여행 전에 캠코더를 새로 마련해서 하늘이가 노는 모습을 계속 찍었던 기억이 난다."
+  },
+  {
+    "memory_id": "M002",
+    "event_id": "E02",
+    "speaker": "P02",
+    "content": "새 책가방을 메고 교문 앞에서 웃던 하늘이 표정이 아직도 기억난다."
+  },
+  {
+    "memory_id": "M003",
+    "event_id": "E03",
+    "speaker": "P03",
+    "content": "제주 바다에서 지우와 물장구치던 날이 가장 신났던 가족여행 중 하나였다."
+  },
+  {
+    "memory_id": "M004",
+    "event_id": "E04",
+    "speaker": "P02",
+    "content": "할머니 칠순에 온 가족이 한자리에 모여 촛불을 함께 불던 장면이 특별했다."
+  },
+  {
+    "memory_id": "M005",
+    "event_id": "E05",
+    "speaker": "P01",
+    "content": "졸업식에서 하늘이가 훌쩍 자랐다는 걸 실감했다."
+  },
+  {
+    "memory_id": "M006",
+    "event_id": "E06",
+    "speaker": "P04",
+    "content": "첫 캠핑에서 모닥불 앞에 앉아 오래 이야기했던 밤이 기억난다."
+  },
+  {
+    "memory_id": "M007",
+    "event_id": "E07",
+    "speaker": "P05",
+    "content": "하늘이 웨딩드레스를 입은 모습을 보니 기쁘면서도 뭉클했다."
+  },
+  {
+    "memory_id": "M008",
+    "event_id": "E08",
+    "speaker": "P03",
+    "content": "부모님 환갑을 가족 모두 함께 축하할 수 있어서 뜻깊었다."
+  }
+]

@@ -1,0 +1,28 @@
+# Python
+venv/
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.env
+
+# Node
+frontend/node_modules/
+frontend/dist/
+
+# Data (keep structure, ignore generated/large files)
+data/media/*
+data/graph.json
+data/profiles/*
+!data/media/.gitkeep
+!data/profiles/.gitkeep
+
+# OS
+.DS_Store
+Thumbs.db
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
