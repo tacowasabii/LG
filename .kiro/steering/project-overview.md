@@ -2,7 +2,7 @@
 inclusion: always
 ---
 
-# Family Memory Graph — 프로젝트 개요
+# LG HomeStory — 프로젝트 개요
 
 ## 프로젝트 소개
 

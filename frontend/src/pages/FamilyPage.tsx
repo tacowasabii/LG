@@ -55,8 +55,8 @@ export default function FamilyPage() {
     <div className="max-w-3xl mx-auto space-y-6">
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-2xl font-bold text-gray-900">가족 구성원</h1>
-          <p className="text-gray-500 mt-1">Memory Graph에 등록된 가족입니다.</p>
+          <h1 className="text-2xl font-bold text-gray-900">인물</h1>
+          <p className="text-gray-500 mt-1">Memory Graph에 등록된 사람들입니다. 가족·친구·연인 모두 포함됩니다.</p>
         </div>
         <button onClick={() => setShowForm(true)} className="btn-primary flex items-center gap-2">
           <UserPlus size={16} />
@@ -67,7 +67,7 @@ export default function FamilyPage() {
       {/* Add Form */}
       {showForm && (
         <div className="card border-primary-200 bg-primary-50/30">
-          <h3 className="font-medium text-gray-800 mb-3">가족 구성원 추가</h3>
+          <h3 className="font-medium text-gray-800 mb-3">인물 추가</h3>
           <div className="grid grid-cols-3 gap-3">
             <input
               type="text"
@@ -102,7 +102,7 @@ export default function FamilyPage() {
       {persons.length === 0 ? (
         <div className="card text-center py-12">
           <Users size={40} className="mx-auto text-gray-300 mb-4" />
-          <p className="text-gray-400">등록된 가족 구성원이 없습니다.</p>
+          <p className="text-gray-400">등록된 인물이 없습니다.</p>
         </div>
       ) : (
         <div className="grid grid-cols-2 gap-4">

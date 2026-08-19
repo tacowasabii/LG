@@ -6,8 +6,8 @@ from backend.config import MEDIA_DIR
 from backend.routers import media, graph, chat, interview, gaps, tv
 
 app = FastAPI(
-    title="Family Memory Graph",
-    description="가족의 기억을 연결하고 대화할 수 있는 AI Native 서비스",
+    title="LG HomeStory",
+    description="사람과 사건의 기억을 연결하고 대화할 수 있는 AI Native 서비스",
     version="0.1.0",
 )
 
@@ -34,4 +34,4 @@ app.include_router(tv.router, prefix="/api/tv", tags=["TV"])
 
 @app.get("/api/health")
 async def health_check():
-    return {"status": "ok", "service": "Family Memory Graph"}
+    return {"status": "ok", "service": "LG HomeStory"}

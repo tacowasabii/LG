@@ -32,7 +32,7 @@ export default function GapsPage() {
       <div>
         <h1 className="text-2xl font-bold text-gray-900">Memory Gap</h1>
         <p className="text-gray-500 mt-1">
-          가족 기억에서 빠진 부분을 AI가 자동으로 찾아냈습니다. 인터뷰를 통해 채워보세요.
+          기억에서 빠진 부분을 AI가 자동으로 찾아냈습니다. 인터뷰를 통해 채워보세요.
         </p>
       </div>
 

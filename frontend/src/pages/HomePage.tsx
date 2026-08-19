@@ -60,8 +60,8 @@ export default function HomePage() {
     <div className="max-w-5xl mx-auto space-y-8">
       {/* Header */}
       <div>
-        <h1 className="text-2xl font-bold text-gray-900">우리 가족의 기억</h1>
-        <p className="text-gray-500 mt-1">사진과 이야기로 연결된 가족의 시간들</p>
+        <h1 className="text-2xl font-bold text-gray-900">우리의 기억</h1>
+        <p className="text-gray-500 mt-1">사진과 이야기로 연결된 사람들의 시간</p>
       </div>
 
       {/* Stats */}

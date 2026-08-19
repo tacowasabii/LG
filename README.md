@@ -1,6 +1,8 @@
-# Family Memory Graph
+# LG HomeStory
 
-> 가족의 기억을 연결하고, 질문하면 실제 기록을 근거로 답해주는 "대화 가능한 가족 기억 공간"
+> 사람과 사건의 기억을 연결하고, 질문하면 실제 기록을 근거로 답해주는 "대화 가능한 기억 공간"
+>
+> 엔진명: Family Memory Graph · 관계는 가족·친구·연인을 모두 포함합니다
 
 2026 LG Promptathon 출품작
 
@@ -166,7 +168,7 @@ cp .env.example .env
 ### 노드 (5 종류)
 | 타입 | 주요 속성 |
 |------|-----------|
-| **Person** | name, relation, birth_year, thumbnail_url |
+| **Person** | name, relation, birth_year, birth_date, thumbnail_url |
 | **Event** | title, description, date_start, location_id, confidence |
 | **Place** | name, address, lat, lng |
 | **Media** | media_type, file_path, exif_date, exif_lat/lng, detected_faces |
@@ -182,7 +184,7 @@ cp .env.example .env
 | LOCATED_AT | Event → Place |
 | REMEMBERS | Person → Memory |
 | ABOUT | Memory → Event |
-| FAMILY_OF | Person → Person |
+| RELATED_TO | Person → Person |
 
 ### 신뢰도 모델
 - `confidence`: confirmed / ai_inferred / user_unverified

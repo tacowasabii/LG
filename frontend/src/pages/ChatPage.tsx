@@ -63,7 +63,7 @@ export default function ChatPage() {
       {/* Header */}
       <div className="mb-4">
         <h1 className="text-2xl font-bold text-gray-900">Memory Chat</h1>
-        <p className="text-gray-500 mt-1">가족의 기억을 질문해보세요. 실제 기록을 근거로 답변합니다.</p>
+        <p className="text-gray-500 mt-1">기억을 질문해보세요. 실제 기록을 근거로 답변합니다.</p>
       </div>
 
       {/* Messages */}
@@ -71,7 +71,7 @@ export default function ChatPage() {
         {messages.length === 0 && (
           <div className="text-center py-12">
             <Brain size={48} className="mx-auto text-gray-300 mb-4" />
-            <p className="text-gray-400 mb-6">가족의 기억에 대해 무엇이든 물어보세요</p>
+            <p className="text-gray-400 mb-6">기억에 대해 무엇이든 물어보세요</p>
             <div className="flex flex-wrap justify-center gap-2">
               {suggestions.map((s) => (
                 <button
@@ -144,7 +144,7 @@ export default function ChatPage() {
             value={input}
             onChange={(e) => setInput(e.target.value)}
             onKeyDown={(e) => e.key === 'Enter' && !e.shiftKey && handleSend()}
-            placeholder="가족의 기억에 대해 물어보세요..."
+            placeholder="기억에 대해 물어보세요..."
             className="flex-1 px-4 py-3 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-primary-500 focus:border-transparent text-sm"
             disabled={loading}
           />

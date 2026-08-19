@@ -75,7 +75,7 @@ export default function InterviewPage() {
           </div>
           <h1 className="text-2xl font-bold text-gray-900 mb-2">AI 기억 인터뷰</h1>
           <p className="text-gray-500 mb-8 max-w-md mx-auto">
-            AI가 가족 기억의 빈 곳을 찾아 자연스럽게 질문합니다.
+            AI가 기억의 빈 곳을 찾아 자연스럽게 질문합니다.
             답변은 Memory Graph에 새로운 기억으로 저장됩니다.
           </p>
           <button onClick={handleStart} disabled={loading} className="btn-primary text-lg px-8 py-3">

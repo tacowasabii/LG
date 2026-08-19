@@ -65,7 +65,7 @@ export default function TVViewPage() {
       <div className="h-full flex flex-col items-center justify-center text-white p-8">
         <div className="text-center mb-12">
           <h1 className="text-4xl font-bold mb-3">TV Memory Journey</h1>
-          <p className="text-lg text-gray-400">우리 가족의 기억을 큰 화면으로 감상하세요</p>
+          <p className="text-lg text-gray-400">우리의 기억을 큰 화면으로 감상하세요</p>
         </div>
 
         <div className="w-full max-w-lg">

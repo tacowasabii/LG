@@ -18,7 +18,7 @@ const navItems = [
   { to: '/interview', icon: Mic, label: '인터뷰' },
   { to: '/gaps', icon: AlertCircle, label: 'Gap' },
   { to: '/tv', icon: Tv, label: 'TV' },
-  { to: '/family', icon: Users, label: '가족' },
+  { to: '/family', icon: Users, label: '인물' },
 ]
 
 export default function AppLayout() {
@@ -31,8 +31,8 @@ export default function AppLayout() {
           <div className="flex items-center gap-2">
             <img src="/vite.svg" className="w-8 h-8" alt="logo" />
             <div>
-              <h1 className="font-bold text-gray-900 text-sm">Family Memory Graph</h1>
-              <p className="text-xs text-gray-500">가족 기억 공간</p>
+              <h1 className="font-bold text-gray-900 text-sm">LG HomeStory</h1>
+              <p className="text-xs text-gray-500">기억을 잇는 공간</p>
             </div>
           </div>
         </div>
@@ -63,7 +63,7 @@ export default function AppLayout() {
 
         {/* Footer */}
         <div className="p-4 border-t border-gray-100">
-          <p className="text-xs text-gray-400 text-center tracking-wide">Family Memory Graph · LG Promptathon 2026</p>
+          <p className="text-xs text-gray-400 text-center tracking-wide">LG HomeStory · Memory Graph · LG Promptathon 2026</p>
         </div>
       </nav>
 
