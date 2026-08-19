@@ -110,6 +110,10 @@ async def get_person_detail(person_id: str):
             {"id": m["id"], "file_path": m.get("file_path", ""), "thumbnail_path": m.get("thumbnail_path")}
             for m in detail.get("media", [])
         ],
+        memories=[
+            {"id": m["id"], "content": m.get("content", ""), "source_type": m.get("source_type")}
+            for m in detail.get("memories", [])
+        ],
     )
 
 

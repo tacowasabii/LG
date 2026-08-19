@@ -21,6 +21,8 @@ ROOT_DIR = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT_DIR))
 
 from backend.services.chat_engine import (  # noqa: E402
+    MAX_SOURCES,
+    _extract_sources,
     _format_search_results,
     _query_terms,
     _score_node,
@@ -157,6 +159,61 @@ def test_exact_field_match_outranks_substring():
     mother = graph_manager.get_node("P02")
     father = graph_manager.get_node("P01")
     assert _score_node(mother, terms) > _score_node(father, terms)
+
+
+def test_photos_are_reachable_by_scene_description():
+    """사진이 장면 설명으로 검색된다
+
+    scene_description은 사진이 가진 유일한 텍스트다. 검색 대상에서 빠지면
+    미디어 노드는 어떤 질의로도 직접 도달할 수 없다.
+    """
+    _require_seeded_graph()
+    assert "scene_description" in graph_manager.SEARCH_FIELDS
+    hits = [n for n in graph_manager.search_nodes("광안리") if n.get("node_type") == "media"]
+    assert hits, "'광안리'로 사진을 하나도 못 찾음"
+    # 점수 테이블에도 있어야 순위에 반영된다 (없으면 0점으로 뒤로 밀린다)
+    photo = hits[0]
+    assert _score_node(photo, _query_terms("광안리")) > 0, "장면 설명 매칭이 점수 0점"
+
+
+def test_media_context_includes_scene_description():
+    """LLM 컨텍스트에 장면 설명이 실린다
+
+    검색에만 쓰고 컨텍스트에서 빼면, 모델은 사진이 뭘 담고 있는지 모른 채로
+    답해야 해서 근거가 있는데도 추측하게 된다.
+    """
+    _require_seeded_graph()
+    context = _format_search_results(_search_graph("광안리"))
+    media_lines = [line for line in context.split("\n") if "[미디어]" in line]
+    assert media_lines, f"미디어 줄이 없음:\n{context}"
+    assert any("장면:" in line for line in media_lines), f"장면 설명이 없음: {media_lines[0]}"
+    assert any("광안리" in line for line in media_lines), (
+        f"매칭된 근거(광안리)가 컨텍스트에 안 보임: {media_lines[0]}"
+    )
+
+
+def test_badge_window_is_not_wasted_on_unciteable_nodes():
+    """뱃지로 만들 수 없는 노드(place 등)가 상위에 와도 근거 5개를 채운다"""
+    _require_seeded_graph()
+    results = _search_graph("부산 여행 사진 보여줘")
+    citeable = [n for n in results if n.get("node_type") in ("media", "event", "memory", "person")]
+    expected = min(MAX_SOURCES, len(citeable))
+    sources = _extract_sources(results)
+    assert len(sources) == expected, (
+        f"근거 {len(sources)}개 (기대 {expected}개). "
+        f"상위5={[n['id'] for n in results[:5]]}"
+    )
+
+
+def test_person_detail_includes_their_memories():
+    """인물 상세가 그 사람이 남긴 기억을 내려준다 (REMEMBERS 엣지)"""
+    _require_seeded_graph()
+    detail = graph_manager.get_person_detail("P01")
+    assert detail is not None
+    assert "memories" in detail, "memories 키가 없음"
+    assert detail["memories"], "김민수의 기억이 비어 있음 (시드에 M001, M005가 있어야 함)"
+    ids = {m["id"] for m in detail["memories"]}
+    assert "M001" in ids, f"M001이 없음: {sorted(ids)}"
 
 
 def _main():

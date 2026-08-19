@@ -80,6 +80,7 @@ _FIELD_WEIGHTS = (
     ("address", 2),
     ("description", 1),
     ("content", 1),
+    ("scene_description", 1),
 )
 
 
@@ -195,11 +196,15 @@ def _format_search_results(results: list[dict]) -> str:
                 f"(주소: {node.get('address', '')})"
             )
         elif node_type == "media":
-            lines.append(
-                f"{i}. [미디어] {node.get('original_filename', '')} "
-                f"(날짜: {node.get('exif_date', node.get('created_at', ''))}, "
-                f"타입: {node.get('media_type', '')})"
-            )
+            info = [
+                f"날짜: {node.get('exif_date', node.get('created_at', ''))}",
+                f"타입: {node.get('media_type', '')}",
+            ]
+            if node.get("scene_description"):
+                # 검색에는 쓰이는데 컨텍스트에 없으면, 사진이 뭘 담고 있는지
+                # 모른 채로 답해야 해서 모델이 추측하게 된다
+                info.append(f"장면: {node['scene_description']}")
+            lines.append(f"{i}. [미디어] {node.get('original_filename', '')} ({', '.join(info)})")
         elif node_type == "memory":
             lines.append(
                 f"{i}. [기억] {node.get('content', '')}"
@@ -272,12 +277,23 @@ def _simulate_response(messages: list[dict]) -> str:
     return answer
 
 
+# 화면에 띄울 근거 뱃지 개수
+MAX_SOURCES = 5
+
+
 def _extract_sources(search_results: list[dict]) -> list[SourceItem]:
-    """검색 결과에서 답변 소스 추출"""
+    """검색 결과에서 답변 소스 추출
+
+    상위 5개 노드를 잘라서 걸러면, 뱃지로 만들 수 없는 노드(place 등)가
+    상위에 오면 그만큼 근거가 비어 보인다. 뱃지 5개가 모일 때까지 순회한다.
+    """
     sources = []
     seen_ids = set()
 
-    for node in search_results[:5]:  # 최대 5개 소스
+    for node in search_results:
+        if len(sources) >= MAX_SOURCES:
+            break
+
         node_id = node.get("id", "")
         if node_id in seen_ids:
             continue

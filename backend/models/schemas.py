@@ -97,6 +97,8 @@ class PersonResponse(BaseModel):
     thumbnail_url: Optional[str] = None
     events: list[dict] = []
     media: list[dict] = []
+    # 이 인물이 남긴 기억 (REMEMBERS 엣지)
+    memories: list[dict] = []
 
 
 class EventResponse(BaseModel):

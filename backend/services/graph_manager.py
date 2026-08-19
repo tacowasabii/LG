@@ -249,14 +249,17 @@ class GraphManager:
 
         events = []
         media = []
+        memories = []
 
-        # outgoing: Person -> Event (PARTICIPATED_IN)
+        # outgoing: Person -> Event (PARTICIPATED_IN), Person -> Memory (REMEMBERS)
         for _, target, data in self.graph.out_edges(person_id, data=True):
             target_node = self.graph.nodes.get(target)
             if not target_node:
                 continue
             if target_node.get("node_type") == NodeType.EVENT:
                 events.append(dict(target_node))
+            elif target_node.get("node_type") == NodeType.MEMORY:
+                memories.append(dict(target_node))
 
         # incoming: Media -> Person (DEPICTS)
         for source, _, data in self.graph.in_edges(person_id, data=True):
@@ -268,15 +271,20 @@ class GraphManager:
 
         person["events"] = events
         person["media"] = media
+        person["memories"] = memories
         return person
 
     # 텍스트 검색 대상 필드.
-    # relation이 포함돼야 "엄마", "딸" 같은 호칭으로 인물을 찾을 수 있다.
-    # (가족이 이름 대신 쓰는 가장 자연스러운 표현이다)
-    SEARCH_FIELDS = ("name", "title", "relation", "description", "content", "address")
+    # - relation이 포함돼야 "엄마", "딸" 같은 호칭으로 인물을 찾을 수 있다
+    #   (가족이 이름 대신 쓰는 가장 자연스러운 표현이다)
+    # - scene_description은 사진이 가진 유일한 텍스트다. 빼면 미디어 노드가
+    #   검색으로 도달 불가능해서 "광안리 사진" 같은 질의가 사진에 닿지 못한다
+    SEARCH_FIELDS = (
+        "name", "title", "relation", "description", "content", "address", "scene_description",
+    )
 
     def search_nodes(self, query: str) -> list[dict]:
-        """간단한 텍스트 검색 (이름, 제목, 호칭, 설명, 내용, 주소에서)"""
+        """간단한 텍스트 검색 (이름, 제목, 호칭, 설명, 내용, 주소, 장면설명에서)"""
         query_lower = query.lower()
         results = []
         for n in self.graph.nodes:
