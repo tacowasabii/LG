@@ -39,6 +39,15 @@ EXAONE_THINKING_BUDGET = int(os.getenv("EXAONE_THINKING_BUDGET", "4096"))
 
 EXAONE_TIMEOUT = float(os.getenv("EXAONE_TIMEOUT", "120"))
 
+# 의도 분석(질의 계획)용 모델. 구조화 추출이라 추론 없는 instant가 빠르고 충분하다.
+EXAONE_PLANNER_MODEL = os.getenv(
+    "EXAONE_PLANNER_MODEL", "chatexaone-code-cli-claude-compatible-instant"
+)
+
+# LangGraph 기반 질의 계획 사용 여부.
+# 끄면 기존 키워드 검색 경로로 동작한다 (LLM 호출 1회, 응답이 빠르다).
+CHAT_QUERY_PLANNING = os.getenv("CHAT_QUERY_PLANNING", "true").lower() == "true"
+
 # Server
 HOST = os.getenv("HOST", "0.0.0.0")
 PORT = int(os.getenv("PORT", "8000"))

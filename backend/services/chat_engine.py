@@ -6,7 +6,7 @@ import uuid
 from datetime import date
 from typing import Optional
 
-from backend.services import llm_client
+from backend.services import chat_graph, graph_search, llm_client
 from backend.services.graph_manager import graph_manager
 from backend.models.schemas import SourceItem
 
@@ -32,9 +32,9 @@ async def process_chat(query: str, conversation_id: Optional[str] = None) -> dic
     """채팅 질의 처리
 
     Flow:
-    1. Graph에서 관련 노드 검색
+    1. 질의 계획 그래프 실행 (의도 분석 → 그래프 대조 → 검색)
     2. 검색 결과를 컨텍스트로 EXAONE에 전달
-    3. 답변 생성 + 소스 연결
+    3. 답변 생성 + 소스 연결 + 신뢰도 판정
     """
     # 대화 세션 관리
     if not conversation_id:
@@ -42,13 +42,15 @@ async def process_chat(query: str, conversation_id: Optional[str] = None) -> dic
     if conversation_id not in _conversations:
         _conversations[conversation_id] = []
 
-    # 1. Graph 검색 (키워드 기반)
-    search_results = _search_graph(query)
+    # 1. 질의 계획 + 검색 (LangGraph). 실패해도 규칙 기반 결과가 돌아온다.
+    plan_state = await chat_graph.run(query)
+    search_results = plan_state["results"]
+    missing_entities = plan_state["missing_entities"]
     context_text = _format_search_results(search_results)
 
     # 2. EXAONE 호출
-    messages = _build_messages(query, context_text, conversation_id)
-    answer = await _call_exaone(messages)
+    messages = _build_messages(query, context_text, conversation_id, missing_entities)
+    answer = await _call_exaone(messages, search_results)
 
     # 3. 대화 히스토리 저장
     _conversations[conversation_id].append({"role": "user", "content": query})
@@ -57,8 +59,10 @@ async def process_chat(query: str, conversation_id: Optional[str] = None) -> dic
     # 4. 소스 추출
     sources = _extract_sources(search_results)
 
-    # 5. confidence 결정
-    confidence = "confirmed" if sources else "ai_inferred"
+    # 5. 신뢰도 판정
+    #    근거가 있어도 질문이 지목한 대상이 그래프에 없으면 "확인된 기록"이 아니다.
+    #    '런던 여행'을 물었을 때 부산·제주 기록이 잡혀도 confirmed로 표시하면 안 된다.
+    confidence = "confirmed" if sources and not missing_entities else "ai_inferred"
 
     return {
         "answer": answer,
@@ -68,103 +72,14 @@ async def process_chat(query: str, conversation_id: Optional[str] = None) -> dic
     }
 
 
-# 검색어 뒤에서 떼어낼 조사
-_PARTICLE_CHARS = "이가을를에서의도는은과와랑"
-# 질의에서 떼어낼 문장부호
-_PUNCT = "?!.,~\"'()[]"
-
-# 필드별 가중치 - 이름/제목/호칭에서 맞으면 설명·내용보다 강한 신호로 본다
-_FIELD_WEIGHTS = (
-    ("name", 3),
-    ("title", 3),
-    ("relation", 3),
-    ("address", 2),
-    ("description", 1),
-    ("content", 1),
-    ("scene_description", 1),
-)
-
-
-def _query_terms(query: str) -> list[str]:
-    """질의를 검색어 목록으로 분해
-
-    전체 문장, 각 토큰, 조사를 떼어낸 형태를 모두 후보로 쓴다.
-    조사가 실제로 깎인 토큰만 검색하면 '부산'처럼 조사가 붙지 않은 맨 명사가
-    개별 검색에서 통째로 빠진다.
-    """
-    # '딸'처럼 한 글자인 호칭은 길이 제한에 걸려 빠진다.
-    # 그래프에 실제로 존재하는 호칭만 예외로 허용한다 (조사 한 글자와 구분).
-    short_allowed = {
-        str(person.get("relation") or "")
-        for person in graph_manager.get_persons()
-        if len(str(person.get("relation") or "")) == 1
-    }
-
-    terms: list[str] = []
-
-    def push(term: str) -> None:
-        term = term.strip()
-        if not term or term in terms:
-            return
-        if len(term) >= 2 or term in short_allowed:
-            terms.append(term)
-
-    push(query)
-    for token in query.split():
-        token = token.strip(_PUNCT)
-        push(token)
-        push(token.rstrip(_PARTICLE_CHARS))
-
-    return terms
-
-
-def _score_node(node: dict, terms: list[str]) -> int:
-    """노드가 검색어들과 얼마나 맞는지 점수화
-
-    상위 노드만 LLM 컨텍스트와 소스 뱃지에 실리므로 순위가 곧 답변 품질이 된다.
-    """
-    score = 0
-    for field, weight in _FIELD_WEIGHTS:
-        value = str(node.get(field) or "").lower()
-        if not value:
-            continue
-        for term in terms:
-            term_lower = term.lower()
-            if term_lower == value:
-                score += weight * 2  # 필드 전체와 완전 일치 ('엄마' == relation)
-            elif term_lower in value:
-                score += weight
-    return score
-
-
-def _search_graph(query: str) -> list[dict]:
-    """Graph에서 질의 관련 노드 검색 (관련도 순)"""
-    terms = _query_terms(query)
-
-    # 1. 검색어별로 후보 수집
-    candidates: dict[str, dict] = {}
-    for term in terms:
-        for node in graph_manager.search_nodes(term):
-            candidates.setdefault(node["id"], node)
-
-    # 2. 관련도 순 정렬
-    ranked = sorted(
-        candidates.values(),
-        key=lambda node: _score_node(node, terms),
-        reverse=True,
-    )
-
-    # 3. 상위 노드의 이웃을 뒤에 덧붙여 컨텍스트 보강
-    #    (직접 매칭된 노드를 순위에서 밀어내지 않도록 뒤에만 붙인다)
-    results = list(ranked)
-    seen = set(candidates)
-    for node in ranked[:5]:
-        for neighbor in graph_manager.get_connected_nodes(node["id"])[:3]:
-            if neighbor["id"] not in seen:
-                seen.add(neighbor["id"])
-                results.append(neighbor)
-
-    return results[:20]  # 최대 20개
+# 검색 원시함수는 graph_search로 옮겼다 (chat_graph와 공유, 순환 import 방지).
+# 아래 별칭은 기존 호출부와 테스트가 쓰던 이름을 유지하기 위한 것이다.
+_PARTICLE_CHARS = graph_search.PARTICLE_CHARS
+_PUNCT = graph_search.PUNCT
+_FIELD_WEIGHTS = graph_search.FIELD_WEIGHTS
+_query_terms = graph_search.query_terms
+_score_node = graph_search.score_node
+_search_graph = graph_search.search_graph
 
 
 def _format_search_results(results: list[dict]) -> str:
@@ -223,7 +138,12 @@ def _format_search_results(results: list[dict]) -> str:
     return "\n".join(lines)
 
 
-def _build_messages(query: str, context: str, conversation_id: str) -> list[dict]:
+def _build_messages(
+    query: str,
+    context: str,
+    conversation_id: str,
+    missing_entities: Optional[list[str]] = None,
+) -> list[dict]:
     """EXAONE API용 메시지 빌드"""
     # 오늘 날짜를 주지 않으면 나이·경과연수 계산에서 모델의 학습 시점을 기준으로 삼는다
     system_content = f"{SYSTEM_PROMPT}\n오늘 날짜: {date.today().isoformat()}"
@@ -241,50 +161,62 @@ def _build_messages(query: str, context: str, conversation_id: str) -> list[dict
 
 위 검색 결과를 참고하여 질문에 답변해주세요. 근거가 되는 이벤트나 미디어가 있으면 언급해주세요."""
 
+    if missing_entities:
+        # 질의 계획이 그래프에 없다고 판정한 대상. 있는 척 답하지 않게 명시한다.
+        user_message += (
+            f"\n\n주의: 다음 대상은 기록에 없습니다 - {', '.join(missing_entities)}. "
+            "없다는 사실을 분명히 밝히고, 실제로 있는 기록만 근거로 답변하세요."
+        )
+
     messages.append({"role": "user", "content": user_message})
     return messages
 
 
-async def _call_exaone(messages: list[dict]) -> str:
+async def _call_exaone(messages: list[dict], search_results: list[dict]) -> str:
     """EXAONE API 호출 (키 없음/실패 시 시뮬레이션 폴백)"""
     answer = await llm_client.complete(messages, max_tokens=1024)
     if answer is None:
-        return _simulate_response(messages)
+        return _simulate_response(search_results)
     return answer
 
 
-def _simulate_response(messages: list[dict]) -> str:
-    """EXAONE API 키가 없을 때 시뮬레이션 응답 생성"""
-    user_msg = messages[-1]["content"] if messages else ""
+def _simulate_response(search_results: list[dict]) -> str:
+    """EXAONE을 쓸 수 없을 때의 대체 응답
 
-    # 검색 결과에서 이벤트/장소 추출
-    events = []
-    places = []
-    persons = []
+    이전에는 프롬프트 텍스트를 되파싱해서 첫 이벤트와 무관한 첫 장소를 짝지었다.
+    "1998 부산 가족여행 ... 장소는 대전 가족식당" 같은 문장이 그렇게 나왔다.
+    이제 그래프 노드를 직접 받아, 그 이벤트에 실제로 연결된 장소와 참여자만 쓴다.
+    """
+    events = [n for n in search_results if n.get("node_type") == "event"]
 
-    for line in user_msg.split("\n"):
-        if "[이벤트]" in line:
-            events.append(line.split("[이벤트]")[1].strip())
-        elif "[장소]" in line:
-            places.append(line.split("[장소]")[1].strip())
-        elif "[인물]" in line:
-            persons.append(line.split("[인물]")[1].strip())
-
-    if events:
-        event_info = events[0].split("(")[0].strip()
-        answer = f"가족 기록을 확인해보니, {event_info}이(가) 관련 기록으로 있어요."
-        if places:
-            place_info = places[0].split("(")[0].strip()
-            answer += f" 장소는 {place_info}이었네요."
+    if not events:
+        persons = [n for n in search_results if n.get("node_type") == "person"]
         if persons:
-            answer += f" {', '.join([p.split('(')[0].strip() for p in persons[:3]])}이(가) 함께했어요."
-        answer += "\n\n더 자세한 이야기가 궁금하시면 물어봐주세요!"
-    elif places:
-        answer = f"관련 장소로 {places[0].split('(')[0].strip()}에 대한 기록이 있어요."
-    else:
-        answer = "아직 관련 기록을 찾지 못했어요. 더 많은 사진이나 이야기를 추가하면 더 잘 답변드릴 수 있을 거예요!"
+            names = ", ".join(p.get("name", "") for p in persons[:3] if p.get("name"))
+            return f"{names}에 대한 기록이 있어요. 어떤 부분이 궁금하신가요?"
+        return (
+            "아직 관련 기록을 찾지 못했어요. "
+            "더 많은 사진이나 이야기를 추가하면 더 잘 답변드릴 수 있을 거예요!"
+        )
 
-    return answer
+    event = events[0]
+    answer = f"기록을 확인해보니, {event.get('title', '')}이(가) 관련 기록으로 있어요."
+
+    # 그 이벤트에 실제로 연결된 장소만 언급한다
+    place = graph_manager.get_node(event.get("location_id") or "")
+    if place and place.get("name"):
+        answer += f" 장소는 {place['name']}이었네요."
+
+    # 그 이벤트에 실제로 참여한 사람만 언급한다
+    participants = [
+        node.get("name")
+        for node in graph_manager.get_connected_nodes(event["id"])
+        if node.get("node_type") == "person" and node.get("name")
+    ]
+    if participants:
+        answer += f" {', '.join(participants[:3])}이(가) 함께했어요."
+
+    return answer + "\n\n더 자세한 이야기가 궁금하시면 물어봐주세요!"
 
 
 # 화면에 띄울 근거 뱃지 개수

@@ -8,3 +8,9 @@ httpx==0.27.0
 pydantic>=2.9.0
 python-dotenv==1.0.1
 aiofiles==24.1.0
+
+# LLM 오케스트레이션 (Memory Chat 질의 계획)
+# langchain 1.x / openai 3.x 는 최근 메이저 버전이라 정확히 고정한다.
+langgraph==1.2.11
+langchain-core==1.5.6
+langchain-openai==1.5.2
