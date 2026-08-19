@@ -1,6 +1,7 @@
 import { useState, useRef, useEffect } from 'react'
-import { Send, Image, Calendar, Brain } from 'lucide-react'
+import { Send, Image, Calendar, Brain, User } from 'lucide-react'
 import { sendChat, ChatResponse, ChatSource } from '../lib/api'
+import RichText from '../components/RichText'
 
 interface Message {
   role: 'user' | 'assistant'
@@ -96,7 +97,9 @@ export default function ChatPage() {
                     : 'bg-white border border-gray-200 text-gray-800 rounded-bl-md'
                 }`}
               >
-                <p className="text-sm whitespace-pre-wrap">{msg.content}</p>
+                <p className="text-sm whitespace-pre-wrap">
+                  {msg.role === 'assistant' ? <RichText text={msg.content} /> : msg.content}
+                </p>
               </div>
 
               {/* Sources */}
@@ -163,6 +166,7 @@ function SourceBadge({ source }: { source: ChatSource }) {
     media: Image,
     event: Calendar,
     memory: Brain,
+    person: User,
   }
   const Icon = icons[source.type] || Brain
 

@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { Mic, Send, CheckCircle2, MessageSquare } from 'lucide-react'
 import { startInterview, submitInterviewAnswer, InterviewStartResult, InterviewAnswerResult } from '../lib/api'
+import RichText from '../components/RichText'
 
 interface QA {
   question: string
@@ -118,7 +119,10 @@ export default function InterviewPage() {
                 <MessageSquare size={14} className="text-primary-600" />
               </div>
               <div className="card flex-1">
-                <p className="text-sm text-gray-800">{qa.question}</p>
+                {/* 질문은 EXAONE이 생성하므로 마크다운·줄바꿈이 섞여 온다 */}
+                <p className="text-sm text-gray-800 whitespace-pre-wrap">
+                  <RichText text={qa.question} />
+                </p>
               </div>
             </div>
 
@@ -126,7 +130,8 @@ export default function InterviewPage() {
             {qa.answer && (
               <div className="flex gap-3 justify-end">
                 <div className="card flex-1 bg-primary-50 border-primary-100 ml-11">
-                  <p className="text-sm text-gray-800">{qa.answer}</p>
+                  {/* 답변은 사용자가 입력한 평문이므로 마크다운 해석 없이 줄바꿈만 보존한다 */}
+                  <p className="text-sm text-gray-800 whitespace-pre-wrap">{qa.answer}</p>
                 </div>
               </div>
             )}

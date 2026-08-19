@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback } from 'react'
 import { Play, ChevronLeft, ChevronRight, X } from 'lucide-react'
 import { createTVJourney, TVJourney, TVSlide, mediaUrl } from '../lib/api'
+import RichText from '../components/RichText'
 
 export default function TVViewPage() {
   const [journey, setJourney] = useState<TVJourney | null>(null)
@@ -125,7 +126,9 @@ export default function TVViewPage() {
           <div className="text-center text-white">
             <h2 className="text-5xl font-bold mb-4">{journey.title}</h2>
             {journey.narration && (
-              <p className="text-xl text-gray-300 max-w-2xl mx-auto">{journey.narration}</p>
+              <p className="text-xl text-gray-300 max-w-2xl mx-auto whitespace-pre-wrap">
+                <RichText text={journey.narration} />
+              </p>
             )}
           </div>
         ) : (
