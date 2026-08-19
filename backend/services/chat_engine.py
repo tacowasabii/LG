@@ -3,10 +3,10 @@
 from __future__ import annotations
 
 import uuid
-import httpx
+from datetime import date
 from typing import Optional
 
-from backend.config import EXAONE_API_URL, EXAONE_API_KEY, EXAONE_MODEL
+from backend.services import llm_client
 from backend.services.graph_manager import graph_manager
 from backend.models.schemas import SourceItem
 
@@ -67,34 +67,102 @@ async def process_chat(query: str, conversation_id: Optional[str] = None) -> dic
     }
 
 
+# 검색어 뒤에서 떼어낼 조사
+_PARTICLE_CHARS = "이가을를에서의도는은과와랑"
+# 질의에서 떼어낼 문장부호
+_PUNCT = "?!.,~\"'()[]"
+
+# 필드별 가중치 - 이름/제목/호칭에서 맞으면 설명·내용보다 강한 신호로 본다
+_FIELD_WEIGHTS = (
+    ("name", 3),
+    ("title", 3),
+    ("relation", 3),
+    ("address", 2),
+    ("description", 1),
+    ("content", 1),
+)
+
+
+def _query_terms(query: str) -> list[str]:
+    """질의를 검색어 목록으로 분해
+
+    전체 문장, 각 토큰, 조사를 떼어낸 형태를 모두 후보로 쓴다.
+    조사가 실제로 깎인 토큰만 검색하면 '부산'처럼 조사가 붙지 않은 맨 명사가
+    개별 검색에서 통째로 빠진다.
+    """
+    # '딸'처럼 한 글자인 호칭은 길이 제한에 걸려 빠진다.
+    # 그래프에 실제로 존재하는 호칭만 예외로 허용한다 (조사 한 글자와 구분).
+    short_allowed = {
+        str(person.get("relation") or "")
+        for person in graph_manager.get_persons()
+        if len(str(person.get("relation") or "")) == 1
+    }
+
+    terms: list[str] = []
+
+    def push(term: str) -> None:
+        term = term.strip()
+        if not term or term in terms:
+            return
+        if len(term) >= 2 or term in short_allowed:
+            terms.append(term)
+
+    push(query)
+    for token in query.split():
+        token = token.strip(_PUNCT)
+        push(token)
+        push(token.rstrip(_PARTICLE_CHARS))
+
+    return terms
+
+
+def _score_node(node: dict, terms: list[str]) -> int:
+    """노드가 검색어들과 얼마나 맞는지 점수화
+
+    상위 노드만 LLM 컨텍스트와 소스 뱃지에 실리므로 순위가 곧 답변 품질이 된다.
+    """
+    score = 0
+    for field, weight in _FIELD_WEIGHTS:
+        value = str(node.get(field) or "").lower()
+        if not value:
+            continue
+        for term in terms:
+            term_lower = term.lower()
+            if term_lower == value:
+                score += weight * 2  # 필드 전체와 완전 일치 ('엄마' == relation)
+            elif term_lower in value:
+                score += weight
+    return score
+
+
 def _search_graph(query: str) -> list[dict]:
-    """Graph에서 질의 관련 노드 검색"""
-    results = []
+    """Graph에서 질의 관련 노드 검색 (관련도 순)"""
+    terms = _query_terms(query)
 
-    # 텍스트 검색
-    text_results = graph_manager.search_nodes(query)
-    results.extend(text_results)
+    # 1. 검색어별로 후보 수집
+    candidates: dict[str, dict] = {}
+    for term in terms:
+        for node in graph_manager.search_nodes(term):
+            candidates.setdefault(node["id"], node)
 
-    # 키워드 분리 후 개별 검색 (간단한 토크나이징)
-    keywords = [w for w in query.split() if len(w) >= 2]
-    for keyword in keywords:
-        # 조사 제거 (간단)
-        clean = keyword.rstrip("이가을를에서의도는은")
-        if clean and len(clean) >= 2 and clean != keyword:
-            more = graph_manager.search_nodes(clean)
-            for item in more:
-                if item not in results:
-                    results.append(item)
+    # 2. 관련도 순 정렬
+    ranked = sorted(
+        candidates.values(),
+        key=lambda node: _score_node(node, terms),
+        reverse=True,
+    )
 
-    # 결과에 연결된 노드도 포함 (1-hop)
-    expanded = list(results)
-    for node in results[:5]:  # 상위 5개만 확장
-        connected = graph_manager.get_connected_nodes(node["id"])
-        for c in connected[:3]:
-            if c not in expanded:
-                expanded.append(c)
+    # 3. 상위 노드의 이웃을 뒤에 덧붙여 컨텍스트 보강
+    #    (직접 매칭된 노드를 순위에서 밀어내지 않도록 뒤에만 붙인다)
+    results = list(ranked)
+    seen = set(candidates)
+    for node in ranked[:5]:
+        for neighbor in graph_manager.get_connected_nodes(node["id"])[:3]:
+            if neighbor["id"] not in seen:
+                seen.add(neighbor["id"])
+                results.append(neighbor)
 
-    return expanded[:20]  # 최대 20개
+    return results[:20]  # 최대 20개
 
 
 def _format_search_results(results: list[dict]) -> str:
@@ -113,10 +181,14 @@ def _format_search_results(results: list[dict]) -> str:
                 f"설명: {node.get('description', '')})"
             )
         elif node_type == "person":
-            lines.append(
-                f"{i}. [인물] {node.get('name', '')} "
-                f"(관계: {node.get('relation', '')})"
-            )
+            info = [f"관계: {node.get('relation', '')}"]
+            # 나이를 묻는 질문에 답하려면 생일이 컨텍스트에 있어야 한다.
+            # 연도만 주면 생일 경과 여부를 알 수 없어 만나이가 1살 어긋난다.
+            if node.get("birth_date"):
+                info.append(f"생년월일: {node['birth_date']}")
+            elif node.get("birth_year"):
+                info.append(f"출생연도: {node['birth_year']}년")
+            lines.append(f"{i}. [인물] {node.get('name', '')} ({', '.join(info)})")
         elif node_type == "place":
             lines.append(
                 f"{i}. [장소] {node.get('name', '')} "
@@ -138,7 +210,9 @@ def _format_search_results(results: list[dict]) -> str:
 
 def _build_messages(query: str, context: str, conversation_id: str) -> list[dict]:
     """EXAONE API용 메시지 빌드"""
-    messages = [{"role": "system", "content": SYSTEM_PROMPT}]
+    # 오늘 날짜를 주지 않으면 나이·경과연수 계산에서 모델의 학습 시점을 기준으로 삼는다
+    system_content = f"{SYSTEM_PROMPT}\n오늘 날짜: {date.today().isoformat()}"
+    messages = [{"role": "system", "content": system_content}]
 
     # 이전 대화 히스토리 추가 (최근 6개)
     history = _conversations.get(conversation_id, [])
@@ -157,32 +231,11 @@ def _build_messages(query: str, context: str, conversation_id: str) -> list[dict
 
 
 async def _call_exaone(messages: list[dict]) -> str:
-    """EXAONE API 호출"""
-    if not EXAONE_API_KEY:
-        # API 키 없으면 시뮬레이션 응답
+    """EXAONE API 호출 (키 없음/실패 시 시뮬레이션 폴백)"""
+    answer = await llm_client.complete(messages, max_tokens=1024)
+    if answer is None:
         return _simulate_response(messages)
-
-    try:
-        async with httpx.AsyncClient(timeout=30.0) as client:
-            response = await client.post(
-                EXAONE_API_URL,
-                headers={
-                    "Authorization": f"Bearer {EXAONE_API_KEY}",
-                    "Content-Type": "application/json",
-                },
-                json={
-                    "model": EXAONE_MODEL,
-                    "messages": messages,
-                    "temperature": 0.7,
-                    "max_tokens": 1024,
-                },
-            )
-            response.raise_for_status()
-            data = response.json()
-            return data["choices"][0]["message"]["content"]
-    except Exception as e:
-        # API 실패 시 시뮬레이션 폴백
-        return _simulate_response(messages)
+    return answer
 
 
 def _simulate_response(messages: list[dict]) -> str:
@@ -252,6 +305,15 @@ def _extract_sources(search_results: list[dict]) -> list[SourceItem]:
                 id=node_id,
                 title=node.get("content", "")[:50],
                 confidence=0.85,
+            ))
+        elif node_type == "person":
+            # 나이·관계를 묻는 질문은 인물 기록이 근거다
+            sources.append(SourceItem(
+                type="person",
+                id=node_id,
+                title=node.get("name", ""),
+                thumbnail=node.get("thumbnail_url"),
+                confidence=0.9,
             ))
 
     return sources

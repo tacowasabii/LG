@@ -130,7 +130,7 @@ class ChatRequest(BaseModel):
 
 
 class SourceItem(BaseModel):
-    type: str  # "media" | "event" | "memory"
+    type: str  # "media" | "event" | "memory" | "person"
     id: str
     title: Optional[str] = None
     thumbnail: Optional[str] = None

@@ -61,6 +61,7 @@ def seed():
             name=p["name"],
             relation=ROLE_KR.get(p.get("role", ""), p.get("role", "")),
             birth_year=birth_year,
+            birth_date=p.get("birth_date"),
         )
         gm.add_person(person)
     print(f"  ✓ 가족 구성원 {len(persons_data)}명")

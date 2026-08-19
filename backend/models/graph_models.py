@@ -63,6 +63,8 @@ class PersonNode:
     name: str = ""
     relation: str = ""  # 아빠, 엄마, 아들, 딸 등
     birth_year: Optional[int] = None
+    # 연도만으로는 나이가 1살까지 어긋난다 (생일 경과 여부를 알 수 없음)
+    birth_date: Optional[str] = None  # ISO date string
     thumbnail_url: Optional[str] = None
     created_at: str = field(default_factory=lambda: datetime.now().isoformat())
 

@@ -270,19 +270,20 @@ class GraphManager:
         person["media"] = media
         return person
 
+    # 텍스트 검색 대상 필드.
+    # relation이 포함돼야 "엄마", "딸" 같은 호칭으로 인물을 찾을 수 있다.
+    # (가족이 이름 대신 쓰는 가장 자연스러운 표현이다)
+    SEARCH_FIELDS = ("name", "title", "relation", "description", "content", "address")
+
     def search_nodes(self, query: str) -> list[dict]:
-        """간단한 텍스트 검색 (이름, 제목, 설명, 내용에서)"""
+        """간단한 텍스트 검색 (이름, 제목, 호칭, 설명, 내용, 주소에서)"""
         query_lower = query.lower()
         results = []
         for n in self.graph.nodes:
             node = self.graph.nodes[n]
-            searchable = " ".join([
-                str(node.get("name", "")),
-                str(node.get("title", "")),
-                str(node.get("description", "")),
-                str(node.get("content", "")),
-                str(node.get("address", "")),
-            ]).lower()
+            searchable = " ".join(
+                str(node.get(field) or "") for field in self.SEARCH_FIELDS
+            ).lower()
             if query_lower in searchable:
                 results.append(dict(node))
         return results
