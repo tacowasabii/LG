@@ -1,13 +1,16 @@
 """Media Router - 업로드, 목록, 상세, 삭제"""
 
-from fastapi import APIRouter, UploadFile, File, HTTPException, Query
+from fastapi import APIRouter, UploadFile, File, Form, HTTPException, Query
 from typing import Optional
+import json
 import shutil
 from pathlib import Path
 
 from backend.config import MEDIA_DIR
 from backend.models.schemas import MediaUploadResponse, MediaListItem, MediaDetail, MediaSupplementRequest
-from backend.models.graph_models import NodeType, RelationType, Edge, Confidence
+from backend.models.graph_models import (
+    NodeType, MediaType, RelationType, Edge, Confidence, SourceType,
+)
 from backend.services.media_analyzer import analyze_media, generate_thumbnail
 from backend.services.event_resolver import resolve_event_for_media
 from backend.services.graph_manager import graph_manager
@@ -16,7 +19,17 @@ router = APIRouter()
 
 
 @router.post("/upload", response_model=MediaUploadResponse)
-async def upload_media(file: UploadFile = File(...)):
+async def upload_media(
+    file: UploadFile = File(...),
+    # --- 음성 녹음이 함께 보내는 정보 ---
+    # 브라우저가 녹음 직후 길이와 파형을 계산해 보낸다. 서버에 오디오 디코더를
+    # 두지 않기 위한 선택이다. 사진 업로드에서는 전부 비어 있다.
+    duration_sec: Optional[float] = Form(None),
+    waveform: Optional[str] = Form(None),
+    transcript: Optional[str] = Form(None),
+    speaker_id: Optional[str] = Form(None),
+    event_id: Optional[str] = Form(None),
+):
     """미디어 파일 업로드 + 자동 분석 + Graph 연결"""
     if not file.filename:
         raise HTTPException(status_code=400, detail="파일명이 없습니다.")
@@ -46,17 +59,52 @@ async def upload_media(file: UploadFile = File(...)):
         if thumb_result:
             media_node.thumbnail_path = f"/media-files/thumb_{save_path.name}"
 
+    # 음성으로 온 정보 반영 (녹음은 EXIF가 없으므로 화면이 보낸 값이 유일한 근거다)
+    is_audio = media_node.media_type == MediaType.AUDIO
+    if duration_sec is not None:
+        media_node.duration_sec = duration_sec
+    if waveform:
+        media_node.waveform = _parse_waveform(waveform)
+    if transcript:
+        media_node.transcript = transcript
+    if speaker_id and graph_manager.get_node(speaker_id):
+        media_node.speaker_id = speaker_id
+
+    if is_audio:
+        # 인터뷰 녹음은 말한 사람이 곧 출처다. 사람이 확인한 기록으로 본다.
+        media_node.source = SourceType.INTERVIEW
+        if media_node.speaker_id:
+            media_node.confidence = Confidence.CONFIRMED
+
     # Graph에 추가
     graph_manager.add_media(media_node)
 
-    # EXIF 정보가 없으면 이벤트 연결을 보류하고 사용자 입력 요청
-    has_exif = bool(media_node.exif_date)
-    needs_info = not has_exif
+    # 말하는 사람 연결 (Media -> Person). 사진에 찍힌 것과 구분되는 관계다.
+    if media_node.speaker_id:
+        graph_manager.add_edge(Edge(
+            source=media_node.id,
+            target=media_node.speaker_id,
+            relation=RelationType.NARRATED_BY,
+        ))
 
-    event_id = None
-    if has_exif:
-        # EXIF 있으면 자동 이벤트 매칭
-        event_id = resolve_event_for_media(media_node)
+    # 어느 사건의 기록인지 화면이 알려준 경우(녹음 등) 그대로 잇는다.
+    # 없으면 EXIF로 자동 매칭하고, 그것도 없으면 사용자 입력을 기다린다.
+    linked_event_id = None
+    if event_id:
+        event_node = graph_manager.get_node(event_id)
+        if event_node and event_node.get("node_type") == NodeType.EVENT:
+            linked_event_id = event_id
+            graph_manager.add_edge(Edge(
+                source=media_node.id,
+                target=linked_event_id,
+                relation=RelationType.CAPTURED_DURING,
+            ))
+
+    has_exif = bool(media_node.exif_date)
+    if not linked_event_id and has_exif:
+        linked_event_id = resolve_event_for_media(media_node)
+
+    needs_info = not linked_event_id
 
     return MediaUploadResponse(
         id=media_node.id,
@@ -69,10 +117,32 @@ async def upload_media(file: UploadFile = File(...)):
         exif_lng=media_node.exif_lng,
         detected_faces=media_node.detected_faces,
         scene_description=media_node.scene_description,
-        linked_event_id=event_id,
+        linked_event_id=linked_event_id,
         needs_info=needs_info,
         message="업로드 완료. 추가 정보를 입력해주세요." if needs_info else "업로드 및 분석 완료",
     )
+
+
+def _parse_waveform(raw: str) -> list[float]:
+    """화면이 보낸 파형 JSON을 0~1 범위 숫자 배열로 정리한다
+
+    남이 보낸 값이므로 형식과 범위를 모두 여기서 막는다. 파형이 깨져도
+    업로드 자체는 성공해야 한다 (그림이 없을 뿐 음성은 들을 수 있다).
+    """
+    try:
+        parsed = json.loads(raw)
+    except (json.JSONDecodeError, TypeError):
+        return []
+
+    if not isinstance(parsed, list):
+        return []
+
+    peaks: list[float] = []
+    for value in parsed[:256]:
+        if isinstance(value, (int, float)):
+            peaks.append(max(0.0, min(1.0, float(value))))
+
+    return peaks
 
 
 @router.get("", response_model=list[MediaListItem])
@@ -88,11 +158,13 @@ async def list_media(
         media_nodes = [m for m in media_nodes if m.get("media_type") == media_type]
 
     if person_id:
-        # person에 연결된 미디어만
+        # person에 연결된 미디어만.
+        # 사진은 찍힌 사람(DEPICTS), 음성은 말한 사람(NARRATED_BY)으로 이어진다.
+        person_relations = {RelationType.DEPICTS, RelationType.NARRATED_BY}
         person_media_ids = set()
         edges = graph_manager.get_all_edges()
         for edge in edges:
-            if edge["target"] == person_id and edge["relation"] == RelationType.DEPICTS:
+            if edge["target"] == person_id and edge["relation"] in person_relations:
                 person_media_ids.add(edge["source"])
         media_nodes = [m for m in media_nodes if m["id"] in person_media_ids]
 
@@ -102,18 +174,50 @@ async def list_media(
         reverse=True,
     )
 
-    return [
-        MediaListItem(
-            id=m["id"],
-            media_type=m.get("media_type", "photo"),
-            file_path=m.get("file_path", ""),
-            thumbnail_path=m.get("thumbnail_path"),
-            original_filename=m.get("original_filename", ""),
-            created_at=m.get("created_at", ""),
-            exif_date=m.get("exif_date"),
-        )
-        for m in media_nodes
-    ]
+    return [_to_list_item(m) for m in media_nodes]
+
+
+def _to_list_item(node: dict) -> MediaListItem:
+    """미디어 노드를 목록 항목으로. 음성은 화자·사건까지 붙여 내려준다
+
+    음성 재생 화면(홈·인물·채팅·TV)이 "누가 언제 어느 사건에서 말했는지"를
+    함께 보여줘야 하므로, 목록 한 번으로 그릴 수 있게 여기서 풀어 준다.
+    """
+    is_audio = node.get("media_type") == MediaType.AUDIO
+
+    speaker_name = None
+    event_id = None
+    event_title = None
+
+    if is_audio:
+        speaker_id = node.get("speaker_id")
+        if speaker_id:
+            speaker = graph_manager.get_node(speaker_id)
+            speaker_name = speaker.get("name") if speaker else None
+
+        for neighbor in graph_manager.get_connected_nodes(node["id"]):
+            if neighbor.get("node_type") == NodeType.EVENT:
+                event_id = neighbor["id"]
+                event_title = neighbor.get("title")
+                break
+
+    return MediaListItem(
+        id=node["id"],
+        media_type=node.get("media_type", "photo"),
+        file_path=node.get("file_path", ""),
+        thumbnail_path=node.get("thumbnail_path"),
+        original_filename=node.get("original_filename", ""),
+        created_at=node.get("created_at", ""),
+        exif_date=node.get("exif_date"),
+        duration_sec=node.get("duration_sec"),
+        waveform=node.get("waveform") or [],
+        transcript=node.get("transcript"),
+        speaker_id=node.get("speaker_id"),
+        speaker_name=speaker_name,
+        event_id=event_id,
+        event_title=event_title,
+        source=node.get("source"),
+    )
 
 
 @router.get("/{media_id}", response_model=MediaDetail)

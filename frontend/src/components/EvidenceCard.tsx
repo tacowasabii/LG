@@ -5,13 +5,12 @@
  * 그래서 근거의 원본 이미지를 알약의 왼쪽 눈으로 쓴다. 종류·제목·근거 강도를
  * 한 줄에 담아 답변 아래로 여러 개가 흘러도 답변보다 무거워지지 않게 한다.
  *
- * 썸네일은 백엔드가 내려주는 source.thumbnail을 먼저 쓰고, 없으면 목데이터의
- * 미디어 id -> 파일 경로 표를 참조한다. (실기능 개발 시 목데이터 참조 제거)
+ * 썸네일은 백엔드가 내려주는 source.thumbnail을 쓴다. 사건 근거에는 그 사건의
+ * 사진 한 장이 얼굴로 붙어 온다 (chat_engine._event_thumbnail).
  */
 
 import { useState } from 'react'
 import { ChatSource, mediaUrl } from '../lib/api'
-import { MOCK_MEDIA_THUMBS } from '../mock/timeline'
 
 const TYPE_LABEL: Record<string, string> = {
   media: '기록',
@@ -31,7 +30,7 @@ interface Props {
 export default function EvidenceCard({ source, onSelect, active = false }: Props) {
   // 파일이 없으면 빈 원으로 되돌린다 (백엔드 없이 화면만 볼 때도 깨지지 않게)
   const [broken, setBroken] = useState(false)
-  const thumbPath = source.thumbnail || MOCK_MEDIA_THUMBS[source.id] || null
+  const thumbPath = source.thumbnail || null
   const thumb = thumbPath && !broken ? mediaUrl(thumbPath) : null
   const typeLabel = TYPE_LABEL[source.type] || source.type
 

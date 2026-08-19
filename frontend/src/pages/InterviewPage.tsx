@@ -1,16 +1,17 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import {
   startInterview,
   submitInterviewAnswer,
+  uploadVoice,
   InterviewStartResult,
   InterviewAnswerResult,
   mediaUrl,
 } from '../lib/api'
 import RichText from '../components/RichText'
-import MockBadge from '../components/MockBadge'
 import { Page, PageHeader } from '../components/Page'
 import { useCurrentUser } from '../lib/currentUser'
-import { MOCK_RECORDING_WAVEFORM, MOCK_TRANSCRIBED } from '../mock/voice'
+import { Recording, VoiceRecorder, isRecordingSupported } from '../lib/recorder'
+import { invalidateEvents, invalidateVoiceClips } from '../lib/useGraphData'
 
 /**
  * AI 기억 인터뷰
@@ -24,11 +25,12 @@ import { MOCK_RECORDING_WAVEFORM, MOCK_TRANSCRIBED } from '../mock/voice'
  * 일이고, 질문은 왼쪽 여백의 얇은 라벨로 물러나고 답변만 강조색 면에 남는다 —
  * 화면에서 무게를 갖는 것은 가족이 남긴 문장이어야 한다.
  *
- * 실기능 개발 시 교체 지점:
- *   녹음        -> MediaRecorder로 실제 녹음 + POST /api/media/upload (audio)
- *   전사        -> ASR 결과로 MOCK_TRANSCRIBED 대체
- *   화자 귀속   -> POST /api/interview/answer 에 speaker_id 파라미터 추가 필요.
- *                 지금 백엔드는 Gap이 지목한 인물에게 자동 귀속한다.
+ * 녹음은 MediaRecorder로 실제 저장한다. 파형과 길이는 브라우저가 계산해 함께
+ * 올리고(lib/recorder.ts), 서버는 파일과 숫자 배열만 받는다.
+ *
+ * 전사(음성 → 글)는 아직 없다. ASR을 붙이기 전까지는 화면이 직접 적게 하고
+ * 목소리 원본을 그대로 보관한다 — 없는 기능을 있는 것처럼 보이게 하지 않는다.
+ * 붙일 자리: stopRecording() 안에서 blob을 전사 API로 보내 setInput에 채운다.
  */
 
 interface QA {
@@ -57,22 +59,61 @@ export default function InterviewPage() {
   const [mode, setMode] = useState<InputMode>('text')
   const [recording, setRecording] = useState(false)
   const [recordSec, setRecordSec] = useState(0)
+  /** 녹음이 끝난 뒤 답변과 함께 올릴 음성 */
+  const [pending, setPending] = useState<Recording | null>(null)
+  const [recordError, setRecordError] = useState<string | null>(null)
+  const recorder = useRef<VoiceRecorder | null>(null)
+  const canRecord = isRecordingSupported()
 
-  // 녹음 시뮬레이션 — 타이머가 돌고, 멈추면 전사문이 입력창에 들어온다
+  // 녹음 경과 시간
   useEffect(() => {
     if (!recording) return
     const timer = window.setInterval(() => setRecordSec((s) => s + 0.1), 100)
     return () => window.clearInterval(timer)
   }, [recording])
 
-  const toggleRecording = () => {
+  // 화면을 떠날 때 마이크를 놓아준다
+  useEffect(() => {
+    return () => {
+      recorder.current?.cancel()
+      recorder.current = null
+    }
+  }, [])
+
+  const toggleRecording = async () => {
+    setRecordError(null)
+
     if (recording) {
-      setRecording(false)
-      setInput((prev) => (prev ? prev + ' ' + MOCK_TRANSCRIBED : MOCK_TRANSCRIBED))
+      try {
+        const result = await recorder.current!.stop()
+        setPending(result)
+      } catch (e) {
+        console.error(e)
+        setRecordError('녹음을 저장하지 못했습니다.')
+      } finally {
+        recorder.current = null
+        setRecording(false)
+      }
       return
     }
+
+    try {
+      recorder.current = new VoiceRecorder()
+      await recorder.current.start()
+      setPending(null)
+      setRecordSec(0)
+      setRecording(true)
+    } catch (e) {
+      console.error(e)
+      recorder.current = null
+      setRecordError('마이크를 쓸 수 없습니다. 브라우저 권한을 확인해 주세요.')
+    }
+  }
+
+  const discardRecording = () => {
+    if (pending) URL.revokeObjectURL(pending.previewUrl)
+    setPending(null)
     setRecordSec(0)
-    setRecording(true)
   }
 
   const handleStart = async () => {
@@ -94,7 +135,8 @@ export default function InterviewPage() {
     if (!input.trim() || !sessionId || loading) return
 
     const answer = input.trim()
-    const byVoice = mode === 'voice'
+    const recorded = pending
+    const byVoice = !!recorded
     setInput('')
     setRecordSec(0)
     setLoading(true)
@@ -112,8 +154,38 @@ export default function InterviewPage() {
     })
 
     try {
-      const result: InterviewAnswerResult = await submitInterviewAnswer(sessionId, answer)
+      // 음성이 있으면 먼저 올리고, 그 id를 답변에 매달아 기억의 근거로 잇는다
+      let audioMediaId: string | undefined
+      if (recorded) {
+        try {
+          const uploaded = await uploadVoice(recorded.blob, {
+            durationSec: recorded.durationSec,
+            waveform: recorded.waveform,
+            transcript: answer,
+            speakerId: current.id,
+            eventId: context?.target_id,
+          })
+          audioMediaId = uploaded.id
+        } catch (e) {
+          // 음성 업로드가 실패해도 답변 자체는 남긴다
+          console.error('[interview] 음성 업로드 실패', e)
+          setRecordError('음성을 저장하지 못했습니다. 글로 남긴 답변은 저장됩니다.')
+        }
+        URL.revokeObjectURL(recorded.previewUrl)
+        setPending(null)
+      }
+
+      const result: InterviewAnswerResult = await submitInterviewAnswer(
+        sessionId,
+        answer,
+        current.id,
+        audioMediaId,
+      )
       setUpdatedCount((prev) => prev + result.updated_nodes.length)
+
+      // 기억·음성이 늘었으니 다른 화면이 다시 받아야 한다
+      invalidateEvents()
+      if (audioMediaId) invalidateVoiceClips()
 
       if (result.is_complete) {
         setIsComplete(true)
@@ -138,6 +210,11 @@ export default function InterviewPage() {
     setUpdatedCount(0)
     setRecordSec(0)
     setRecording(false)
+    recorder.current?.cancel()
+    recorder.current = null
+    if (pending) URL.revokeObjectURL(pending.previewUrl)
+    setPending(null)
+    setRecordError(null)
   }
 
   const answered = qaHistory.filter((qa) => qa.answer).length
@@ -301,49 +378,91 @@ export default function InterviewPage() {
                 >
                   말로 답하기
                 </button>
-                {mode === 'voice' && <MockBadge label="녹음 목데이터" />}
               </div>
 
               {mode === 'voice' && (
-                <div className="surface mt-4 flex items-center gap-4 px-5 py-4">
-                  <button
-                    onClick={toggleRecording}
-                    aria-label={recording ? '녹음 중지' : '녹음 시작'}
-                    className="h-10 w-10 shrink-0 cursor-pointer rounded-full text-[11px]"
-                    style={{
-                      border: '1px solid var(--accent)',
-                      background: 'var(--accent)',
-                      color: 'var(--accent-fg)',
-                    }}
-                  >
-                    {recording ? '■' : '●'}
-                  </button>
-                  <div className="min-w-0 flex-1">
-                    <div className="flex h-[26px] items-end gap-[2px]">
-                      {MOCK_RECORDING_WAVEFORM.map((peak, i) => {
-                        const active =
-                          recording &&
-                          i / MOCK_RECORDING_WAVEFORM.length <= (recordSec % 6) / 6
-                        return (
-                          <span
-                            key={i}
-                            className="flex-1 rounded-[1px]"
-                            style={{
-                              height: Math.round(peak * 100) + '%',
-                              background: active ? 'var(--accent)' : 'var(--ink-200)',
-                            }}
-                          />
-                        )
-                      })}
+                <div className="surface mt-4 px-5 py-4">
+                  {canRecord ? (
+                    <div className="flex items-center gap-4">
+                      <button
+                        onClick={toggleRecording}
+                        aria-label={recording ? '녹음 중지' : '녹음 시작'}
+                        className="h-10 w-10 shrink-0 cursor-pointer rounded-full text-[11px]"
+                        style={{
+                          border: '1px solid var(--accent)',
+                          background: recording ? 'var(--accent)' : 'transparent',
+                          color: recording ? 'var(--accent-fg)' : 'var(--accent-ink)',
+                        }}
+                      >
+                        {recording ? '■' : '●'}
+                      </button>
+
+                      <div className="min-w-0 flex-1">
+                        {/*
+                          녹음 중에는 아직 파형을 알 수 없다. 되감아 그릴 수 있는
+                          것은 녹음이 끝난 뒤이므로, 진행 중에는 맥박만 보여주고
+                          끝나면 실제 파형으로 바꾼다.
+                        */}
+                        <div className="flex h-[26px] items-end gap-[2px]">
+                          {(pending?.waveform.length
+                            ? pending.waveform
+                            : new Array(56).fill(0.5)
+                          ).map((peak: number, i: number) => {
+                            const total = pending?.waveform.length || 56
+                            const active = pending
+                              ? true
+                              : recording && i / total <= (recordSec % 3) / 3
+                            return (
+                              <span
+                                key={i}
+                                className="flex-1 rounded-[1px]"
+                                style={{
+                                  height:
+                                    Math.round(
+                                      (pending ? peak : recording ? peak * 0.6 : 0.18) * 100,
+                                    ) + '%',
+                                  background: active ? 'var(--accent)' : 'var(--ink-200)',
+                                }}
+                              />
+                            )
+                          })}
+                        </div>
+
+                        <p className="t-caption m-0 mt-2">
+                          {recording
+                            ? '녹음 중 · ' + recordSec.toFixed(1) + '초'
+                            : pending
+                              ? '녹음 완료 · ' +
+                                pending.durationSec.toFixed(1) +
+                                '초 · 답변을 남기면 목소리도 함께 저장됩니다'
+                              : '누르고 말하면 목소리 원본이 그대로 보관됩니다'}
+                        </p>
+                      </div>
                     </div>
-                    <p className="t-caption m-0 mt-2">
-                      {recording
-                        ? '녹음 중 · ' +
-                          recordSec.toFixed(1) +
-                          '초 · 목소리 원본이 함께 보관됩니다'
-                        : '누르고 말하면 목소리가 그대로 저장되고, 글로도 옮겨 적습니다'}
+                  ) : (
+                    <p className="t-body-sm m-0 text-ink-400">
+                      이 브라우저에서는 녹음을 쓸 수 없습니다. 글로 답해 주세요.
                     </p>
-                  </div>
+                  )}
+
+                  {pending && (
+                    <div className="mt-3 flex items-center gap-3">
+                      <audio src={pending.previewUrl} controls className="h-8 flex-1" />
+                      <button onClick={discardRecording} className="btn-quiet shrink-0">
+                        다시 녹음
+                      </button>
+                    </div>
+                  )}
+
+                  {recordError && (
+                    <p className="t-caption m-0 mt-2" style={{ color: 'var(--critical-ink)' }}>
+                      {recordError}
+                    </p>
+                  )}
+
+                  <p className="t-caption m-0 mt-2">
+                    말한 내용은 아래에 직접 적어 주세요. 자동 전사는 아직 붙지 않았습니다.
+                  </p>
                 </div>
               )}
 
@@ -355,7 +474,7 @@ export default function InterviewPage() {
                   onKeyDown={(e) => e.key === 'Enter' && !e.shiftKey && handleAnswer()}
                   placeholder={
                     mode === 'voice'
-                      ? '녹음을 멈추면 옮겨 적은 글이 들어옵니다'
+                      ? '말한 내용을 여기에 적어 주세요'
                       : '답변을 입력하세요'
                   }
                   className="field flex-1"

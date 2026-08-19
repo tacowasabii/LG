@@ -19,9 +19,14 @@ import { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { mediaUrl } from '../lib/api'
 import { MOCK_ONBOARDING_CANDIDATES } from '../mock/timeline'
-import { MOCK_TRANSCRIBED } from '../mock/voice'
 import { useCurrentUser } from '../lib/currentUser'
 import { Page, PageHeader, StatRow } from '../components/Page'
+
+/**
+ * 온보딩은 실제 업로드가 아니라 처음 오는 사람에게 흐름을 보여주는 안내다.
+ * 말로 답하기 시늉을 할 때 채워지는 예시 문장 (실제 녹음·전사는 인터뷰 화면).
+ */
+const SAMPLE_ANSWER = '그날은 아침에 비가 조금 왔어요. 점심 지나서 개서 그때 바다에 나갔지.'
 
 const STEPS = ['사진 고르기', '읽는 중', '첫 질문', '첫 사건 완성']
 
@@ -67,7 +72,7 @@ export default function OnboardingPage() {
     if (!recording) return
     const t = window.setTimeout(() => {
       setRecording(false)
-      setAnswer(MOCK_TRANSCRIBED)
+      setAnswer(SAMPLE_ANSWER)
     }, 2400)
     return () => window.clearTimeout(t)
   }, [recording])

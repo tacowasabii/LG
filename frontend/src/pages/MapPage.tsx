@@ -8,16 +8,15 @@
  * 필터는 카드 안에 가두지 않고 화면 폭을 가로지르는 띠로 깔았다. 조건이 무엇이
  * 걸려 있는지가 결과 목록보다 먼저 읽혀야 하고, 띠는 그 역할에 카드보다 조용하다.
  *
- * 실기능 개발 시 교체 지점:
- *   MOCK_TIMELINE  -> GET /api/graph/events (참여자·미디어 포함)
- *   KoreaMap       -> 지도 SDK 컴포넌트
- *   coverageGaps() -> 서버 계산 결과
+ * 사건·장소·참여자·확인 상태는 GET /api/graph/events에서 온다.
+ * 남은 교체 지점: KoreaMap -> 지도 SDK 컴포넌트 (좌표 변환 규칙은 그대로 쓴다)
  */
 
 import { useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { mediaUrl } from '../lib/api'
-import { MOCK_TIMELINE, coverageGaps } from '../mock/timeline'
+import { coverageGaps } from '../lib/coverage'
+import { useEvents } from '../lib/useGraphData'
 import { MOCK_MEMBERS } from '../mock/family'
 import KoreaMap, { MapPoint } from '../components/KoreaMap'
 import { STATE_CONFIG } from '../components/StatusPill'
@@ -31,16 +30,23 @@ const DECADES = [
 ]
 
 export default function MapPage() {
+  const { events, loading } = useEvents()
   const [personIds, setPersonIds] = useState<string[]>([])
   const [decades, setDecades] = useState<string[]>([])
   const [selectedId, setSelectedId] = useState<string | null>(null)
 
   const filtered = useMemo(() => {
-    return MOCK_TIMELINE.filter((event) => {
-      const year = Number(event.date.slice(0, 4))
+    // 오래된 것부터 — 지도의 이동 경로가 연도순으로 이어져야 한다
+    const ordered = [...events].sort((a, b) =>
+      (a.date_start || '').localeCompare(b.date_start || ''),
+    )
+
+    return ordered.filter((event) => {
+      const year = Number((event.date_start || '').slice(0, 4))
+      const participantIds = event.participants.map((p) => p.id)
 
       const personOk =
-        personIds.length === 0 || personIds.every((id) => event.participant_ids.includes(id))
+        personIds.length === 0 || personIds.every((id) => participantIds.includes(id))
 
       const decadeOk =
         decades.length === 0 ||
@@ -51,18 +57,21 @@ export default function MapPage() {
 
       return personOk && decadeOk
     })
-  }, [personIds, decades])
+  }, [events, personIds, decades])
 
   const gaps = useMemo(() => coverageGaps(filtered), [filtered])
 
-  const points: MapPoint[] = filtered.map((e) => ({
-    id: e.id,
-    name: e.place.name.replace(/\(.*\)/, ''),
-    lat: e.place.lat,
-    lng: e.place.lng,
-    count: e.media_count,
-    state: e.state,
-  }))
+  // 좌표가 없는 사건은 지도에 점을 찍을 수 없다 (목록에는 그대로 남는다)
+  const points: MapPoint[] = filtered
+    .filter((e) => e.place && e.place.lat != null && e.place.lng != null)
+    .map((e) => ({
+      id: e.id,
+      name: (e.place!.name || '').replace(/\(.*\)/, ''),
+      lat: e.place!.lat as number,
+      lng: e.place!.lng as number,
+      count: e.media_count,
+      state: e.state,
+    }))
 
   const togglePerson = (id: string) =>
     setPersonIds((prev) => (prev.includes(id) ? prev.filter((p) => p !== id) : [...prev, id]))
@@ -70,13 +79,11 @@ export default function MapPage() {
   const toggleDecade = (label: string) =>
     setDecades((prev) => (prev.includes(label) ? prev.filter((d) => d !== label) : [...prev, label]))
 
-  const memberName = (id: string) => MOCK_MEMBERS.find((m) => m.id === id)?.name || id
   const filtersActive = personIds.length > 0 || decades.length > 0
 
   return (
     <Page width={1160}>
       <PageHeader
-        mock
         eyebrow="Timeline & Map"
         title="타임라인 · 지도"
         lead="가족의 사건을 연도와 장소로 함께 봅니다. 비어 있는 시기도 함께 보여줍니다."
@@ -151,11 +158,13 @@ export default function MapPage() {
         </div>
 
         <div className="flex flex-col gap-3">
-          {filtered.length === 0 && (
+          {loading ? (
+            <p className="t-body-sm py-12 text-center text-ink-300">불러오는 중…</p>
+          ) : filtered.length === 0 ? (
             <p className="t-body-sm py-12 text-center text-ink-300">
               조건에 맞는 사건이 없습니다.
             </p>
-          )}
+          ) : null}
 
           {filtered.map((event) => {
             const config = STATE_CONFIG[event.state]
@@ -173,11 +182,15 @@ export default function MapPage() {
               >
                 <div className="flex items-start justify-between gap-4">
                   <div className="min-w-0">
-                    <p className="t-mono m-0 text-[11px] text-accent-ink">{event.date}</p>
+                    <p className="t-mono m-0 text-[11px] text-accent-ink">
+                      {event.date_start || '날짜 미상'}
+                    </p>
                     <p className="m-0 mt-1 text-[17px] font-semibold text-ink-900">
                       {event.title}
                     </p>
-                    <p className="t-body-sm m-0 mt-[3px] text-ink-400">{event.place.name}</p>
+                    <p className="t-body-sm m-0 mt-[3px] text-ink-400">
+                      {event.place?.name || event.location_name || '장소 미상'}
+                    </p>
                   </div>
                   <span className="pill" style={{ background: config.bg, color: config.fg }}>
                     {config.label}
@@ -199,7 +212,7 @@ export default function MapPage() {
 
                 <div className="mt-3 flex items-center gap-3">
                   <span className="t-caption text-ink-400">
-                    {event.participant_ids.map(memberName).join(' · ')}
+                    {event.participants.map((p) => p.name).join(' · ')}
                   </span>
                   {event.voice_count > 0 && (
                     <span className="t-caption text-accent-ink">음성 {event.voice_count}개</span>

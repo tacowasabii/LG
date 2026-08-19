@@ -26,7 +26,12 @@ async def interview_start(request: InterviewStartRequest):
 @router.post("/answer", response_model=InterviewAnswerResponse)
 async def interview_answer(request: InterviewAnswerRequest):
     """사용자 답변 제출"""
-    result = await process_answer(request.session_id, request.answer)
+    result = await process_answer(
+        request.session_id,
+        request.answer,
+        speaker_id=request.speaker_id,
+        audio_media_id=request.audio_media_id,
+    )
 
     return InterviewAnswerResponse(
         session_id=result["session_id"],

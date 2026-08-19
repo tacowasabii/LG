@@ -235,6 +235,22 @@ def _simulate_response(search_results: list[dict]) -> str:
 MAX_SOURCES = 5
 
 
+def _event_thumbnail(event_id: str) -> Optional[str]:
+    """사건에 연결된 사진 한 장의 썸네일 경로
+
+    영상·음성은 목록에서 그림이 되지 않으므로 사진만 고른다.
+    """
+    for neighbor in graph_manager.get_connected_nodes(event_id):
+        if neighbor.get("node_type") != "media":
+            continue
+        if neighbor.get("media_type") not in (None, "photo"):
+            continue
+        thumb = neighbor.get("thumbnail_path") or neighbor.get("file_path")
+        if thumb:
+            return thumb
+    return None
+
+
 def _extract_sources(search_results: list[dict]) -> list[SourceItem]:
     """검색 결과에서 답변 소스 추출
 
@@ -267,6 +283,9 @@ def _extract_sources(search_results: list[dict]) -> list[SourceItem]:
                 type="event",
                 id=node_id,
                 title=node.get("title", ""),
+                # 사건 자체에는 그림이 없다. 그 사건의 사진 한 장을 얼굴로 쓴다 —
+                # 근거가 글자만 늘어서면 "무엇을 보고 답했는지"가 읽히지 않는다.
+                thumbnail=_event_thumbnail(node_id),
                 confidence=0.9 if node.get("confidence") == "confirmed" else 0.7,
             ))
         elif node_type == "memory":

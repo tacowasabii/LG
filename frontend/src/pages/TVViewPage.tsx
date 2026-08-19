@@ -6,9 +6,8 @@ import RichText from '../components/RichText'
 import AudioClip from '../components/AudioClip'
 import RemoteHint from '../components/RemoteHint'
 import StatusPill, { STATE_CONFIG } from '../components/StatusPill'
-import { eventById } from '../mock/timeline'
-import { clipsForEvent } from '../mock/voice'
-import { ambientSlides, buildLocalJourney, tvPresets } from '../mock/tv'
+import { useEvents, useVoiceClips } from '../lib/useGraphData'
+import { ambientSlides, buildLocalJourney, tvPresets } from '../lib/tvCuration'
 
 /**
  * LG TV — Memory Live / Journey (기획안 06장 LG PRODUCT LINKAGE)
@@ -35,9 +34,9 @@ import { ambientSlides, buildLocalJourney, tvPresets } from '../mock/tv'
  *  - 움직임이 적용된 장면에는 AI 라벨을 숨기지 않고 표시한다
  *
  * 실기능 개발 시 교체 지점:
- *   대기화면 후보  -> GET /api/tv/ambient (mock/tv.ts의 ambientSlides 대체)
+ *   대기화면 후보  -> GET /api/tv/ambient ("N년 전 오늘" 계산을 서버로 옮길 자리)
  *   프리셋        -> GET /api/tv/presets
- *   장소·상태     -> TVSlide에 place/state 필드를 추가해 서버에서 내려주기
+ *   장소·상태     -> GET /api/graph/events 에서 받아 자막에 쓴다 (완료)
  *   음성          -> 사건에 연결된 audio 미디어를 API로 가져오기
  *   깊이 기반 시차 -> 2.5D 렌더 파이프라인
  */
@@ -126,6 +125,9 @@ function TopBar({
 
 export default function TVViewPage() {
   const navigate = useNavigate()
+  // 자막의 장소·확인 상태와 슬라이드에 붙는 목소리는 그래프에서 온다
+  const { events, eventById } = useEvents()
+  const { clips: allClips, clipsForEvent } = useVoiceClips()
   const [screen, setScreen] = useState<Screen>('ambient')
   const [journey, setJourney] = useState<TVJourney | null>(null)
   const [slideIndex, setSlideIndex] = useState(0)
@@ -135,8 +137,8 @@ export default function TVViewPage() {
   const [now, setNow] = useState(() => new Date())
   const evidenceRef = useRef<HTMLDivElement>(null)
 
-  const ambient = useMemo(() => ambientSlides(), [])
-  const presets = useMemo(() => tvPresets(), [])
+  const ambient = useMemo(() => ambientSlides(events, allClips), [events, allClips])
+  const presets = useMemo(() => tvPresets(events, allClips), [events, allClips])
   const preset = useGridFocus(presets.length, PRESET_COLS)
 
   const ambientSlide = ambient[ambientIndex % ambient.length]
@@ -175,7 +177,7 @@ export default function TVViewPage() {
       console.warn('[TV] /api/tv/journey 실패 — 로컬 큐레이션으로 재생합니다', e)
     }
 
-    setJourney(result ?? buildLocalJourney(title, eventIds))
+    setJourney(result ?? buildLocalJourney(title, eventIds, events))
     setSlideIndex(0)
     setAutoPlay(true)
     setScreen('play')
@@ -321,9 +323,13 @@ export default function TVViewPage() {
           <h1 className="tv-title mt-[1vh] text-paper">{event.title}</h1>
 
           <div className="mt-[1.5vh] flex flex-wrap items-center gap-x-[1.5vw] gap-y-2">
-            <span className="tv-body text-paper/80">{event.date.replace(/-/g, '. ')}</span>
+            <span className="tv-body text-paper/80">
+              {(event.date_start || '').replace(/-/g, '. ')}
+            </span>
             <span className="tv-body text-paper/40">·</span>
-            <span className="tv-body text-paper/80">{event.place.name}</span>
+            <span className="tv-body text-paper/80">
+              {event.place?.name || event.location_name || '장소 미상'}
+            </span>
             <StatusPill state={event.state} size="md" />
             {voice_count > 0 && (
               <span
@@ -496,7 +502,9 @@ export default function TVViewPage() {
             {linkedEvent && (
               <>
                 <span className="tv-body text-paper/35">·</span>
-                <span className="tv-body text-paper/75">{linkedEvent.place.name}</span>
+                <span className="tv-body text-paper/75">
+                  {linkedEvent.place?.name || linkedEvent.location_name || '장소 미상'}
+                </span>
               </>
             )}
             {slide.event_title && (
@@ -560,7 +568,7 @@ export default function TVViewPage() {
                 {[
                   ['원본 파일', slide.media_id || '알 수 없음'],
                   ['촬영 추정 시점', slide.date?.slice(0, 10).replace(/-/g, '. ') || '미상'],
-                  ['장소', linkedEvent?.place.name || '미상'],
+                  ['장소', linkedEvent?.place?.name || linkedEvent?.location_name || '미상'],
                   ['사건', slide.event_title || '미상'],
                   ['적용된 움직임', '느린 패닝 · 줌 (원본 보존)'],
                 ].map(([label, value]) => (

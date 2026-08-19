@@ -12,11 +12,8 @@ import {
 } from '../lib/api'
 import { STATE_CONFIG, STATE_ORDER } from '../components/StatusPill'
 import AudioClip from '../components/AudioClip'
-import MockBadge from '../components/MockBadge'
 import { Page, PageHeader, SectionHead, StatRow } from '../components/Page'
-import { MOCK_TIMELINE, eventById } from '../mock/timeline'
-import { MOCK_VOICE_CLIPS } from '../mock/voice'
-import { MOCK_MEMBERS } from '../mock/family'
+import { useVoiceClips } from '../lib/useGraphData'
 
 interface EventMedia {
   id: string
@@ -30,9 +27,6 @@ function shortTitle(title: string): string {
   return title.replace(/^\d{4}\s*/, '')
 }
 
-function memberName(id: string): string {
-  return MOCK_MEMBERS.find((m) => m.id === id)?.name || id
-}
 
 export default function HomePage() {
   const [events, setEvents] = useState<EventListItem[]>([])
@@ -41,6 +35,8 @@ export default function HomePage() {
   const [memoryCount, setMemoryCount] = useState<number | null>(null)
   const [loading, setLoading] = useState(true)
   const [expandedEvent, setExpandedEvent] = useState<string | null>(null)
+  // 가족이 실제로 남긴 목소리 (인터뷰에서 녹음한 것)
+  const { clips: voiceClips } = useVoiceClips()
   const [eventMedia, setEventMedia] = useState<Record<string, EventMedia[]>>({})
 
   const toggleEvent = async (eventId: string) => {
@@ -90,10 +86,10 @@ export default function HomePage() {
     .sort()
   const span = years.length > 0 ? `${years[0]} — ${years[years.length - 1]} · ` : ''
 
-  // 확인 상태 막대 — 실기능 개발 시 GET /api/graph/verify 의 상태 합계로 교체
+  // 확인 상태 막대 — 사건 목록이 상태를 함께 내려준다
   const stateBar = STATE_ORDER.map((state) => ({
     state,
-    count: MOCK_TIMELINE.filter((e) => e.state === state).length,
+    count: events.filter((e) => e.state === state).length,
   })).filter((b) => b.count > 0)
 
   return (
@@ -133,9 +129,7 @@ export default function HomePage() {
 
       {/* 확인 상태 — 무엇이 사실이고 무엇이 추정인지 한눈에 (기획안 03장) */}
       <section className="mt-14">
-        <SectionHead title="확인 상태" to="/verify" linkLabel="확인하러 가기">
-          <MockBadge />
-        </SectionHead>
+        <SectionHead title="확인 상태" to="/verify" linkLabel="확인하러 가기" />
 
         {/*
           막대를 하나로 이어 붙이지 않고 2px씩 띄운다. 상태가 서로 섞이는 값이
@@ -147,7 +141,7 @@ export default function HomePage() {
               key={b.state}
               style={{
                 background: STATE_CONFIG[b.state].dot,
-                width: (b.count / MOCK_TIMELINE.length) * 100 + '%',
+                width: (b.count / Math.max(1, events.length)) * 100 + '%',
               }}
             />
           ))}
@@ -183,14 +177,12 @@ export default function HomePage() {
           </div>
         ) : (
           events.map((event) => {
-            const mock = eventById(event.id)
-            const state = mock?.state ?? 'inferred'
-            const config = STATE_CONFIG[state]
+            const config = STATE_CONFIG[event.state]
             const open = expandedEvent === event.id
             const counts = [
               `사진 ${event.media_count}`,
-              mock ? `기억 ${mock.memory_count}` : null,
-              mock && mock.voice_count > 0 ? `음성 ${mock.voice_count}` : null,
+              `기억 ${event.memory_count}`,
+              event.voice_count > 0 ? `음성 ${event.voice_count}` : null,
             ]
               .filter(Boolean)
               .join(' · ')
@@ -248,7 +240,7 @@ export default function HomePage() {
                           <span className="self-end pb-1 pl-2">
                             <span className="t-caption block">{event.location_name}</span>
                             <span className="t-caption block text-ink-300">
-                              {mock?.participant_ids.map(memberName).join(' · ')}
+                              {event.participants.map((p) => p.name).join(' · ')}
                             </span>
                           </span>
                         </>
@@ -268,14 +260,27 @@ export default function HomePage() {
 
       {/* 가족의 목소리 — 기획안이 "핵심 독자 데이터"로 지목한 자산 */}
       <section className="mt-14">
-        <SectionHead title="가족의 목소리" to="/interview" linkLabel="목소리 남기기">
-          <MockBadge label="음성 목데이터" />
-        </SectionHead>
-        <div className="mt-5 grid grid-cols-2 gap-4">
-          {MOCK_VOICE_CLIPS.slice(0, 4).map((clip) => (
-            <AudioClip key={clip.id} clip={clip} />
-          ))}
-        </div>
+        <SectionHead title="가족의 목소리" to="/interview" linkLabel="목소리 남기기" />
+        {voiceClips.length > 0 ? (
+          <div className="mt-5 grid grid-cols-2 gap-4">
+            {voiceClips.slice(0, 4).map((clip) => (
+              <AudioClip key={clip.id} clip={clip} />
+            ))}
+          </div>
+        ) : (
+          <div className="mt-5 py-10 text-center" style={{ border: '1px dashed var(--border-strong)' }}>
+            <p className="t-body-sm m-0 text-ink-400">아직 남은 목소리가 없습니다.</p>
+            <p className="t-caption m-0 mt-1">
+              인터뷰에서 말로 답하면 목소리 원본이 그대로 보관됩니다.
+            </p>
+            <Link
+              to="/interview"
+              className="btn-outline mt-5 inline-block no-underline hover:no-underline"
+            >
+              목소리 남기기
+            </Link>
+          </div>
+        )}
       </section>
 
       {gaps && gaps.total > 0 && (

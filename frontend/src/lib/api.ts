@@ -60,6 +60,48 @@ export interface MediaItem {
   original_filename: string;
   created_at: string;
   exif_date?: string | null;
+  // 음성일 때만 채워진다
+  duration_sec?: number | null;
+  waveform?: number[];
+  transcript?: string | null;
+  speaker_id?: string | null;
+  speaker_name?: string | null;
+  event_id?: string | null;
+  event_title?: string | null;
+}
+
+/**
+ * 재생 가능한 가족 음성.
+ * AudioClip 컴포넌트가 쓰는 최소 모양이다. file_path가 있으면 실제 파일을
+ * 재생하고, 없으면(목데이터) 흉내만 낸다.
+ */
+export interface VoiceClip {
+  id: string;
+  file_path?: string | null;
+  event_id?: string | null;
+  event_title?: string | null;
+  speaker_id?: string | null;
+  speaker_name?: string | null;
+  duration_sec: number;
+  transcript?: string | null;
+  recorded_at?: string | null;
+  waveform: number[];
+}
+
+/** 음성 미디어를 재생용 클립 모양으로 */
+export function toVoiceClip(item: MediaItem): VoiceClip {
+  return {
+    id: item.id,
+    file_path: item.file_path,
+    event_id: item.event_id,
+    event_title: item.event_title,
+    speaker_id: item.speaker_id,
+    speaker_name: item.speaker_name,
+    duration_sec: item.duration_sec || 0,
+    transcript: item.transcript,
+    recorded_at: (item.created_at || '').slice(0, 10),
+    waveform: item.waveform || [],
+  };
 }
 
 export interface MediaUploadResult {
@@ -91,6 +133,47 @@ export async function uploadMedia(file: File): Promise<MediaUploadResult> {
 
 export async function getMediaList(): Promise<MediaItem[]> {
   return fetchJSON(`${BASE_URL}/media`);
+}
+
+/**
+ * 녹음한 음성 업로드.
+ * 길이와 파형은 브라우저가 계산해서 함께 보낸다 — 서버에 오디오 디코더를 두지
+ * 않기 위한 분업이다. eventId를 주면 그 사건의 기록으로 바로 이어진다.
+ */
+export async function uploadVoice(
+  blob: Blob,
+  meta: {
+    durationSec: number;
+    waveform: number[];
+    transcript?: string;
+    speakerId?: string;
+    eventId?: string;
+    filename?: string;
+  },
+): Promise<MediaUploadResult> {
+  const formData = new FormData();
+  formData.append('file', blob, meta.filename || 'voice-' + Date.now() + '.webm');
+  formData.append('duration_sec', String(meta.durationSec));
+  formData.append('waveform', JSON.stringify(meta.waveform));
+  if (meta.transcript) formData.append('transcript', meta.transcript);
+  if (meta.speakerId) formData.append('speaker_id', meta.speakerId);
+  if (meta.eventId) formData.append('event_id', meta.eventId);
+
+  const response = await fetch(`${BASE_URL}/media/upload`, {
+    method: 'POST',
+    body: formData,
+  });
+  if (!response.ok) throw new Error('Voice upload failed');
+  return response.json();
+}
+
+/** 가족이 남긴 음성 목록. personId를 주면 그 사람이 말한 것만. */
+export async function getVoiceClips(personId?: string): Promise<VoiceClip[]> {
+  const query = personId
+    ? '?media_type=audio&person_id=' + encodeURIComponent(personId)
+    : '?media_type=audio';
+  const items: MediaItem[] = await fetchJSON(`${BASE_URL}/media${query}`);
+  return items.map(toVoiceClip);
 }
 
 export async function deleteMedia(id: string): Promise<void> {
@@ -135,6 +218,25 @@ export interface GraphData {
   edges: GraphEdge[];
 }
 
+export interface PlaceRef {
+  id: string;
+  name: string;
+  lat?: number | null;
+  lng?: number | null;
+}
+
+export interface PersonRef {
+  id: string;
+  name: string;
+  relation?: string | null;
+  thumbnail_url?: string | null;
+}
+
+/**
+ * 타임라인 · 지도 · TV가 함께 쓰는 사건 요약.
+ * 좌표·참여자·썸네일·확인 상태까지 한 번에 온다 (화면이 사건마다 상세를 다시
+ * 부르지 않게 하려는 것이다).
+ */
 export interface EventListItem {
   id: string;
   title: string;
@@ -143,6 +245,12 @@ export interface EventListItem {
   location_name?: string | null;
   participant_count: number;
   media_count: number;
+  place?: PlaceRef | null;
+  participants: PersonRef[];
+  media_thumbs: string[];
+  memory_count: number;
+  voice_count: number;
+  state: VerificationState;
 }
 
 export interface PersonData {
@@ -221,10 +329,25 @@ export async function startInterview(targetType?: string, targetId?: string): Pr
   });
 }
 
-export async function submitInterviewAnswer(sessionId: string, answer: string): Promise<InterviewAnswerResult> {
+/**
+ * 답변 제출.
+ * speakerId는 화면에서 고른 "지금 답하는 사람" — 기억의 주인이 된다.
+ * audioMediaId를 넘기면 그 음성이 기억의 근거로 연결된다.
+ */
+export async function submitInterviewAnswer(
+  sessionId: string,
+  answer: string,
+  speakerId?: string,
+  audioMediaId?: string,
+): Promise<InterviewAnswerResult> {
   return fetchJSON(`${BASE_URL}/interview/answer`, {
     method: 'POST',
-    body: JSON.stringify({ session_id: sessionId, answer }),
+    body: JSON.stringify({
+      session_id: sessionId,
+      answer,
+      speaker_id: speakerId,
+      audio_media_id: audioMediaId,
+    }),
   });
 }
 
@@ -275,6 +398,59 @@ export async function createTVJourney(query: string, style?: string): Promise<TV
     method: 'POST',
     body: JSON.stringify({ query, style: style || 'timeline' }),
   });
+}
+
+
+// --- Memory Film ---
+
+export interface FilmScene {
+  media_id: string;
+  thumb: string;
+  file_path: string;
+  subtitle: string;
+  note: string;
+  duration_sec: number;
+  /** 이 장면의 근거가 되는 원본 */
+  source_label: string;
+  /** 적용된 AI 효과. 빈 배열이면 원본 그대로 — 화면은 이걸 감추지 않는다 */
+  ai_effects: string[];
+  voice_id?: string | null;
+}
+
+export interface FilmStoryboard {
+  event_id: string;
+  title: string;
+  subtitle: string;
+  narration: string;
+  scenes: FilmScene[];
+  total_sec: number;
+  audience: string;
+  requested_sec: number;
+  /** 길이에 맞추려고 뺀 장면 수 */
+  omitted_scenes: number;
+}
+
+export interface Anniversary {
+  date: string;
+  label: string;
+  event_id: string;
+  days_left: number;
+  reason: string;
+}
+
+export async function composeFilm(
+  eventId: string,
+  lengthSec: number,
+  audience: string,
+): Promise<FilmStoryboard> {
+  return fetchJSON(`${BASE_URL}/film`, {
+    method: 'POST',
+    body: JSON.stringify({ event_id: eventId, length_sec: lengthSec, audience }),
+  });
+}
+
+export async function getAnniversaries(): Promise<Anniversary[]> {
+  return fetchJSON(`${BASE_URL}/film/anniversaries`);
 }
 
 // --- Verification (가족 확인) ---

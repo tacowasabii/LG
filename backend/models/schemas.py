@@ -55,6 +55,16 @@ class MediaListItem(BaseModel):
     original_filename: str
     created_at: str
     exif_date: Optional[str] = None
+    # --- 음성 (media_type == "audio") ---
+    duration_sec: Optional[float] = None
+    waveform: list[float] = []
+    transcript: Optional[str] = None
+    speaker_id: Optional[str] = None
+    speaker_name: Optional[str] = None
+    event_id: Optional[str] = None
+    event_title: Optional[str] = None
+    # 이 기록이 어디서 왔는지: exif | user_input | ai_vision | ai_stt | interview
+    source: Optional[str] = None
 
 
 class MediaDetail(BaseModel):
@@ -130,7 +140,27 @@ class VerifyResponse(BaseModel):
     message: str
 
 
+class PlaceRef(BaseModel):
+    """좌표까지 포함한 장소. 지도가 이름만으로는 점을 찍을 수 없다."""
+    id: str
+    name: str
+    lat: Optional[float] = None
+    lng: Optional[float] = None
+
+
+class PersonRef(BaseModel):
+    id: str
+    name: str
+    relation: Optional[str] = None
+    thumbnail_url: Optional[str] = None
+
+
 class EventListItem(BaseModel):
+    """타임라인·지도·TV가 함께 쓰는 사건 요약
+
+    화면마다 사건 상세를 다시 부르지 않도록 한 번에 내려준다.
+    지도는 좌표, TV는 장소명과 확인 상태, 타임라인은 참여자와 썸네일이 필요하다.
+    """
     id: str
     title: str
     date_start: Optional[str] = None
@@ -138,6 +168,15 @@ class EventListItem(BaseModel):
     location_name: Optional[str] = None
     participant_count: int = 0
     media_count: int = 0
+    # --- 아래부터 화면이 목데이터로 채우던 부분 ---
+    place: Optional[PlaceRef] = None
+    participants: list[PersonRef] = []
+    # 미리보기용 썸네일 경로 (최대 3장)
+    media_thumbs: list[str] = []
+    memory_count: int = 0
+    voice_count: int = 0
+    # 가족 확인 상태: confirmed | supported | inferred | conflicted
+    state: str = "inferred"
 
 
 # --- Chat ---
@@ -178,6 +217,12 @@ class InterviewStartResponse(BaseModel):
 class InterviewAnswerRequest(BaseModel):
     session_id: str
     answer: str
+    # 누구의 기억으로 저장할지. 없으면 Gap이 지목한 인물에게 귀속한다.
+    # 기획안 08장의 귀속 원칙 — 답한 사람이 화면에서 정해지므로 그대로 받는다.
+    speaker_id: Optional[str] = None
+    # 말로 답한 경우 먼저 업로드된 음성 미디어 id.
+    # 기억 문장에서 원본 음성으로 되짚을 수 있게 EVIDENCED_BY로 잇는다.
+    audio_media_id: Optional[str] = None
 
 
 class InterviewAnswerResponse(BaseModel):
@@ -204,6 +249,52 @@ class GapItem(BaseModel):
 class GapsResponse(BaseModel):
     gaps: list[GapItem]
     total: int
+
+
+# --- Memory Film ---
+
+class FilmRequest(BaseModel):
+    event_id: str
+    # 30 | 45 | 60 — 화면이 고른 길이. 넘치는 장면은 서버가 잘라낸다.
+    length_sec: int = 45
+    # child | adult | elder — 장면 길이와 내레이션 어투가 달라진다
+    audience: str = "adult"
+
+
+class FilmScene(BaseModel):
+    media_id: str
+    thumb: str
+    file_path: str
+    subtitle: str
+    note: str = ""
+    duration_sec: int
+    # 이 장면의 근거가 되는 원본
+    source_label: str
+    # 적용된 AI 효과. 빈 배열이면 원본 그대로다. 화면은 이 목록을 반드시 노출한다.
+    ai_effects: list[str] = []
+    # 이 장면에 깔리는 실제 가족 음성
+    voice_id: Optional[str] = None
+
+
+class FilmResponse(BaseModel):
+    event_id: str
+    title: str
+    subtitle: str = ""
+    narration: str = ""
+    scenes: list[FilmScene] = []
+    total_sec: int = 0
+    audience: str = "adult"
+    requested_sec: int = 45
+    # 길이에 맞추려고 뺀 장면 수 — 몇 장면이 빠졌는지 화면이 밝힐 수 있게
+    omitted_scenes: int = 0
+
+
+class AnniversaryItem(BaseModel):
+    date: str
+    label: str
+    event_id: str
+    days_left: int
+    reason: str = ""
 
 
 # --- TV Journey ---

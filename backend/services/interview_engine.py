@@ -89,8 +89,17 @@ async def start_interview(target_type: str = "auto", target_id: Optional[str] = 
     }
 
 
-async def process_answer(session_id: str, answer: str) -> dict:
-    """사용자 답변 처리 → Graph 업데이트 + 다음 질문 생성"""
+async def process_answer(
+    session_id: str,
+    answer: str,
+    speaker_id: Optional[str] = None,
+    audio_media_id: Optional[str] = None,
+) -> dict:
+    """사용자 답변 처리 → Graph 업데이트 + 다음 질문 생성
+
+    speaker_id     화면에서 고른 "지금 답하는 사람"
+    audio_media_id 말로 답한 경우 먼저 업로드된 음성
+    """
     session = _sessions.get(session_id)
     if not session:
         return {
@@ -105,7 +114,9 @@ async def process_answer(session_id: str, answer: str) -> dict:
     session["answers"].append(answer)
 
     # 답변에서 정보 추출 → Memory 노드 생성
-    updated_nodes = await _process_answer_to_graph(session, answer)
+    updated_nodes = await _process_answer_to_graph(
+        session, answer, speaker_id=speaker_id, audio_media_id=audio_media_id
+    )
     session["updated_nodes"].extend(updated_nodes)
 
     # 종료 조건 확인
@@ -214,15 +225,27 @@ def _simulate_question(context: str, previous_answers: list[str]) -> str:
     return question_pool[idx]
 
 
-async def _process_answer_to_graph(session: dict, answer: str) -> list[str]:
+async def _process_answer_to_graph(
+    session: dict,
+    answer: str,
+    speaker_id: Optional[str] = None,
+    audio_media_id: Optional[str] = None,
+) -> list[str]:
     """답변을 구조화하여 Graph에 저장
 
     같은 사건에 대한 가족별 기억을 따로 보존하려면 "누가 말했는지"가 남아야 한다.
     contributor_id와 REMEMBERS 엣지가 없으면 Gap 탐지도 "아직 기억을 남기지
     않은 참여자"를 찾을 수 없다.
+
+    speaker_id는 화면에서 고른 "지금 답하는 사람"이다. Gap이 지목한 인물보다
+    우선한다 — 실제로 말한 사람이 누구인지는 화면 앞에 있는 가족만 안다.
     """
     updated_nodes = []
+
+    # 화면이 알려준 화자를 먼저 쓰고, 없으면 Gap이 지목한 인물에게 귀속한다
     contributor_id = session.get("contributor_id")
+    if speaker_id and graph_manager.get_node(speaker_id):
+        contributor_id = speaker_id
 
     # Memory 노드 생성
     memory = MemoryNode(
@@ -251,5 +274,17 @@ async def _process_answer_to_graph(session: dict, answer: str) -> list[str]:
             target=memory.id,
             relation=RelationType.REMEMBERS,
         ))
+
+    # 말로 답한 경우 원본 음성을 기억의 근거로 잇는다 (기획안 "출처 보존").
+    # 전사문만 남기면 목소리로 되짚을 수 없다.
+    if audio_media_id:
+        audio = graph_manager.get_node(audio_media_id)
+        if audio and audio.get("node_type") == NodeType.MEDIA:
+            graph_manager.add_edge(Edge(
+                source=memory.id,
+                target=audio_media_id,
+                relation=RelationType.EVIDENCED_BY,
+            ))
+            updated_nodes.append(audio_media_id)
 
     return updated_nodes

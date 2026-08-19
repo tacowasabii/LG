@@ -4,9 +4,12 @@ from fastapi import APIRouter, HTTPException
 
 from backend.models.schemas import (
     GraphResponse, PersonCreate, PersonResponse,
-    EventResponse, EventListItem, VerifyRequest, VerifyResponse,
+    EventResponse, EventListItem, PersonRef, PlaceRef,
+    VerifyRequest, VerifyResponse,
 )
-from backend.models.graph_models import PersonNode, NodeType, VerifyAction
+from backend.models.graph_models import (
+    PersonNode, NodeType, MediaType, VerificationState, VerifyAction,
+)
 from backend.services import verification
 from backend.services.graph_manager import graph_manager
 
@@ -22,7 +25,11 @@ async def get_full_graph():
 
 @router.get("/events", response_model=list[EventListItem])
 async def list_events():
-    """이벤트 목록 (타임라인용)"""
+    """이벤트 목록 (타임라인 · 지도 · TV 공용)
+
+    장소 좌표, 참여자, 썸네일, 기억·음성 개수, 확인 상태까지 한 번에 내려준다.
+    화면이 사건마다 상세를 다시 부르거나 목데이터로 메우지 않게 하는 것이 목적이다.
+    """
     events = graph_manager.get_events()
 
     result = []
@@ -30,16 +37,51 @@ async def list_events():
         connected = graph_manager.get_connected_nodes(event["id"])
         participants = [n for n in connected if n.get("node_type") == NodeType.PERSON]
         media = [n for n in connected if n.get("node_type") == NodeType.MEDIA]
+        memories = [n for n in connected if n.get("node_type") == NodeType.MEMORY]
         places = [n for n in connected if n.get("node_type") == NodeType.PLACE]
+
+        # 사건의 대표 장소. location_id가 있으면 그것을 우선한다
+        # (엣지로만 이어진 장소가 여러 개일 수 있다).
+        place_node = graph_manager.get_node(event.get("location_id") or "") or (
+            places[0] if places else None
+        )
+
+        photos = [m for m in media if m.get("media_type") != MediaType.AUDIO]
+        audios = [m for m in media if m.get("media_type") == MediaType.AUDIO]
+
+        state = verification.get_state(event["id"]) or {}
 
         result.append(EventListItem(
             id=event["id"],
             title=event.get("title", ""),
             date_start=event.get("date_start"),
             date_end=event.get("date_end"),
-            location_name=places[0].get("name") if places else None,
+            location_name=place_node.get("name") if place_node else None,
             participant_count=len(participants),
             media_count=len(media),
+            place=PlaceRef(
+                id=place_node["id"],
+                name=place_node.get("name", ""),
+                lat=place_node.get("lat"),
+                lng=place_node.get("lng"),
+            ) if place_node else None,
+            participants=[
+                PersonRef(
+                    id=p["id"],
+                    name=p.get("name", ""),
+                    relation=p.get("relation"),
+                    thumbnail_url=p.get("thumbnail_url"),
+                )
+                for p in participants
+            ],
+            media_thumbs=[
+                m.get("thumbnail_path") or m.get("file_path", "")
+                for m in photos[:3]
+                if m.get("thumbnail_path") or m.get("file_path")
+            ],
+            memory_count=len(memories),
+            voice_count=len(audios),
+            state=state.get("state", VerificationState.INFERRED.value),
         ))
 
     return result

@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { getVerificationInbox, verifyEvent, InboxItem } from '../lib/api'
 import { STATE_CONFIG } from '../components/StatusPill'
+import { invalidateEvents } from '../lib/useGraphData'
 import { Page, PageHeader } from '../components/Page'
 import { MOCK_MEMBERS } from '../mock/family'
 import { mediaUrl } from '../lib/api'
@@ -52,6 +53,8 @@ export default function VerifyPage() {
     setBusy(eventId)
     try {
       const res = await verifyEvent(eventId, personId, action, note)
+      // 확인 상태가 바뀌면 홈·지도·TV의 뱃지도 함께 바뀌어야 한다
+      invalidateEvents()
       setMessages((prev) => ({ ...prev, [eventId]: res.message }))
       setDisputeForms((prev) => {
         const next = { ...prev }

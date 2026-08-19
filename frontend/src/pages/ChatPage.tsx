@@ -4,8 +4,7 @@ import { sendChat, ChatResponse, ChatSource, mediaUrl } from '../lib/api'
 import RichText from '../components/RichText'
 import EvidenceCard from '../components/EvidenceCard'
 import AudioClip from '../components/AudioClip'
-import { clipsForEvent } from '../mock/voice'
-import { MOCK_MEDIA_THUMBS, eventById } from '../mock/timeline'
+import { useEvents, useVoiceClips } from '../lib/useGraphData'
 import { useCurrentUser } from '../lib/currentUser'
 
 /**
@@ -66,6 +65,9 @@ export default function ChatPage() {
   const [loading, setLoading] = useState(false)
   const [conversationId, setConversationId] = useState<string | undefined>()
   const [openSource, setOpenSource] = useState<ChatSource | null>(null)
+  // 근거에 걸린 사건의 확인 상태와 그 사건에 남은 목소리를 함께 보여준다
+  const { eventById } = useEvents()
+  const { clipsForEvent } = useVoiceClips()
   const messagesEndRef = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
@@ -110,9 +112,8 @@ export default function ChatPage() {
       .map((s) => s.id)
       .filter((id) => !!eventById(id))
 
-  const sourceThumb = openSource
-    ? openSource.thumbnail || MOCK_MEDIA_THUMBS[openSource.id] || null
-    : null
+  // 사건 근거는 서버가 그 사건의 사진 한 장을 썸네일로 함께 내려준다
+  const sourceThumb = openSource?.thumbnail || null
 
   return (
     <div className="mx-auto flex h-screen max-w-[820px] flex-col px-12">

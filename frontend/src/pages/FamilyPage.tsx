@@ -5,8 +5,7 @@ import AudioClip from '../components/AudioClip'
 import MockBadge from '../components/MockBadge'
 import { Page, PageHeader } from '../components/Page'
 import { MOCK_MEMBERS, ROLE_LABEL, ROLE_DESC } from '../mock/family'
-import { MOCK_VOICE_CLIPS } from '../mock/voice'
-import { MOCK_TIMELINE } from '../mock/timeline'
+import { useEvents, useVoiceClips } from '../lib/useGraphData'
 
 /**
  * 인물 (기획안 02장 People)
@@ -21,6 +20,8 @@ export default function FamilyPage() {
   const [showForm, setShowForm] = useState(false)
   const [formData, setFormData] = useState({ name: '', relation: '', birth_year: '' })
   const [selectedPerson, setSelectedPerson] = useState<PersonData | null>(null)
+  const { events } = useEvents()
+  const { clips: voiceClips } = useVoiceClips()
 
   useEffect(() => {
     loadPersons()
@@ -55,8 +56,10 @@ export default function FamilyPage() {
 
   /** 가족 공간의 역할·동의 정보는 아직 목데이터에서 붙인다 (id는 그래프와 동일) */
   const memberInfo = (id: string) => MOCK_MEMBERS.find((m) => m.id === id)
-  const clipsOf = (id: string) => MOCK_VOICE_CLIPS.filter((c) => c.speaker_id === id)
-  const eventsOf = (id: string) => MOCK_TIMELINE.filter((e) => e.participant_ids.includes(id))
+  /** 이 사람이 남긴 목소리 — NARRATED_BY로 이어진 실제 음성 */
+  const clipsOf = (id: string) => voiceClips.filter((c) => c.speaker_id === id)
+  const eventsOf = (id: string) =>
+    events.filter((e) => e.participants.some((p) => p.id === id))
 
   if (loading) {
     return (
@@ -283,7 +286,7 @@ export default function FamilyPage() {
                   }))
                 : eventsOf(selectedPerson.id).map((e) => ({
                     key: e.id,
-                    label: `${e.date.slice(0, 4)} · ${e.title.replace(/^\d{4}\s*/, '')}`,
+                    label: `${(e.date_start || '').slice(0, 4)} · ${e.title.replace(/^\d{4}\s*/, '')}`,
                   }))
               ).map((e) => (
                 <p

@@ -3,7 +3,7 @@ import ForceGraph2D from 'react-force-graph-2d'
 import { getGraph, GraphData, GraphNode, mediaUrl } from '../lib/api'
 import { STATE_CONFIG } from '../components/StatusPill'
 import { Page } from '../components/Page'
-import { eventById } from '../mock/timeline'
+import { useEvents } from '../lib/useGraphData'
 
 /**
  * 노드 색은 종류를 구분하는 것이 전부이므로 계조 안에서 고른다. 인물은 잉크,
@@ -39,6 +39,8 @@ const LINK_CONFIRMED = '#9C988C'
 const LINK_INFERRED = '#C9C6BC'
 
 export default function GraphPage() {
+  // 사건 노드에 가족 확인 상태를 붙이기 위해 사건 요약을 함께 받는다
+  const { eventById } = useEvents()
   const [graphData, setGraphData] = useState<GraphData | null>(null)
   const [selected, setSelected] = useState<GraphNode | null>(null)
   const [relatedMedia, setRelatedMedia] = useState<GraphNode[]>([])

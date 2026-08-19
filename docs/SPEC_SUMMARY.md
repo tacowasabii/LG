@@ -105,6 +105,19 @@ Base URL: `http://localhost:8000`
 | GET | `/api/gaps` | Memory Gap 목록 |
 | GET | `/api/gaps/{id}` | Gap 상세 |
 
+### Memory Film
+| Method | Path | 설명 |
+|--------|------|------|
+| POST | `/api/film` | 사건 하나를 30~60초 이야기로 구성 |
+| GET | `/api/film/anniversaries` | 다가오는 기념일 |
+
+요청: `{"event_id": "E01", "length_sec": 45, "audience": "adult"}`
+(`audience`: `child` | `adult` | `elder` — 장면 길이와 내레이션 어투가 달라진다)
+
+응답의 장면마다 `source_label`(원본 출처)과 `ai_effects`(적용된 효과)가 실려 온다.
+빈 배열이면 원본 그대로다. 화면은 이 목록을 감추지 않고 표시해야 한다.
+요청한 길이에 맞추려고 장면을 뺐으면 `omitted_scenes`로 밝힌다.
+
 ### TV Journey
 | Method | Path | 설명 |
 |--------|------|------|

@@ -47,6 +47,12 @@ class RelationType(str, Enum):
     LOCATED_AT = "located_at"
     REMEMBERS = "remembers"
     ABOUT = "about"
+    # 이 음성·영상에서 말하는 사람 (Media -> Person).
+    # DEPICTS(사진에 찍힌 사람)와 구분한다. 목소리의 주인은 화면에 없을 수도 있다.
+    NARRATED_BY = "narrated_by"
+    # 이 기억의 근거가 되는 원본 기록 (Memory -> Media).
+    # 기획안의 "출처 보존" — 기억 문장에서 원본 음성으로 되짚을 수 있어야 한다.
+    EVIDENCED_BY = "evidenced_by"
     # 사람 사이의 관계. 가족에 한정하지 않는다 (친구·연인도 같은 엣지로 표현).
     # 구체적인 관계명은 properties.relation_type, 분류는 properties.category.
     RELATED_TO = "related_to"
@@ -150,6 +156,15 @@ class MediaNode:
     scene_description: Optional[str] = None
     confidence: str = Confidence.USER_UNVERIFIED
     source: str = SourceType.EXIF
+    # --- 음성/영상 ---
+    # 길이와 파형은 브라우저가 녹음 직후 계산해 보낸다. 서버에 오디오 디코더를
+    # 두지 않기 위한 선택이다 (ffmpeg 의존성 없이 파형을 그린다).
+    duration_sec: Optional[float] = None
+    waveform: list = field(default_factory=list)  # 0~1 정규화된 피크
+    # 음성을 글로 옮긴 원문. 요약이 아니라 말한 그대로를 보존한다.
+    transcript: Optional[str] = None
+    # 이 음성에서 말하는 사람 (NARRATED_BY 엣지와 함께 저장한다)
+    speaker_id: Optional[str] = None
 
 
 @dataclass

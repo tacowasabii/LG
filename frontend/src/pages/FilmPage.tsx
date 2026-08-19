@@ -9,27 +9,23 @@
  * 경계를 알려주는 표지판이지 경보가 아니다. 효과가 없는 장면은 teal로 "원본
  * 그대로"라고 밝혀, 둘 중 어느 쪽인지 화면에서 늘 읽히게 한다.
  *
- * 실기능 개발 시 교체 지점:
- *   MOCK_STORYBOARDS   -> POST /api/film {event_id, length, audience}
- *   MOCK_ANNIVERSARIES -> GET  /api/film/anniversaries
- *   미리보기 진행바     -> 실제 렌더된 영상 플레이어
+ * 장면 구성은 POST /api/film 이 그래프에서 조립한다. 길이와 대상 세대를 넘기면
+ * 서버가 장면을 자르고 내레이션을 확인된 기록 안에서만 쓴다.
+ *
+ * 남은 교체 지점: 미리보기 진행바 -> 실제로 렌더된 영상 플레이어
  */
 
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
-import { mediaUrl } from '../lib/api'
 import {
-  AUDIENCE_DESC,
-  AUDIENCE_LABEL,
-  Audience,
-  FilmLength,
-  MOCK_ANNIVERSARIES,
-  MOCK_STORYBOARDS,
-  fitToLength,
-  storyboardFor,
-} from '../mock/film'
-import { clipById } from '../mock/voice'
-import { MOCK_TIMELINE } from '../mock/timeline'
+  Anniversary,
+  FilmStoryboard,
+  composeFilm,
+  getAnniversaries,
+  mediaUrl,
+} from '../lib/api'
+import { AUDIENCE_DESC, AUDIENCE_LABEL, Audience, FilmLength } from '../lib/filmOptions'
+import { useEvents, useVoiceClips } from '../lib/useGraphData'
 import { Page, PageHeader } from '../components/Page'
 import AudioClip from '../components/AudioClip'
 import RichText from '../components/RichText'
@@ -41,21 +37,61 @@ const AUDIENCES: Audience[] = ['child', 'adult', 'elder']
 const MOTIONS = ['motion-zoom-in', 'motion-pan-left', 'motion-zoom-out', 'motion-pan-right']
 
 export default function FilmPage() {
-  const [eventId, setEventId] = useState(MOCK_STORYBOARDS[0].event_id)
+  const { events } = useEvents()
+  const { clips } = useVoiceClips()
+  const [eventId, setEventId] = useState<string | null>(null)
   const [length, setLength] = useState<FilmLength>(45)
   const [audience, setAudience] = useState<Audience>('adult')
+  const [board, setBoard] = useState<FilmStoryboard | null>(null)
+  const [composing, setComposing] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+  const [anniversaries, setAnniversaries] = useState<Anniversary[]>([])
   const [playing, setPlaying] = useState(false)
   const [elapsed, setElapsed] = useState(0)
 
-  const board = storyboardFor(eventId)
-  const scenes = useMemo(() => (board ? fitToLength(board.scenes, length) : []), [board, length])
-  const totalSec = scenes.reduce((sum, s) => sum + s.duration_sec, 0)
-
-  // 사건이나 길이가 바뀌면 처음부터
+  // 사진이 가장 많은 사건에서 시작한다 (이야기가 될 자료가 있는 쪽)
   useEffect(() => {
+    if (eventId || events.length === 0) return
+    const richest = [...events].sort((a, b) => b.media_count - a.media_count)[0]
+    setEventId(richest.id)
+  }, [events, eventId])
+
+  useEffect(() => {
+    getAnniversaries().then(setAnniversaries).catch(console.error)
+  }, [])
+
+  // 사건·길이·대상이 바뀌면 서버가 다시 구성한다
+  useEffect(() => {
+    if (!eventId) return
+
+    let cancelled = false
+    setComposing(true)
+    setError(null)
     setPlaying(false)
     setElapsed(0)
-  }, [eventId, length])
+
+    composeFilm(eventId, length, audience)
+      .then((result) => {
+        if (!cancelled) setBoard(result)
+      })
+      .catch((e) => {
+        console.error(e)
+        if (!cancelled) {
+          setBoard(null)
+          setError('이 사건으로는 아직 이야기를 만들 수 없습니다. 사진이나 영상을 먼저 연결해주세요.')
+        }
+      })
+      .finally(() => {
+        if (!cancelled) setComposing(false)
+      })
+
+    return () => {
+      cancelled = true
+    }
+  }, [eventId, length, audience])
+
+  const scenes = board?.scenes ?? []
+  const totalSec = board?.total_sec ?? 0
 
   useEffect(() => {
     if (!playing) return
@@ -84,12 +120,13 @@ export default function FilmPage() {
     currentIndex = i
   }
   const currentScene = scenes[currentIndex]
-  const voice = currentScene?.voice_id ? clipById(currentScene.voice_id) : undefined
+  const voice = currentScene?.voice_id
+    ? clips.find((c) => c.id === currentScene.voice_id)
+    : undefined
 
   return (
     <Page width={1000}>
       <PageHeader
-        mock
         eyebrow="Memory Film"
         title="한 사건, 한 편의 이야기"
         lead="사진·영상·음성을 짧은 이야기로 묶습니다. 장면마다 원본 출처와 적용된 AI 효과를 함께 남깁니다."
@@ -104,8 +141,8 @@ export default function FilmPage() {
       >
         <p className="t-eyebrow m-0 mb-2.5 text-ink-300">어떤 사건으로 만들까요</p>
         <div className="flex flex-wrap gap-1.5">
-          {MOCK_TIMELINE.map((event) => {
-            const ready = !!storyboardFor(event.id)
+          {events.map((event) => {
+            const ready = event.media_count > 0
             return (
               <button
                 key={event.id}
@@ -157,6 +194,16 @@ export default function FilmPage() {
           <p className="t-caption mt-2.5">{AUDIENCE_DESC[audience]}</p>
         </div>
       </div>
+
+      {composing && (
+        <p className="t-body-sm mt-8 text-ink-300">이야기를 구성하고 있어요…</p>
+      )}
+
+      {error && !composing && (
+        <p className="t-body-sm mt-8" style={{ color: 'var(--critical-ink)' }}>
+          {error}
+        </p>
+      )}
 
       {board && currentScene && (
         <>
@@ -257,6 +304,12 @@ export default function FilmPage() {
             <p className="t-body mt-3 max-w-[60ch]">
               <RichText text={board.narration} />
             </p>
+            {board.omitted_scenes > 0 && (
+              <p className="t-caption m-0 mt-2">
+                {board.requested_sec}초에 맞추려고 장면 {board.omitted_scenes}개를 뺐습니다. 더 긴
+                길이를 고르면 모두 들어갑니다.
+              </p>
+            )}
             <p className="t-caption mt-3">
               내레이션은 확인된 기록 안에서만 생성됩니다. 원본에 없는 발화·행동은 만들지
               않습니다.
@@ -343,7 +396,7 @@ export default function FilmPage() {
           기념일이 되면 TV 대기화면에서 그날의 Film이 먼저 뜹니다.
         </p>
         <div style={{ borderTop: '1px solid var(--border)' }}>
-          {MOCK_ANNIVERSARIES.map((a) => (
+          {anniversaries.map((a) => (
             <div
               key={a.date}
               className="flex items-center gap-5 px-1 py-4"
@@ -357,7 +410,7 @@ export default function FilmPage() {
               <span className="t-mono whitespace-nowrap text-[11px] text-ink-300">
                 {a.days_left}일 남음
               </span>
-              {storyboardFor(a.event_id) ? (
+              {events.find((e) => e.id === a.event_id && e.media_count > 0) ? (
                 <button onClick={() => setEventId(a.event_id)} className="btn-quiet">
                   미리 보기
                 </button>

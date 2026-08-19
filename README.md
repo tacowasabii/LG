@@ -197,18 +197,22 @@ cp .env.example .env
 | 도메인 | 엔드포인트 | 설명 |
 |--------|-----------|------|
 | Health | `GET /api/health` | 서버 상태 |
-| Media | `POST /api/media/upload` | 파일 업로드 + 자동 분석 |
+| Media | `POST /api/media/upload` | 파일 업로드 + 자동 분석 (음성은 길이·파형·화자·사건을 함께 받음) |
 | | `POST /api/media/supplement` | EXIF 없는 미디어 정보 보충 |
-| | `GET /api/media` | 미디어 목록 |
+| | `GET /api/media` | 미디어 목록 (`?media_type=audio&person_id=P02`) |
 | Graph | `GET /api/graph` | 전체 노드+엣지 |
-| | `GET /api/graph/events` | 이벤트 목록 |
+| | `GET /api/graph/events` | 사건 목록 + 장소 좌표·참여자·썸네일·확인 상태 |
 | | `GET /api/graph/event/{id}` | 이벤트 상세 |
+| | `GET /api/graph/verify` | 확인 요청 목록 |
+| | `POST /api/graph/event/{id}/verify` | 맞음·모름·이견 기록 |
 | | `GET /api/graph/persons` | 인물 목록 |
 | | `POST /api/graph/person` | 인물 추가 |
 | Chat | `POST /api/chat` | 자연어 질의 → 답변 |
 | Interview | `POST /api/interview/start` | 인터뷰 시작 |
-| | `POST /api/interview/answer` | 답변 제출 |
+| | `POST /api/interview/answer` | 답변 제출 (`speaker_id`, `audio_media_id`) |
 | Gaps | `GET /api/gaps` | Gap 목록 |
+| Film | `POST /api/film` | 사건 하나를 30~60초 이야기로 구성 |
+| | `GET /api/film/anniversaries` | 다가오는 기념일 |
 | TV | `POST /api/tv/journey` | Journey 생성 |
 
 상세 요청/응답 형식: `docs/SPEC_SUMMARY.md` 참조

@@ -20,7 +20,7 @@ import {
 } from 'lucide-react'
 import { mediaUrl } from '../lib/api'
 import { useCurrentUser } from '../lib/currentUser'
-import { MOCK_TIMELINE } from '../mock/timeline'
+import { useEvents } from '../lib/useGraphData'
 
 /**
  * 사이드바를 기획안의 가치 흐름(모으기 → 이해 → 확인 → 경험)대로 묶었다.
@@ -78,8 +78,9 @@ export default function AppLayout() {
   const { current, members, setCurrentId } = useCurrentUser()
   const [switcherOpen, setSwitcherOpen] = useState(false)
 
-  // 확인 대기 건수 — 실기능 개발 시 GET /api/graph/verify 의 합계로 교체
-  const pending = MOCK_TIMELINE.filter(
+  // 확인 대기 건수 — 사건 목록이 확인 상태를 함께 내려준다
+  const { events } = useEvents()
+  const pending = events.filter(
     (e) => e.state === 'inferred' || e.state === 'conflicted',
   ).length
 
