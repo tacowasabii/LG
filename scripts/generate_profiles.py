@@ -13,6 +13,8 @@ from PIL import Image
 ROOT_DIR = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT_DIR))
 
+from backend.services.graph_manager import graph_manager
+
 DATA_DIR = ROOT_DIR / "data"
 PHOTOS_DIR = DATA_DIR / "photos"
 METADATA_DIR = DATA_DIR / "metadata"
@@ -94,8 +96,11 @@ def generate_profiles():
             media_output = MEDIA_DIR / f"profile_{pid}.jpg"
             profile.save(str(media_output), "JPEG", quality=90)
 
+            # 파일만 만들어두면 화면은 이니셜로 폴백한다. Graph에 경로를 연결해야 보인다.
+            graph_manager.update_node(pid, {"thumbnail_url": f"/media-files/profile_{pid}.jpg"})
+
             people_in_photo = photos[0][0]
-            print(f"  ✓ {name} ({pid}): 프로필 생성 (소스: {people_in_photo}명 등장 사진)")
+            print(f"  ✓ {name} ({pid}): 프로필 생성 + Graph 연결 (소스: {people_in_photo}명 등장 사진)")
 
         except Exception as e:
             print(f"  ⚠ {name} ({pid}): 처리 실패 - {e}")

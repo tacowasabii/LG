@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { Calendar, Image, MessageCircle, AlertCircle, ChevronDown } from 'lucide-react'
-import { getEvents, getMediaList, getGaps, EventListItem, MediaItem, GapsResponse, mediaUrl } from '../lib/api'
+import { getEvents, getMediaList, getGaps, getGraph, EventListItem, MediaItem, GapsResponse, mediaUrl } from '../lib/api'
 
 interface EventMedia {
   id: string;
@@ -14,6 +14,7 @@ export default function HomePage() {
   const [events, setEvents] = useState<EventListItem[]>([])
   const [media, setMedia] = useState<MediaItem[]>([])
   const [gaps, setGaps] = useState<GapsResponse | null>(null)
+  const [memoryCount, setMemoryCount] = useState<number | null>(null)
   const [loading, setLoading] = useState(true)
   const [expandedEvent, setExpandedEvent] = useState<string | null>(null)
   const [eventMedia, setEventMedia] = useState<Record<string, EventMedia[]>>({})
@@ -38,11 +39,14 @@ export default function HomePage() {
   }
 
   useEffect(() => {
-    Promise.all([getEvents(), getMediaList(), getGaps()])
-      .then(([e, m, g]) => {
+    // 기억 개수는 전용 엔드포인트가 없어 Graph에서 센다.
+    // 정적 모드에서도 mock/graph.json으로 동작한다.
+    Promise.all([getEvents(), getMediaList(), getGaps(), getGraph()])
+      .then(([e, m, g, graph]) => {
         setEvents(e)
         setMedia(m)
         setGaps(g)
+        setMemoryCount(graph.nodes.filter((n) => n.node_type === 'memory').length)
       })
       .catch(console.error)
       .finally(() => setLoading(false))
@@ -64,7 +68,7 @@ export default function HomePage() {
       <div className="grid grid-cols-4 gap-4">
         <StatCard icon={Calendar} label="이벤트" value={events.length} color="blue" />
         <StatCard icon={Image} label="미디어" value={media.length} color="green" />
-        <StatCard icon={MessageCircle} label="기억" value="-" color="purple" />
+        <StatCard icon={MessageCircle} label="기억" value={memoryCount ?? '-'} color="purple" />
         <StatCard icon={AlertCircle} label="Memory Gap" value={gaps?.total ?? 0} color="orange" />
       </div>
 
