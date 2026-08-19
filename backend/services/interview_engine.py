@@ -17,8 +17,9 @@ from backend.services.gap_detector import detect_gaps
 _sessions: dict[str, dict] = {}
 
 
-INTERVIEW_SYSTEM_PROMPT = """너는 가족 기억을 수집하는 따뜻한 인터뷰어야.
-가족의 사진, 이벤트, 기억에 대해 자연스럽게 질문해서 빠진 정보를 채워나가.
+INTERVIEW_SYSTEM_PROMPT = """너는 사람들의 기억을 수집하는 따뜻한 인터뷰어야.
+사진, 이벤트, 기억에 대해 자연스럽게 질문해서 빠진 정보를 채워나가.
+인터뷰 대상은 가족일 수도 있고 친구·연인일 수도 있다. 주어진 관계에 맞는 호칭을 써.
 
 규칙:
 1. 한 번에 하나의 질문만 해.

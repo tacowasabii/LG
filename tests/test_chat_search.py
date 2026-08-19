@@ -28,6 +28,7 @@ from backend.services.chat_engine import (  # noqa: E402
     _score_node,
     _search_graph,
 )
+from backend.models.graph_models import RelationCategory, RelationType  # noqa: E402
 from backend.services.graph_manager import graph_manager  # noqa: E402
 
 
@@ -47,6 +48,10 @@ SEARCH_CASES = [
     ("딸", {"P03"}, "한 글자 호칭"),
     ("아들", {"P04"}, "호칭"),
     ("할머니가", {"P05"}, "호칭 + 조사"),
+    # 가족 밖 관계 - 스키마가 가족에 묶이지 않는다
+    ("친구", {"P06"}, "가족 밖 호칭"),
+    ("연인", {"P07"}, "가족 밖 호칭"),
+    ("최민지", {"P06"}, "가족 밖 인물 이름"),
     # 다어절 - 조사가 없는 맨 명사도 개별 검색되어야 한다
     ("부산 여행", {"E01"}, "다어절"),
     ("김하늘 결혼식", {"P03", "E07"}, "이름 + 다어절"),
@@ -203,6 +208,56 @@ def test_badge_window_is_not_wasted_on_unciteable_nodes():
         f"근거 {len(sources)}개 (기대 {expected}개). "
         f"상위5={[n['id'] for n in results[:5]]}"
     )
+
+
+def test_memory_context_includes_speaker():
+    """기억 컨텍스트에 화자가 실린다
+
+    화자가 없으면 모델이 기억의 주인을 뒤바꿔 답한다. 실제로 아빠(P01)의
+    캠코더 기억을 "엄마가 캠코더로 찍으며"로 잘못 말하는 것을 확인했다.
+    같은 사건에 대한 관점별 기억을 구분하는 근거이기도 하다.
+    """
+    _require_seeded_graph()
+    context = _format_search_results(_search_graph("캠코더"))
+    memory_lines = [line for line in context.split("\n") if "[기억]" in line]
+    assert memory_lines, f"기억 줄이 없음:\n{context}"
+    assert any("김민수" in line for line in memory_lines), (
+        f"화자(김민수)가 컨텍스트에 없음: {memory_lines}"
+    )
+
+
+def test_relations_are_not_limited_to_family():
+    """사람 사이 관계가 가족에 한정되지 않는다
+
+    가족·친구·연인이 같은 RELATED_TO 엣지를 쓰고 category로 구분된다.
+    """
+    _require_seeded_graph()
+    categories = {
+        edge["properties"].get("category")
+        for edge in graph_manager.get_all_edges()
+        if edge["relation"] == RelationType.RELATED_TO
+    }
+    assert RelationCategory.FAMILY in categories, f"가족 관계가 없음: {categories}"
+    assert RelationCategory.FRIEND in categories, f"친구 관계가 없음: {categories}"
+    assert RelationCategory.PARTNER in categories, f"연인 관계가 없음: {categories}"
+
+    # 관계명(부부/친구/연인)도 함께 보존되어야 화면과 프롬프트에서 쓸 수 있다
+    labels = {
+        edge["properties"].get("relation_type")
+        for edge in graph_manager.get_all_edges()
+        if edge["relation"] == RelationType.RELATED_TO
+    }
+    assert {"부부", "친구", "연인"} <= labels, f"관계명 누락: {sorted(labels)}"
+
+
+def test_non_family_person_participates_in_event():
+    """가족 밖 인물도 이벤트에 참여자로 연결된다 (사진에 없어도)"""
+    _require_seeded_graph()
+    friend = graph_manager.get_person_detail("P06")
+    assert friend is not None, "P06(친구)이 그래프에 없음"
+    assert friend["relation"] == "친구"
+    event_ids = {e["id"] for e in friend["events"]}
+    assert event_ids, "친구가 어떤 이벤트에도 연결되지 않음"
 
 
 def test_person_detail_includes_their_memories():

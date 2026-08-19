@@ -15,14 +15,15 @@ from backend.models.schemas import SourceItem
 _conversations: dict[str, list[dict]] = {}
 
 
-SYSTEM_PROMPT = """너는 "Family Memory Graph"의 AI 어시스턴트야.
-가족의 사진, 영상, 음성, 기억을 연결한 Memory Graph를 기반으로 가족의 질문에 답변해.
+SYSTEM_PROMPT = """너는 "LG HomeStory"의 AI 어시스턴트야.
+사람들의 사진, 영상, 음성, 기억을 연결한 Memory Graph를 기반으로 질문에 답변해.
+관계는 가족뿐 아니라 친구·연인도 포함된다. [인물]의 관계 표기를 그대로 존중해.
 
 규칙:
 1. 반드시 제공된 [검색 결과]를 근거로 답변해. 근거 없는 내용은 만들어내지 마.
 2. 답변할 때 어떤 사진/이벤트/기억을 참고했는지 명시해.
 3. 확실하지 않은 정보는 "~으로 추정됩니다"라고 표시해.
-4. 따뜻하고 가족적인 톤으로 답변해.
+4. 따뜻하고 다정한 톤으로 답변해.
 5. 한국어로 답변해.
 """
 
@@ -206,8 +207,17 @@ def _format_search_results(results: list[dict]) -> str:
                 info.append(f"장면: {node['scene_description']}")
             lines.append(f"{i}. [미디어] {node.get('original_filename', '')} ({', '.join(info)})")
         elif node_type == "memory":
+            content = node.get("content", "")
+            # 화자를 주지 않으면 모델이 기억의 주인을 뒤바꿔 답한다.
+            # (아빠의 캠코더 기억을 엄마의 것으로 말하는 사례를 확인했다)
+            speaker = None
+            contributor_id = node.get("contributor_id")
+            if contributor_id:
+                person = graph_manager.get_node(contributor_id)
+                speaker = person.get("name") if person else None
             lines.append(
-                f"{i}. [기억] {node.get('content', '')}"
+                f"{i}. [기억] {speaker}: {content}" if speaker
+                else f"{i}. [기억] {content}"
             )
 
     return "\n".join(lines)

@@ -15,7 +15,7 @@ sys.path.insert(0, str(ROOT_DIR))
 from backend.config import DATA_DIR, MEDIA_DIR, GRAPH_FILE
 from backend.models.graph_models import (
     PersonNode, EventNode, PlaceNode, MediaNode, MemoryNode,
-    Edge, RelationType, Confidence, SourceType, MediaType,
+    Edge, RelationType, RelationCategory, Confidence, SourceType, MediaType,
 )
 from backend.services.graph_manager import GraphManager
 
@@ -29,6 +29,15 @@ ROLE_KR = {
     "daughter": "딸",
     "son": "아들",
     "grandmother": "할머니",
+    # 가족 밖 관계
+    "friend": "친구",
+    "partner": "연인",
+}
+
+# role -> 관계 분류. 없으면 가족으로 본다.
+ROLE_CATEGORY = {
+    "friend": RelationCategory.FRIEND,
+    "partner": RelationCategory.PARTNER,
 }
 
 
@@ -66,14 +75,25 @@ def seed():
         gm.add_person(person)
     print(f"  ✓ 가족 구성원 {len(persons_data)}명")
 
-    # 가족 관계 엣지
-    family_pairs = [
-        ("P01", "P02", "부부"), ("P01", "P03", "부녀"), ("P01", "P04", "부자"),
-        ("P02", "P03", "모녀"), ("P02", "P04", "모자"),
-        ("P03", "P04", "남매"), ("P05", "P03", "조손"), ("P05", "P04", "조손"),
+    # 사람 사이의 관계 엣지. 가족·친구·연인이 같은 RELATED_TO를 쓰고
+    # category로 구분된다 (스키마가 가족에 묶이지 않음을 보이는 지점).
+    person_relations = [
+        ("P01", "P02", "부부", RelationCategory.FAMILY),
+        ("P01", "P03", "부녀", RelationCategory.FAMILY),
+        ("P01", "P04", "부자", RelationCategory.FAMILY),
+        ("P02", "P03", "모녀", RelationCategory.FAMILY),
+        ("P02", "P04", "모자", RelationCategory.FAMILY),
+        ("P03", "P04", "남매", RelationCategory.FAMILY),
+        ("P05", "P03", "조손", RelationCategory.FAMILY),
+        ("P05", "P04", "조손", RelationCategory.FAMILY),
+        ("P03", "P06", "친구", RelationCategory.FRIEND),
+        ("P03", "P07", "연인", RelationCategory.PARTNER),
     ]
-    for src, tgt, rel in family_pairs:
-        gm.add_edge(Edge(source=src, target=tgt, relation=RelationType.FAMILY_OF, properties={"relation_type": rel}))
+    for src, tgt, rel, category in person_relations:
+        gm.add_edge(Edge(
+            source=src, target=tgt, relation=RelationType.RELATED_TO,
+            properties={"relation_type": rel, "category": category},
+        ))
 
     # === 2. Places (events에서 추출) ===
     places_map = {}  # event_id → place_id
@@ -114,6 +134,13 @@ def seed():
     for m in media_data:
         for person_id in m.get("people", []):
             event_participants[m["event_id"]].add(person_id)
+
+    # 사진에 인물 라벨이 없어도 참석은 했을 수 있다.
+    # P06(친구)·P07(연인)은 합성 사진에 등장하지 않으므로 여기서 직접 연결한다.
+    extra_participants = [("P06", "E05"), ("P07", "E07")]
+    for person_id, event_id in extra_participants:
+        if person_id in {p["person_id"] for p in persons_data} and event_id in event_participants:
+            event_participants[event_id].add(person_id)
 
     for event_id, participants in event_participants.items():
         for person_id in participants:

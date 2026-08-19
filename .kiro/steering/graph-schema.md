@@ -31,7 +31,7 @@ Graph 관련 작업 시 `#graph-schema`로 불러서 사용하세요.
 | id | string | `person_{uuid8}` 또는 Ground truth의 경우 `P01`~`P05` |
 | node_type | string | `"person"` |
 | name | string | 이름 (한국어) |
-| relation | string | 가족 관계 (`"아빠"`, `"엄마"`, `"딸"`, `"아들"`, `"할머니"`) |
+| relation | string | 관계 (`"아빠"`, `"엄마"`, `"딸"`, `"아들"`, `"할머니"`, `"친구"`, `"연인"`) |
 | birth_year | int? | 출생 연도 |
 | thumbnail_url | string? | 프로필 이미지 경로 |
 | created_at | string | ISO datetime |
@@ -108,7 +108,7 @@ Graph 관련 작업 시 `#graph-schema`로 불러서 사용하세요.
 | `located_at` | Event → Place | 이벤트 발생 장소 | 부산여행 → 광안리 |
 | `remembers` | Person → Memory | 인물이 기억을 보유 | 김민수 → "캠코더를..." |
 | `about` | Memory → Event | 기억이 이벤트에 대한 것 | "캠코더를..." → 부산여행 |
-| `family_of` | Person → Person | 가족 관계 | 김민수 → 김하늘 |
+| `related_to` | Person → Person | 사람 사이 관계 (가족·친구·연인) | 김민수 → 김하늘 |
 
 **엣지 properties 예시**:
 ```json

@@ -27,7 +27,7 @@
 | `LOCATED_AT` | Event → Place | — | 부산 여행 → 부산 |
 | `REMEMBERS` | Person → Memory | — | 아빠 → "그때 비 왔었지" |
 | `ABOUT` | Memory → Event | — | 기억 → 부산 여행 |
-| `FAMILY_OF` | Person → Person | `relation_type` | 아빠 → 아들 (부자) |
+| `RELATED_TO` | Person → Person | `relation_type`, `category` | 아빠 → 아들 (부자/family), 딸 → 친구 (친구/friend) |
 
 ### 신뢰도 모델
 

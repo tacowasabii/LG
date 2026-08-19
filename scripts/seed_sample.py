@@ -53,12 +53,12 @@ def seed():
 
     # 가족 관계 엣지
     family_edges = [
-        Edge(source="person_dad", target="person_mom", relation=RelationType.FAMILY_OF, properties={"relation_type": "부부"}),
-        Edge(source="person_dad", target="person_son", relation=RelationType.FAMILY_OF, properties={"relation_type": "부자"}),
-        Edge(source="person_dad", target="person_daughter", relation=RelationType.FAMILY_OF, properties={"relation_type": "부녀"}),
-        Edge(source="person_mom", target="person_son", relation=RelationType.FAMILY_OF, properties={"relation_type": "모자"}),
-        Edge(source="person_mom", target="person_daughter", relation=RelationType.FAMILY_OF, properties={"relation_type": "모녀"}),
-        Edge(source="person_son", target="person_daughter", relation=RelationType.FAMILY_OF, properties={"relation_type": "남매"}),
+        Edge(source="person_dad", target="person_mom", relation=RelationType.RELATED_TO, properties={"category": "family", "relation_type": "부부"}),
+        Edge(source="person_dad", target="person_son", relation=RelationType.RELATED_TO, properties={"category": "family", "relation_type": "부자"}),
+        Edge(source="person_dad", target="person_daughter", relation=RelationType.RELATED_TO, properties={"category": "family", "relation_type": "부녀"}),
+        Edge(source="person_mom", target="person_son", relation=RelationType.RELATED_TO, properties={"category": "family", "relation_type": "모자"}),
+        Edge(source="person_mom", target="person_daughter", relation=RelationType.RELATED_TO, properties={"category": "family", "relation_type": "모녀"}),
+        Edge(source="person_son", target="person_daughter", relation=RelationType.RELATED_TO, properties={"category": "family", "relation_type": "남매"}),
     ]
     for edge in family_edges:
         gm.add_edge(edge)

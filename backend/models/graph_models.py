@@ -47,7 +47,20 @@ class RelationType(str, Enum):
     LOCATED_AT = "located_at"
     REMEMBERS = "remembers"
     ABOUT = "about"
-    FAMILY_OF = "family_of"
+    # 사람 사이의 관계. 가족에 한정하지 않는다 (친구·연인도 같은 엣지로 표현).
+    # 구체적인 관계명은 properties.relation_type, 분류는 properties.category.
+    RELATED_TO = "related_to"
+
+
+class RelationCategory(str, Enum):
+    """사람 사이 관계의 분류
+
+    같은 RELATED_TO 엣지를 쓰되 이 값으로 구분한다. 가족만 다루던 스키마를
+    친구·연인까지 넓히면서 도입했다.
+    """
+    FAMILY = "family"
+    FRIEND = "friend"
+    PARTNER = "partner"
 
 
 # --- Node Data Classes ---
@@ -61,7 +74,8 @@ class PersonNode:
     id: str = field(default_factory=lambda: _gen_id("person"))
     node_type: str = field(default=NodeType.PERSON, init=False)
     name: str = ""
-    relation: str = ""  # 아빠, 엄마, 아들, 딸 등
+    # 아빠, 엄마, 딸, 아들, 할머니 / 친구, 연인 등. 가족에 한정하지 않는다.
+    relation: str = ""
     birth_year: Optional[int] = None
     # 연도만으로는 나이가 1살까지 어긋난다 (생일 경과 여부를 알 수 없음)
     birth_date: Optional[str] = None  # ISO date string
@@ -134,7 +148,8 @@ class Edge:
     target: str = ""  # node id
     relation: str = RelationType.PARTICIPATED_IN
     properties: dict = field(default_factory=dict)
-    # e.g., {"role": "주인공"}, {"confidence": 0.9}, {"relation_type": "부자"}
+    # e.g., {"role": "주인공"}, {"confidence": 0.9},
+    #       {"relation_type": "부자", "category": "family"}
 
 
 # --- Utility ---

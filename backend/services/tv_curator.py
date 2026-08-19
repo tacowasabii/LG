@@ -251,7 +251,7 @@ async def _generate_narration(query: str, slides: list[dict]) -> str:
         return _simulate_narration(query, slide_summary)
 
     messages = [
-        {"role": "system", "content": "가족 사진 슬라이드쇼의 따뜻한 내레이션을 작성해. 2~3문장으로 짧게."},
+        {"role": "system", "content": "추억 사진 슬라이드쇼의 따뜻한 내레이션을 작성해. 2~3문장으로 짧게."},
         {"role": "user", "content": f"주제: {query}\n사진들: {', '.join(slide_summary)}"},
     ]
 
