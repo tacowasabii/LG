@@ -1,13 +1,37 @@
 import { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
-import { Calendar, Image, MessageCircle, AlertCircle, ChevronDown } from 'lucide-react'
-import { getEvents, getMediaList, getGaps, getGraph, EventListItem, MediaItem, GapsResponse, mediaUrl } from '../lib/api'
+import {
+  getEvents,
+  getMediaList,
+  getGaps,
+  getGraph,
+  EventListItem,
+  MediaItem,
+  GapsResponse,
+  mediaUrl,
+} from '../lib/api'
+import { STATE_CONFIG, STATE_ORDER } from '../components/StatusPill'
+import AudioClip from '../components/AudioClip'
+import MockBadge from '../components/MockBadge'
+import { Page, PageHeader, SectionHead, StatRow } from '../components/Page'
+import { MOCK_TIMELINE, eventById } from '../mock/timeline'
+import { MOCK_VOICE_CLIPS } from '../mock/voice'
+import { MOCK_MEMBERS } from '../mock/family'
 
 interface EventMedia {
-  id: string;
-  file_path: string;
-  thumbnail_path?: string;
-  media_type?: string;
+  id: string
+  file_path: string
+  thumbnail_path?: string
+  media_type?: string
+}
+
+/** 연도는 왼쪽 기둥에 따로 세우므로 제목에서 뗀다 */
+function shortTitle(title: string): string {
+  return title.replace(/^\d{4}\s*/, '')
+}
+
+function memberName(id: string): string {
+  return MOCK_MEMBERS.find((m) => m.id === id)?.name || id
 }
 
 export default function HomePage() {
@@ -53,175 +77,221 @@ export default function HomePage() {
   }, [])
 
   if (loading) {
-    return <div className="flex items-center justify-center h-64"><p className="text-gray-400">불러오는 중...</p></div>
+    return (
+      <Page width={1040}>
+        <p className="t-caption">불러오는 중…</p>
+      </Page>
+    )
   }
 
+  const years = events
+    .map((e) => e.date_start?.slice(0, 4))
+    .filter((y): y is string => !!y)
+    .sort()
+  const span = years.length > 0 ? `${years[0]} — ${years[years.length - 1]} · ` : ''
+
+  // 확인 상태 막대 — 실기능 개발 시 GET /api/graph/verify 의 상태 합계로 교체
+  const stateBar = STATE_ORDER.map((state) => ({
+    state,
+    count: MOCK_TIMELINE.filter((e) => e.state === state).length,
+  })).filter((b) => b.count > 0)
+
   return (
-    <div className="max-w-5xl mx-auto space-y-8">
-      {/* Header */}
-      <div>
-        <h1 className="text-2xl font-bold text-gray-900">우리의 기억</h1>
-        <p className="text-gray-500 mt-1">사진과 이야기로 연결된 사람들의 시간</p>
+    <Page width={1040}>
+      <PageHeader
+        large
+        eyebrow={`${span}사건 ${events.length}개`}
+        title="우리의 기억"
+        lead="사진과 이야기로 연결된 사람들의 시간. 무엇이 확인된 사실이고 무엇이 아직 추정인지 함께 표시합니다."
+      />
+
+      <div className="mt-12">
+        <StatRow
+          cells={[
+            { value: events.length, label: '사건' },
+            { value: media.length, label: '사진 · 영상' },
+            { value: memoryCount ?? '—', label: '기억 문장' },
+            { value: gaps?.total ?? 0, label: '채워야 할 기억', accent: true },
+          ]}
+        />
       </div>
 
-      {/* Stats */}
-      <div className="grid grid-cols-4 gap-4">
-        <StatCard icon={Calendar} label="이벤트" value={events.length} color="blue" />
-        <StatCard icon={Image} label="미디어" value={media.length} color="green" />
-        <StatCard icon={MessageCircle} label="기억" value={memoryCount ?? '-'} color="purple" />
-        <StatCard icon={AlertCircle} label="Memory Gap" value={gaps?.total ?? 0} color="orange" />
-      </div>
+      {/* 처음 오는 사람을 위한 길 — 기획안 리스크 "데이터가 처음엔 없음"에 대한 답 */}
+      <Link
+        to="/onboarding"
+        className="banner-accent mt-10 flex items-center gap-4 rounded-lg px-6 py-5
+                   no-underline transition-colors duration-150 ease-out hover:no-underline"
+      >
+        <span className="flex-1">
+          <span className="block text-[15px] font-semibold text-ink-900">처음이신가요?</span>
+          <span className="t-body-sm mt-1 block text-ink-400">
+            사진 3장으로 첫 사건을 만들어 봅니다. 나머지는 질문에 답하면서 채워집니다.
+          </span>
+        </span>
+        <span className="text-xl text-accent-ink">→</span>
+      </Link>
 
-      {/* Timeline */}
-      <section>
-        <div className="flex items-center justify-between mb-4">
-          <h2 className="text-lg font-semibold text-gray-800">타임라인</h2>
-          <Link to="/graph" className="text-sm text-primary-600 hover:text-primary-700">그래프로 보기 →</Link>
+      {/* 확인 상태 — 무엇이 사실이고 무엇이 추정인지 한눈에 (기획안 03장) */}
+      <section className="mt-14">
+        <SectionHead title="확인 상태" to="/verify" linkLabel="확인하러 가기">
+          <MockBadge />
+        </SectionHead>
+
+        {/*
+          막대를 하나로 이어 붙이지 않고 2px씩 띄운다. 상태가 서로 섞이는 값이
+          아니라 서로 다른 종류라는 것을 모양으로 먼저 알리기 위한 것이다.
+        */}
+        <div className="mt-5 flex h-2 gap-[2px]">
+          {stateBar.map((b) => (
+            <div
+              key={b.state}
+              style={{
+                background: STATE_CONFIG[b.state].dot,
+                width: (b.count / MOCK_TIMELINE.length) * 100 + '%',
+              }}
+            />
+          ))}
         </div>
 
+        <div className="mt-4 flex flex-wrap gap-5">
+          {stateBar.map((b) => (
+            <span key={b.state} className="flex items-center gap-2">
+              <span
+                className="h-2 w-2 rounded-full"
+                style={{ background: STATE_CONFIG[b.state].dot }}
+              />
+              <span className="text-[13px] text-ink-500">{STATE_CONFIG[b.state].label}</span>
+              <span className="t-mono text-xs text-ink-300">{b.count}건</span>
+            </span>
+          ))}
+        </div>
+
+        <p className="t-caption mt-4">
+          추정한 정보는 확정하지 않습니다. 가족이 확인해야 사실이 됩니다.
+        </p>
+      </section>
+
+      <section className="mt-14">
+        <SectionHead title="타임라인" to="/graph" linkLabel="그래프로 보기" strong />
+
         {events.length === 0 ? (
-          <div className="card text-center py-12">
-            <p className="text-gray-400">아직 이벤트가 없습니다.</p>
-            <Link to="/upload" className="btn-primary inline-block mt-4">사진 업로드하기</Link>
+          <div className="py-12 text-center">
+            <p className="t-body-sm m-0 text-ink-300">아직 사건이 없습니다.</p>
+            <Link to="/upload" className="btn-primary mt-5 inline-block no-underline hover:no-underline">
+              사진 올리기
+            </Link>
           </div>
         ) : (
-          <div className="relative">
-            {/* Timeline line */}
-            <div className="absolute left-6 top-0 bottom-0 w-0.5 bg-gray-200" />
+          events.map((event) => {
+            const mock = eventById(event.id)
+            const state = mock?.state ?? 'inferred'
+            const config = STATE_CONFIG[state]
+            const open = expandedEvent === event.id
+            const counts = [
+              `사진 ${event.media_count}`,
+              mock ? `기억 ${mock.memory_count}` : null,
+              mock && mock.voice_count > 0 ? `음성 ${mock.voice_count}` : null,
+            ]
+              .filter(Boolean)
+              .join(' · ')
 
-            <div className="space-y-4">
-              {events.map((event) => (
-                <div key={event.id} className="relative flex gap-4">
-                  {/* Dot */}
-                  <div className="relative z-10 w-12 h-12 rounded-full bg-primary-100 flex items-center justify-center flex-shrink-0">
-                    <Calendar size={18} className="text-primary-600" />
-                  </div>
+            return (
+              <div key={event.id} style={{ borderBottom: '1px solid var(--border)' }}>
+                <button
+                  onClick={() => toggleEvent(event.id)}
+                  className="flex w-full items-start gap-6 px-1 py-5 text-left hover:bg-ink-50"
+                >
+                  <span className="t-mono w-10 shrink-0 pt-[3px] text-[13px] text-accent-ink">
+                    {event.date_start?.slice(0, 4) || '연도'}
+                  </span>
+                  <span className="min-w-0 flex-1">
+                    <span className="block text-base font-semibold text-ink-900">
+                      {shortTitle(event.title)}
+                    </span>
+                    <span className="t-body-sm mt-[3px] block text-ink-400">
+                      {event.date_start || '날짜 미상'}
+                      {event.location_name && ` · ${event.location_name}`}
+                    </span>
+                  </span>
+                  <span className="flex shrink-0 items-center gap-3 pt-0.5">
+                    <span className="pill" style={{ background: config.bg, color: config.fg }}>
+                      {config.label}
+                    </span>
+                    <span className="t-mono text-[11px] text-ink-300">{counts}</span>
+                    <span className="w-2.5 text-[11px] text-ink-300">{open ? '▲' : '▼'}</span>
+                  </span>
+                </button>
 
-                  {/* Content */}
-                  <div className="card flex-1 cursor-pointer hover:shadow-md transition-shadow" onClick={() => toggleEvent(event.id)}>
-                    <div className="flex items-start justify-between">
-                      <div>
-                        <h3 className="font-medium text-gray-900">{event.title}</h3>
-                        <p className="text-sm text-gray-500 mt-0.5">
-                          {event.date_start || '날짜 미상'}
-                          {event.location_name && ` · ${event.location_name}`}
-                        </p>
-                      </div>
-                      <div className="flex items-center gap-2 text-xs text-gray-400">
-                        <span>{event.participant_count}명 참여</span>
-                        <span>사진 {event.media_count}</span>
-                        <ChevronDown size={14} className={`transition-transform ${expandedEvent === event.id ? 'rotate-180' : ''}`} />
-                      </div>
-                    </div>
-
-                    {/* Expanded Media */}
-                    {expandedEvent === event.id && (
-                      <div className="mt-3 pt-3 border-t border-gray-100">
-                        {eventMedia[event.id] ? (
-                          eventMedia[event.id].length > 0 ? (
-                            <div className="grid grid-cols-3 gap-2">
-                              {eventMedia[event.id].map((m) => (
-                                <div key={m.id} className="aspect-square rounded-md overflow-hidden bg-gray-100">
-                                  {m.media_type === 'video' ? (
-                                    <video src={mediaUrl(m.file_path)} className="w-full h-full object-cover" muted playsInline />
-                                  ) : (
-                                    <img
-                                      src={mediaUrl(m.thumbnail_path || m.file_path)}
-                                      alt=""
-                                      className="w-full h-full object-cover"
-                                    />
-                                  )}
-                                </div>
-                              ))}
-                            </div>
-                          ) : (
-                            <p className="text-sm text-gray-400">연결된 사진이 없습니다.</p>
-                          )
-                        ) : (
-                          <p className="text-sm text-gray-400 animate-pulse">불러오는 중...</p>
-                        )}
-                      </div>
+                {open && (
+                  <div className="flex gap-2 pb-6 pl-16 pr-1">
+                    {eventMedia[event.id] ? (
+                      eventMedia[event.id].length > 0 ? (
+                        <>
+                          {eventMedia[event.id].map((m) =>
+                            m.media_type === 'video' ? (
+                              <video
+                                key={m.id}
+                                src={mediaUrl(m.file_path)}
+                                className="h-24 w-[132px] rounded bg-ink-50 object-cover"
+                                muted
+                                playsInline
+                              />
+                            ) : (
+                              <img
+                                key={m.id}
+                                src={mediaUrl(m.thumbnail_path || m.file_path)}
+                                alt=""
+                                className="h-24 w-[132px] rounded bg-ink-50 object-cover"
+                              />
+                            ),
+                          )}
+                          <span className="self-end pb-1 pl-2">
+                            <span className="t-caption block">{event.location_name}</span>
+                            <span className="t-caption block text-ink-300">
+                              {mock?.participant_ids.map(memberName).join(' · ')}
+                            </span>
+                          </span>
+                        </>
+                      ) : (
+                        <p className="t-caption m-0">연결된 사진이 없습니다.</p>
+                      )
+                    ) : (
+                      <p className="t-caption m-0">불러오는 중…</p>
                     )}
                   </div>
-                </div>
-              ))}
-            </div>
-          </div>
+                )}
+              </div>
+            )
+          })
         )}
       </section>
 
-      {/* Recent Media */}
-      {media.length > 0 && (
-        <section>
-          <div className="flex items-center justify-between mb-4">
-            <h2 className="text-lg font-semibold text-gray-800">최근 미디어</h2>
-            <Link to="/upload" className="text-sm text-primary-600 hover:text-primary-700">더 보기 →</Link>
-          </div>
-          <div className="grid grid-cols-4 gap-3">
-            {media.slice(0, 8).map((item) => (
-              <div key={item.id} className="aspect-square rounded-lg overflow-hidden bg-gray-100 border border-gray-200 relative">
-                {item.media_type === 'video' ? (
-                  <video
-                    src={mediaUrl(item.file_path)}
-                    className="w-full h-full object-cover"
-                    muted
-                    playsInline
-                    onMouseEnter={(e) => (e.target as HTMLVideoElement).play()}
-                    onMouseLeave={(e) => { const v = e.target as HTMLVideoElement; v.pause(); v.currentTime = 0 }}
-                  />
-                ) : (
-                  <img
-                    src={mediaUrl(item.thumbnail_path || item.file_path)}
-                    alt={item.original_filename}
-                    className="w-full h-full object-cover"
-                  />
-                )}
-                {item.media_type === 'video' && (
-                  <div className="absolute bottom-1 right-1 bg-black/60 text-white text-xs px-1.5 py-0.5 rounded">▶</div>
-                )}
-              </div>
-            ))}
-          </div>
-        </section>
-      )}
+      {/* 가족의 목소리 — 기획안이 "핵심 독자 데이터"로 지목한 자산 */}
+      <section className="mt-14">
+        <SectionHead title="가족의 목소리" to="/interview" linkLabel="목소리 남기기">
+          <MockBadge label="음성 목데이터" />
+        </SectionHead>
+        <div className="mt-5 grid grid-cols-2 gap-4">
+          {MOCK_VOICE_CLIPS.slice(0, 4).map((clip) => (
+            <AudioClip key={clip.id} clip={clip} />
+          ))}
+        </div>
+      </section>
 
-      {/* Gaps Preview */}
       {gaps && gaps.total > 0 && (
-        <section>
-          <div className="flex items-center justify-between mb-4">
-            <h2 className="text-lg font-semibold text-gray-800">채워야 할 기억</h2>
-            <Link to="/gaps" className="text-sm text-primary-600 hover:text-primary-700">전체 보기 →</Link>
-          </div>
-          <div className="grid grid-cols-2 gap-3">
+        <section className="mt-14">
+          <SectionHead title="채워야 할 기억" to="/gaps" linkLabel="전체 보기" />
+          <div className="mt-5 grid grid-cols-2 gap-4">
             {gaps.gaps.slice(0, 4).map((gap) => (
-              <div key={gap.id} className="card border-l-4 border-l-orange-400">
-                <p className="text-sm text-gray-700">{gap.description}</p>
-                <p className="text-xs text-gray-400 mt-1">💡 {gap.suggested_question}</p>
+              <div key={gap.id} className="surface p-5">
+                <p className="t-mono m-0 text-[11px] text-ink-300">{gap.event_title}</p>
+                <p className="m-0 mt-2 text-sm font-semibold text-ink-700">{gap.description}</p>
+                <p className="t-body-sm m-0 mt-2 text-ink-400">{gap.suggested_question}</p>
               </div>
             ))}
           </div>
         </section>
       )}
-    </div>
-  )
-}
-
-function StatCard({ icon: Icon, label, value, color }: { icon: any; label: string; value: number | string; color: string }) {
-  const colors: Record<string, string> = {
-    blue: 'bg-blue-50 text-blue-600',
-    green: 'bg-green-50 text-green-600',
-    purple: 'bg-purple-50 text-purple-600',
-    orange: 'bg-orange-50 text-orange-600',
-  }
-  return (
-    <div className="card flex items-center gap-3">
-      <div className={`w-10 h-10 rounded-lg flex items-center justify-center ${colors[color]}`}>
-        <Icon size={20} />
-      </div>
-      <div>
-        <p className="text-2xl font-bold text-gray-900">{value}</p>
-        <p className="text-xs text-gray-500">{label}</p>
-      </div>
-    </div>
+    </Page>
   )
 }

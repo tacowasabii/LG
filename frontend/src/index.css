@@ -2,23 +2,511 @@
 @tailwind components;
 @tailwind utilities;
 
+/* ==========================================================================
+   HomeStory Design System — Colors & Type
+
+   잉크와 종이 위에 단 하나의 강조색을 얹는 편집 디자인 체계다. 색을 여러 개
+   쓰지 않고 회색 계조의 리듬으로 위계를 만들고, 주의를 끌 자격이 있는 곳에만
+   와인색을 쓴다. 화면마다 같은 토큰을 쓰기 때문에 "무엇이 확인된 사실이고
+   무엇이 추정인지"라는 제품의 메시지가 화면을 옮겨도 같은 색으로 읽힌다.
+
+   Tailwind 유틸리티(bg-paper, text-ink-900, border-border …)와 인라인 스타일의
+   var(--…)이 같은 값을 가리킨다. 값이 계산으로 정해지는 자리(진행률 너비, 상태
+   색)는 인라인 스타일을, 고정된 자리는 유틸리티를 쓴다.
+   ========================================================================== */
+
+:root {
+  /* Neutrals — 종이에서 잉크까지 */
+  --paper:        #FAFAF7;   /* 흰색보다 따뜻한 기본 바탕 */
+  --paper-pure:   #FFFFFF;
+  --ink-50:       #F2F1EC;   /* 옅은 면, 띠 */
+  --ink-100:      #E5E3DC;   /* 테두리, 구분선 */
+  --ink-200:      #C9C6BC;   /* 약한 선 */
+  --ink-300:      #9C988C;   /* 3차 텍스트, 캡션 */
+  --ink-400:      #6E6A60;   /* 2차 텍스트 */
+  --ink-500:      #3F3C36;   /* 본문 */
+  --ink-700:      #1F1D1A;   /* 주요 텍스트 */
+  --ink-900:      #0E0D0B;   /* 최대 대비, 제목 */
+
+  /* 의미 토큰 */
+  --bg:            var(--paper);
+  --bg-alt:        var(--ink-50);
+  --bg-inverse:    var(--ink-900);
+  --fg:            var(--ink-700);
+  --fg-muted:      var(--ink-400);
+  --fg-subtle:     var(--ink-300);
+  --fg-inverse:    var(--paper);
+  --border:        var(--ink-100);
+  --border-strong: var(--ink-200);
+
+  /* Accent — 단 하나의 서명색. Wine. */
+  --accent:       #8A1538;
+  --accent-ink:   #A61E4D;   /* 밝은 베리 — 밝은 배경 위 텍스트용 */
+  --accent-deep:  #5F0E26;   /* 가장 짙은 와인 — 면과 호버에만, 텍스트에는 쓰지 않는다 */
+  --accent-soft:  #F4E3E8;   /* 옅게 깐 배경 */
+  --accent-fg:    #FFFFFF;   /* 강조색 위 텍스트 */
+  --accent-on-dark:     #E5809B;   /* 어두운 면 위의 선·숫자 */
+  --accent-on-dark-ink: #F2C4CF;   /* 어두운 면 위의 라벨 */
+
+  /* 상태색 — Teal · Violet · Burnt Orange.
+     붉은 계열은 브랜드 강조색이 독점하므로 상태에는 쓰지 않는다. */
+  --positive: #17766B;  --positive-ink: #115B52;  --positive-soft: #DFEEEC;
+  --warning:  #7C5CB0;  --warning-ink:  #634790;  --warning-soft:  #ECE6F5;
+  --critical: #C2542A;  --critical-ink: #9C4220;  --critical-soft: #F6E6DE;
+
+  /* Type — 국문·영문 모두 Pretendard 한 종. 숫자·식별자는 JetBrains Mono. */
+  --font-sans: 'Pretendard Variable', Pretendard, -apple-system, BlinkMacSystemFont,
+               system-ui, sans-serif;
+  --font-mono: 'JetBrains Mono', ui-monospace, 'SF Mono', Menlo, monospace;
+
+  /* 자간 */
+  --ls-display: -0.025em;   /* 큰 글자는 좁힌다 */
+  --ls-tight:   -0.01em;
+  --ls-eyebrow: 0.14em;     /* 대문자 라벨은 넓힌다 */
+
+  /* 모서리 */
+  --r-sm:   4px;
+  --r-md:   8px;
+  --r-lg:   12px;
+  --r-pill: 999px;
+
+  /* 그림자 — 아껴 쓴다. UI가 아니라 종이에 가까운 체계다. */
+  --shadow-sm: 0 1px 2px rgba(14, 13, 11, 0.04), 0 1px 1px rgba(14, 13, 11, 0.03);
+  --shadow-md: 0 4px 12px rgba(14, 13, 11, 0.06), 0 2px 4px rgba(14, 13, 11, 0.04);
+  --shadow-lg: 0 12px 32px rgba(14, 13, 11, 0.08), 0 4px 8px rgba(14, 13, 11, 0.04);
+
+  /* 움직임 — 최소한으로, 목적이 있을 때만 */
+  --ease-out:  cubic-bezier(0.16, 1, 0.3, 1);
+  --dur-fast:  140ms;
+  --dur-base:  240ms;
+}
+
+/*
+ * 어두운 면에서는 와인색이 보이지 않는다. 그래서 강조색 자체를 갈아 끼운다.
+ * 각 화면은 배경과 무관하게 var(--accent)만 쓰면 된다.
+ */
+[data-theme='dark'] {
+  --accent:      var(--accent-on-dark);
+  --accent-ink:  var(--accent-on-dark-ink);
+  --accent-soft: rgba(229, 128, 155, 0.14);
+}
+
 @layer base {
   body {
-    @apply text-gray-800 font-light;
+    margin: 0;
+    background: var(--paper);
+    color: var(--ink-700);
+    font-family: var(--font-sans);
+    -webkit-font-smoothing: antialiased;
   }
-  h1, h2, h3, h4, h5, h6 {
-    @apply font-semibold tracking-tight;
+
+  a {
+    color: var(--accent-ink);
+    text-decoration: none;
+  }
+  a:hover {
+    text-decoration: underline;
+    text-decoration-thickness: 1px;
+    text-underline-offset: 4px;
+  }
+
+  ::selection {
+    background: var(--accent-soft);
+  }
+
+  input,
+  textarea,
+  select,
+  button {
+    font-family: var(--font-sans);
+  }
+
+  *::-webkit-scrollbar {
+    width: 10px;
+    height: 10px;
+  }
+  *::-webkit-scrollbar-thumb {
+    background: var(--ink-100);
+    border-radius: 999px;
+    border: 3px solid var(--paper);
   }
 }
 
+/* ==========================================================================
+   의미 기반 타이포그래피
+
+   크기·굵기·색·자간을 한 묶음으로 고정한다. 화면에서 직접 이 클래스를 쓰고
+   개별 값을 다시 지정하지 않는다.
+   ========================================================================== */
 @layer components {
-  .card {
-    @apply bg-white rounded-xl shadow-sm border border-gray-100 p-4;
+  .t-display {
+    font-size: 44px;
+    font-weight: 700;
+    line-height: 1.1;
+    letter-spacing: var(--ls-display);
+    color: var(--ink-900);
+    text-wrap: balance;
   }
+  /* 대부분의 화면 제목 — 홈만 t-display를 쓴다 */
+  .t-title {
+    font-size: 36px;
+    font-weight: 700;
+    line-height: 1.15;
+    letter-spacing: var(--ls-display);
+    color: var(--ink-900);
+    text-wrap: balance;
+  }
+  .t-h3 {
+    font-size: 20px;
+    font-weight: 600;
+    line-height: 1.4;
+    letter-spacing: var(--ls-tight);
+    color: var(--ink-900);
+  }
+  .t-lead {
+    font-size: 20px;
+    font-weight: 400;
+    line-height: 1.55;
+    color: var(--ink-500);
+    text-wrap: pretty;
+  }
+  .t-body {
+    font-size: 16px;
+    font-weight: 400;
+    line-height: 1.55;
+    color: var(--ink-500);
+    text-wrap: pretty;
+  }
+  .t-body-sm {
+    font-size: 14px;
+    font-weight: 400;
+    line-height: 1.55;
+    color: var(--ink-500);
+  }
+  .t-caption {
+    font-size: 12px;
+    font-weight: 400;
+    line-height: 1.4;
+    color: var(--ink-400);
+  }
+  /* 화면 종류를 알려주는 대문자 라벨 */
+  .t-eyebrow {
+    font-size: 11px;
+    font-weight: 600;
+    letter-spacing: var(--ls-eyebrow);
+    text-transform: uppercase;
+    color: var(--accent-ink);
+  }
+  .t-mono {
+    font-family: var(--font-mono);
+    font-size: 14px;
+    font-weight: 400;
+    letter-spacing: 0;
+    color: var(--ink-500);
+  }
+}
+
+/*
+ * 반복되는 조각들. 인라인 스타일로 매번 적기에는 같은 값이 너무 여러 곳에 나온다.
+ */
+@layer components {
+  /* 하얀 면 + 실선 한 겹. 그림자는 쓰지 않는다. */
+  .surface {
+    background: var(--paper-pure);
+    border: 1px solid var(--border);
+    border-radius: var(--r-lg);
+  }
+
+  /* 섹션을 여는 굵은 규칙선 — 표와 목록의 머리 */
+  .rule-strong {
+    border-top: 2px solid var(--ink-700);
+  }
+
+  .pill {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    font-size: 11px;
+    font-weight: 600;
+    padding: 3px 8px;
+    border-radius: var(--r-pill);
+    white-space: nowrap;
+  }
+
+  /* 태그·필터에 쓰는 중립 알약 */
+  .chip {
+    font-size: 12px;
+    padding: 6px 12px;
+    border-radius: var(--r-pill);
+    border: 1px solid var(--border);
+    background: transparent;
+    color: var(--ink-500);
+    cursor: pointer;
+    white-space: nowrap;
+    transition: background var(--dur-fast) var(--ease-out);
+  }
+  .chip:hover {
+    background: var(--ink-50);
+  }
+  /*
+   * 켜진 상태는 어디서나 같은 모양이다 — 강조색 테두리 + 옅게 깐 강조색 면.
+   * 면을 잉크색으로 반전시키지 않는 것은, 필터가 여러 개 켜졌을 때 검은 알약이
+   * 줄줄이 늘어서면 그 아래 본문보다 무거워지기 때문이다.
+   */
+  .chip-on,
+  .tab-on {
+    border-color: var(--accent);
+    background: var(--accent-soft);
+    color: var(--accent-ink);
+  }
+  .chip-on:hover,
+  .tab-on:hover {
+    background: var(--accent-soft);
+  }
+
+  /* 알약이 아니라 모서리만 둥근 토글 (길이·대상·답변 방식 고르기) */
+  .tab {
+    font-size: 13px;
+    padding: 8px 16px;
+    border-radius: var(--r-md);
+    border: 1px solid var(--border);
+    background: transparent;
+    color: var(--ink-500);
+    cursor: pointer;
+    white-space: nowrap;
+    transition: background var(--dur-fast) var(--ease-out);
+  }
+  .tab:hover {
+    background: var(--ink-50);
+  }
+  .tab-sm {
+    font-size: 12px;
+    padding: 6px 12px;
+  }
+  .tab:disabled {
+    color: var(--ink-200);
+    cursor: not-allowed;
+  }
+  .tab:disabled:hover {
+    background: transparent;
+  }
+
   .btn-primary {
-    @apply bg-primary-600 text-white px-4 py-2 rounded-lg hover:bg-primary-700 transition-colors font-medium;
+    font-size: 14px;
+    font-weight: 600;
+    padding: 11px 24px;
+    border-radius: var(--r-md);
+    border: 0;
+    background: var(--accent);
+    color: var(--accent-fg);
+    cursor: pointer;
+    transition: background var(--dur-fast) var(--ease-out);
   }
-  .btn-secondary {
-    @apply bg-gray-100 text-gray-700 px-4 py-2 rounded-lg hover:bg-gray-200 transition-colors font-medium;
+  .btn-primary:hover {
+    background: var(--accent-deep);
   }
+  .btn-primary:disabled {
+    background: var(--ink-200);
+    cursor: not-allowed;
+  }
+
+  /* 강조색 테두리만 두른 2차 동작 */
+  .btn-outline {
+    font-size: 12px;
+    padding: 7px 14px;
+    border-radius: var(--r-md);
+    border: 1px solid var(--accent);
+    background: transparent;
+    color: var(--accent-ink);
+    cursor: pointer;
+    white-space: nowrap;
+    transition: background var(--dur-fast) var(--ease-out);
+  }
+  .btn-outline:hover {
+    background: var(--accent-soft);
+  }
+
+  .btn-quiet {
+    font-size: 12px;
+    padding: 7px 14px;
+    border-radius: var(--r-md);
+    border: 1px solid var(--border);
+    background: transparent;
+    color: var(--ink-500);
+    cursor: pointer;
+    white-space: nowrap;
+    transition: background var(--dur-fast) var(--ease-out);
+  }
+  .btn-quiet:hover {
+    background: var(--ink-50);
+  }
+
+  /* 밑줄 글자만 남긴 3차 동작 (초기화, 다시 하기 …) */
+  .btn-link {
+    font-size: 12px;
+    background: transparent;
+    border: 0;
+    padding: 0;
+    color: var(--ink-300);
+    cursor: pointer;
+    text-decoration: underline;
+    text-underline-offset: 4px;
+  }
+
+  .field {
+    width: 100%;
+    padding: 14px 16px;
+    font-size: 15px;
+    color: var(--ink-700);
+    background: var(--paper-pure);
+    border: 1px solid var(--border);
+    border-radius: var(--r-md);
+    outline: none;
+    box-sizing: border-box;
+  }
+  .field:focus {
+    border-color: var(--accent);
+  }
+
+  .field-sm {
+    padding: 10px 12px;
+    font-size: 13px;
+  }
+
+  /*
+   * 줄 안에 끼워 넣는 입력(공개 범위·역할 고르기). .field는 폭을 가득 채우는데,
+   * 가로줄에서 그대로 쓰면 옆 내용을 밀어낸다.
+   */
+  .field-inline {
+    width: auto;
+    padding: 7px 10px;
+    font-size: 12px;
+    cursor: pointer;
+  }
+
+  /*
+   * 눌러서 고르는 면의 호버. 자바스크립트로 테두리 색을 직접 만지면 그 사이에
+   * 리렌더가 끼었을 때 호버가 풀린 것처럼 되돌아간다.
+   */
+  .hover-border-strong:hover {
+    border-color: var(--border-strong);
+  }
+  .hover-border-accent:hover {
+    border-color: var(--accent);
+  }
+
+  /* 강조색을 옅게 깐 안내 띠 (홈의 "처음이신가요?") */
+  .banner-accent {
+    background: var(--accent-soft);
+    color: inherit;
+  }
+  .banner-accent:hover {
+    background: #efd8df;
+  }
+
+  /* 화면 본문 폭 — 디자인은 화면 성격에 따라 폭을 달리 잡는다 */
+  .page {
+    margin: 0 auto;
+    padding: 56px 48px 96px 48px;
+  }
+}
+
+/*
+ * Memory Live 움직임 (기획안 "진정성 원칙")
+ *
+ * 인물과 행동을 새로 만들지 않는다. 허용 범위는 느린 패닝 · 줌 · 미세 배경
+ * 움직임까지다. 아래 네 가지를 슬라이드 순서에 따라 돌려 쓴다.
+ * 실제 깊이 기반 시차(2.5D)는 이후 단계에서 붙인다.
+ */
+@keyframes kenburns-zoom-in {
+  from { transform: scale(1) translate3d(0, 0, 0); }
+  to   { transform: scale(1.12) translate3d(-1.2%, -1%, 0); }
+}
+@keyframes kenburns-zoom-out {
+  from { transform: scale(1.12) translate3d(1%, 1%, 0); }
+  to   { transform: scale(1) translate3d(0, 0, 0); }
+}
+@keyframes kenburns-pan-left {
+  from { transform: scale(1.1) translate3d(2.5%, 0, 0); }
+  to   { transform: scale(1.1) translate3d(-2.5%, -0.8%, 0); }
+}
+@keyframes kenburns-pan-right {
+  from { transform: scale(1.1) translate3d(-2.5%, -0.8%, 0); }
+  to   { transform: scale(1.1) translate3d(2.5%, 0, 0); }
+}
+
+@layer utilities {
+  .motion-zoom-in   { animation: kenburns-zoom-in 9s ease-out both; }
+  .motion-zoom-out  { animation: kenburns-zoom-out 9s ease-out both; }
+  .motion-pan-left  { animation: kenburns-pan-left 9s ease-in-out both; }
+  .motion-pan-right { animation: kenburns-pan-right 9s ease-in-out both; }
+}
+
+/* 움직임을 줄이도록 설정한 사용자에게는 정지 화면을 준다 */
+@media (prefers-reduced-motion: reduce) {
+  .motion-zoom-in,
+  .motion-zoom-out,
+  .motion-pan-left,
+  .motion-pan-right {
+    animation: none;
+  }
+}
+
+/*
+ * TV 10-foot UI (기획안 06장 LG PRODUCT LINKAGE · LG TV / webOS)
+ *
+ * 3m 거리에서 리모컨으로만 조작하는 화면이다. 웹 기준 글자 크기를 그대로 쓰면
+ * 거실에서 읽히지 않으므로 1920px 기준 본문이 28px 이상 되도록 vw로 잡았다.
+ * 패널 오버스캔 때문에 화면 가장자리는 잘려 나갈 수 있어 상하좌우 5%를 비워 둔다.
+ */
+@layer components {
+  .tv-safe { padding: 5vh 5vw; }
+
+  .tv-title {
+    font-size: clamp(1.75rem, 3.4vw, 4rem);
+    line-height: 1.12;
+    font-weight: 700;
+    letter-spacing: -0.02em;
+  }
+  .tv-heading {
+    font-size: clamp(1.2rem, 2vw, 2.25rem);
+    line-height: 1.25;
+    font-weight: 600;
+  }
+  .tv-body {
+    font-size: clamp(1rem, 1.5vw, 1.75rem);
+    line-height: 1.5;
+  }
+  .tv-caption {
+    font-size: clamp(0.85rem, 1.05vw, 1.2rem);
+    line-height: 1.4;
+  }
+
+  /*
+   * 포커스는 TV에서 "지금 내가 어디 있는지" 알려주는 유일한 신호다.
+   * 색만 바꾸면 3m 거리에서 구분되지 않아 크기와 그림자까지 같이 움직인다.
+   */
+  .tv-focusable {
+    transition: transform 0.18s ease, box-shadow 0.18s ease, background-color 0.18s ease;
+  }
+  .tv-focused {
+    box-shadow: 0 0 0 0.28vw rgba(250, 250, 247, 0.95), 0 1.2vw 3vw rgba(14, 13, 11, 0.55);
+    transform: scale(1.045);
+    z-index: 1;
+  }
+}
+
+@keyframes tv-fade-in {
+  from { opacity: 0; }
+  to   { opacity: 1; }
+}
+
+@layer utilities {
+  /* 대기화면은 사진이 툭 바뀌지 않고 서로 겹쳐 넘어간다 */
+  .tv-fade-in { animation: tv-fade-in 1.1s ease both; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .tv-fade-in { animation: none; }
+  .tv-focused { transform: none; }
 }

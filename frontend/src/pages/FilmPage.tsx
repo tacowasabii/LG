@@ -1,0 +1,375 @@
+/**
+ * Memory Film (기획안 02장 CORE · STORY)
+ *
+ * 하나의 사건에 연결된 사진·영상·음성을 30~60초 이야기로 묶는다.
+ * 기획안의 진정성 원칙에 따라 장면마다 원본 출처와 적용된 AI 효과를 드러낸다.
+ *
+ * AI 효과 표시에 경고색을 쓰지 않는다. AI가 손을 댄 것은 잘못이 아니라 사실이고,
+ * 사실은 조용히 적으면 된다 — 보라색 알약은 "여기까지가 원본, 여기부터가 생성"의
+ * 경계를 알려주는 표지판이지 경보가 아니다. 효과가 없는 장면은 teal로 "원본
+ * 그대로"라고 밝혀, 둘 중 어느 쪽인지 화면에서 늘 읽히게 한다.
+ *
+ * 실기능 개발 시 교체 지점:
+ *   MOCK_STORYBOARDS   -> POST /api/film {event_id, length, audience}
+ *   MOCK_ANNIVERSARIES -> GET  /api/film/anniversaries
+ *   미리보기 진행바     -> 실제 렌더된 영상 플레이어
+ */
+
+import { useEffect, useMemo, useState } from 'react'
+import { Link } from 'react-router-dom'
+import { mediaUrl } from '../lib/api'
+import {
+  AUDIENCE_DESC,
+  AUDIENCE_LABEL,
+  Audience,
+  FilmLength,
+  MOCK_ANNIVERSARIES,
+  MOCK_STORYBOARDS,
+  fitToLength,
+  storyboardFor,
+} from '../mock/film'
+import { clipById } from '../mock/voice'
+import { MOCK_TIMELINE } from '../mock/timeline'
+import { Page, PageHeader } from '../components/Page'
+import AudioClip from '../components/AudioClip'
+import RichText from '../components/RichText'
+
+const LENGTHS: FilmLength[] = [30, 45, 60]
+const AUDIENCES: Audience[] = ['child', 'adult', 'elder']
+
+/** 장면 순서에 따라 네 가지 움직임을 돌려 쓴다 (기획안 진정성 원칙의 허용 범위) */
+const MOTIONS = ['motion-zoom-in', 'motion-pan-left', 'motion-zoom-out', 'motion-pan-right']
+
+export default function FilmPage() {
+  const [eventId, setEventId] = useState(MOCK_STORYBOARDS[0].event_id)
+  const [length, setLength] = useState<FilmLength>(45)
+  const [audience, setAudience] = useState<Audience>('adult')
+  const [playing, setPlaying] = useState(false)
+  const [elapsed, setElapsed] = useState(0)
+
+  const board = storyboardFor(eventId)
+  const scenes = useMemo(() => (board ? fitToLength(board.scenes, length) : []), [board, length])
+  const totalSec = scenes.reduce((sum, s) => sum + s.duration_sec, 0)
+
+  // 사건이나 길이가 바뀌면 처음부터
+  useEffect(() => {
+    setPlaying(false)
+    setElapsed(0)
+  }, [eventId, length])
+
+  useEffect(() => {
+    if (!playing) return
+    const timer = window.setInterval(() => {
+      setElapsed((prev) => {
+        const next = prev + 0.25
+        if (next >= totalSec) {
+          setPlaying(false)
+          return totalSec
+        }
+        return next
+      })
+    }, 250)
+    return () => window.clearInterval(timer)
+  }, [playing, totalSec])
+
+  // 현재 재생 위치가 몇 번째 장면인지
+  let acc = 0
+  let currentIndex = 0
+  for (let i = 0; i < scenes.length; i++) {
+    acc += scenes[i].duration_sec
+    if (elapsed < acc) {
+      currentIndex = i
+      break
+    }
+    currentIndex = i
+  }
+  const currentScene = scenes[currentIndex]
+  const voice = currentScene?.voice_id ? clipById(currentScene.voice_id) : undefined
+
+  return (
+    <Page width={1000}>
+      <PageHeader
+        mock
+        eyebrow="Memory Film"
+        title="한 사건, 한 편의 이야기"
+        lead="사진·영상·음성을 짧은 이야기로 묶습니다. 장면마다 원본 출처와 적용된 AI 효과를 함께 남깁니다."
+      />
+
+      <div
+        className="mt-9 py-5"
+        style={{
+          borderTop: '1px solid var(--border)',
+          borderBottom: '1px solid var(--border)',
+        }}
+      >
+        <p className="t-eyebrow m-0 mb-2.5 text-ink-300">어떤 사건으로 만들까요</p>
+        <div className="flex flex-wrap gap-1.5">
+          {MOCK_TIMELINE.map((event) => {
+            const ready = !!storyboardFor(event.id)
+            return (
+              <button
+                key={event.id}
+                disabled={!ready}
+                onClick={() => setEventId(event.id)}
+                className={`chip ${eventId === event.id ? 'chip-on' : ''}
+                            ${ready ? '' : 'cursor-not-allowed text-ink-200 hover:bg-transparent'}`}
+                title={ready ? undefined : '장면을 만들 자료가 아직 부족합니다'}
+              >
+                {event.title.replace(/^\d{4}\s*/, '')}
+              </button>
+            )
+          })}
+        </div>
+      </div>
+
+      <div className="mt-6 grid grid-cols-2 gap-8">
+        <div>
+          <p className="t-eyebrow m-0 mb-2.5 text-ink-300">길이</p>
+          <div className="flex gap-1.5">
+            {LENGTHS.map((l) => (
+              <button
+                key={l}
+                onClick={() => setLength(l)}
+                className={`tab ${length === l ? 'tab-on' : ''}`}
+              >
+                {l}초
+              </button>
+            ))}
+          </div>
+          <p className="t-caption mt-2.5">
+            선택한 길이에 맞춰 장면 {scenes.length}개 · 실제 {totalSec}초
+          </p>
+        </div>
+
+        <div>
+          <p className="t-eyebrow m-0 mb-2.5 text-ink-300">누구에게 보여줄까요</p>
+          <div className="flex gap-1.5">
+            {AUDIENCES.map((a) => (
+              <button
+                key={a}
+                onClick={() => setAudience(a)}
+                className={`tab ${audience === a ? 'tab-on' : ''}`}
+              >
+                {AUDIENCE_LABEL[a]}
+              </button>
+            ))}
+          </div>
+          <p className="t-caption mt-2.5">{AUDIENCE_DESC[audience]}</p>
+        </div>
+      </div>
+
+      {board && currentScene && (
+        <>
+          <div className="surface mt-8 overflow-hidden">
+            <div
+              className="relative aspect-video overflow-hidden"
+              style={{ background: 'var(--ink-900)' }}
+            >
+              <img
+                key={currentScene.media_id}
+                src={mediaUrl(currentScene.thumb)}
+                alt=""
+                className={`h-full w-full object-cover ${MOTIONS[currentIndex % 4]}`}
+              />
+              <div
+                className="absolute inset-0"
+                style={{
+                  background:
+                    'linear-gradient(to top, rgba(14,13,11,0.82) 0%, rgba(14,13,11,0.08) 55%, rgba(14,13,11,0.32) 100%)',
+                }}
+              />
+
+              {/* AI 라벨 — 생성 요소를 숨기지 않는다 */}
+              <span
+                className="absolute right-4 top-4 rounded-full px-3 py-[5px] text-[11px]"
+                style={{ background: 'rgba(14,13,11,0.62)', color: 'var(--paper)' }}
+              >
+                {currentScene.ai_effects.length > 0
+                  ? 'AI 효과 · ' + currentScene.ai_effects.join(' · ')
+                  : '원본 그대로'}
+              </span>
+
+              <div className="absolute inset-x-0 bottom-0 p-7">
+                <p
+                  className="m-0 text-[22px] font-semibold tracking-[-0.01em]"
+                  style={{ color: 'var(--paper)' }}
+                >
+                  {currentScene.subtitle}
+                </p>
+                <p
+                  className="m-0 mt-1.5 text-xs"
+                  style={{ color: 'rgba(250,250,247,0.62)' }}
+                >
+                  {currentScene.source_label}
+                </p>
+              </div>
+            </div>
+
+            <div className="px-6 py-5">
+              <div className="flex items-center gap-4">
+                <button
+                  onClick={() => {
+                    if (elapsed >= totalSec) setElapsed(0)
+                    setPlaying((p) => !p)
+                  }}
+                  aria-label={playing ? '일시정지' : '재생'}
+                  className="h-[38px] w-[38px] shrink-0 cursor-pointer rounded-full border-0 text-[11px]"
+                  style={{ background: 'var(--accent)', color: 'var(--accent-fg)' }}
+                >
+                  {playing ? '■' : '▶'}
+                </button>
+
+                <div className="flex-1">
+                  <div className="h-0.5" style={{ background: 'var(--ink-100)' }}>
+                    <div
+                      className="h-0.5"
+                      style={{
+                        background: 'var(--accent)',
+                        width: (totalSec ? (elapsed / totalSec) * 100 : 0) + '%',
+                      }}
+                    />
+                  </div>
+                  <div className="mt-2 flex justify-between">
+                    <span className="t-mono text-[11px] text-ink-400">
+                      장면 {currentIndex + 1} / {scenes.length}
+                    </span>
+                    <span className="t-mono text-[11px] text-ink-400">
+                      {Math.floor(elapsed)}초 / {totalSec}초
+                    </span>
+                  </div>
+                </div>
+              </div>
+
+              {voice && (
+                <div className="mt-4 pt-4" style={{ borderTop: '1px solid var(--border)' }}>
+                  <p className="t-caption m-0 mb-2">이 장면에 함께 재생되는 실제 음성</p>
+                  <AudioClip clip={voice} compact />
+                </div>
+              )}
+            </div>
+          </div>
+
+          <div className="mt-8">
+            <p className="m-0 text-[19px] font-semibold text-ink-900">
+              {board.title}
+              <span className="t-caption ml-2.5 text-ink-300">{board.subtitle}</span>
+            </p>
+            <p className="t-body mt-3 max-w-[60ch]">
+              <RichText text={board.narration} />
+            </p>
+            <p className="t-caption mt-3">
+              내레이션은 확인된 기록 안에서만 생성됩니다. 원본에 없는 발화·행동은 만들지
+              않습니다.
+            </p>
+          </div>
+
+          <div className="mt-9">
+            <p className="t-eyebrow m-0 mb-1">장면 구성</p>
+            <div className="rule-strong mt-3">
+              {scenes.map((scene, i) => (
+                <div
+                  key={scene.media_id}
+                  className="flex gap-5 px-1 py-5"
+                  style={{
+                    borderBottom: '1px solid var(--border)',
+                    borderLeft: `2px solid ${i === currentIndex ? 'var(--accent)' : 'transparent'}`,
+                  }}
+                >
+                  <img
+                    src={mediaUrl(scene.thumb)}
+                    alt=""
+                    className="h-20 w-28 shrink-0 rounded bg-ink-50 object-cover"
+                  />
+                  <div className="min-w-0 flex-1">
+                    <div className="flex items-center gap-2">
+                      <span className="t-mono text-[11px] text-ink-300">
+                        {i + 1}번째 · {scene.duration_sec}초
+                      </span>
+                      {scene.voice_id && (
+                        <span
+                          className="pill font-normal"
+                          style={{
+                            background: 'var(--accent-soft)',
+                            color: 'var(--accent-ink)',
+                          }}
+                        >
+                          실제 음성
+                        </span>
+                      )}
+                    </div>
+                    <p className="m-0 mt-1.5 text-[15px] font-semibold text-ink-900">
+                      {scene.subtitle}
+                    </p>
+                    <p className="t-body-sm m-0 mt-1 text-ink-400">{scene.note}</p>
+                    <div className="mt-2.5 flex flex-wrap gap-1.5">
+                      <span className="pill bg-ink-50 px-[9px] font-normal text-ink-500">
+                        {scene.source_label}
+                      </span>
+                      {scene.ai_effects.map((fx) => (
+                        <span
+                          key={fx}
+                          className="pill px-[9px] font-normal"
+                          style={{
+                            background: 'var(--warning-soft)',
+                            color: 'var(--warning-ink)',
+                          }}
+                        >
+                          AI · {fx}
+                        </span>
+                      ))}
+                      {scene.ai_effects.length === 0 && (
+                        <span
+                          className="pill px-[9px] font-normal"
+                          style={{
+                            background: 'var(--positive-soft)',
+                            color: 'var(--positive-ink)',
+                          }}
+                        >
+                          원본 그대로
+                        </span>
+                      )}
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        </>
+      )}
+
+      <div className="mt-9">
+        <p className="t-eyebrow m-0 mb-1">다가오는 기념일</p>
+        <p className="t-caption m-0 mb-3">
+          기념일이 되면 TV 대기화면에서 그날의 Film이 먼저 뜹니다.
+        </p>
+        <div style={{ borderTop: '1px solid var(--border)' }}>
+          {MOCK_ANNIVERSARIES.map((a) => (
+            <div
+              key={a.date}
+              className="flex items-center gap-5 px-1 py-4"
+              style={{ borderBottom: '1px solid var(--border)' }}
+            >
+              <span className="t-mono w-[88px] shrink-0 text-xs text-accent-ink">{a.date}</span>
+              <span className="min-w-0 flex-1">
+                <span className="block text-[15px] font-semibold text-ink-900">{a.label}</span>
+                <span className="t-caption mt-0.5 block">{a.reason}</span>
+              </span>
+              <span className="t-mono whitespace-nowrap text-[11px] text-ink-300">
+                {a.days_left}일 남음
+              </span>
+              {storyboardFor(a.event_id) ? (
+                <button onClick={() => setEventId(a.event_id)} className="btn-quiet">
+                  미리 보기
+                </button>
+              ) : (
+                <Link to="/interview" className="btn-outline no-underline hover:no-underline">
+                  자료 채우기
+                </Link>
+              )}
+            </div>
+          ))}
+        </div>
+      </div>
+    </Page>
+  )
+}

@@ -18,7 +18,7 @@ export default function RichText({ text }: { text: string }) {
         }
         if (part.length > 2 && part.startsWith('`') && part.endsWith('`')) {
           return (
-            <code key={i} className="px-1 py-0.5 bg-gray-100 text-gray-700 rounded text-[13px]">
+            <code key={i} className="t-mono rounded bg-ink-50 px-1 py-0.5 text-[13px] text-ink-700">
               {part.slice(1, -1)}
             </code>
           )

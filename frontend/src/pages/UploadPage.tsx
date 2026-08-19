@@ -1,6 +1,28 @@
 import { useState, useCallback, useEffect } from 'react'
-import { Upload, CheckCircle, X, Image, Film, Mic, AlertCircle } from 'lucide-react'
-import { uploadMedia, supplementMedia, getEvents, MediaUploadResult, EventListItem, mediaUrl } from '../lib/api'
+import {
+  uploadMedia,
+  supplementMedia,
+  getEvents,
+  MediaUploadResult,
+  EventListItem,
+  mediaUrl,
+} from '../lib/api'
+import { Page, PageHeader } from '../components/Page'
+
+/**
+ * 기록 올리기
+ *
+ * 읽어낸 정보를 알약 한 줄로 나열한다 — 촬영 시점, GPS, 연결된 사건. 무엇을
+ * 읽었는지가 파일 이름보다 중요하고, 읽을 정보가 없으면 추측해서 채우지 않고
+ * 그 자리에서 물어본다. "추가 정보 필요"는 오류가 아니라 정직함의 표시이므로
+ * 붉은 경고가 아니라 상태 알약으로 조용히 둔다.
+ */
+
+const MEDIA_TYPE_LABEL: Record<string, string> = {
+  image: '사진',
+  video: '영상',
+  audio: '음성',
+}
 
 export default function UploadPage() {
   const [dragOver, setDragOver] = useState(false)
@@ -8,7 +30,9 @@ export default function UploadPage() {
   const [results, setResults] = useState<MediaUploadResult[]>([])
   const [error, setError] = useState<string | null>(null)
   const [events, setEvents] = useState<EventListItem[]>([])
-  const [supplementForms, setSupplementForms] = useState<Record<string, { date: string; event_id: string; description: string }>>({})
+  const [supplementForms, setSupplementForms] = useState<
+    Record<string, { date: string; event_id: string; description: string }>
+  >({})
 
   useEffect(() => {
     getEvents().then(setEvents).catch(console.error)
@@ -33,40 +57,83 @@ export default function UploadPage() {
     setUploading(false)
   }, [])
 
-  const handleDrop = useCallback((e: React.DragEvent) => {
-    e.preventDefault()
-    setDragOver(false)
-    handleFiles(e.dataTransfer.files)
-  }, [handleFiles])
+  const handleDrop = useCallback(
+    (e: React.DragEvent) => {
+      e.preventDefault()
+      setDragOver(false)
+      handleFiles(e.dataTransfer.files)
+    },
+    [handleFiles],
+  )
 
-  const mediaIcon = (type: string) => {
-    if (type === 'video') return <Film size={16} className="text-purple-500" />
-    if (type === 'audio') return <Mic size={16} className="text-green-500" />
-    return <Image size={16} className="text-blue-500" />
+  const patchForm = (
+    id: string,
+    patch: Partial<{ date: string; event_id: string; description: string }>,
+  ) =>
+    setSupplementForms((prev) => {
+      const base = prev[id] ?? { date: '', event_id: '', description: '' }
+      return { ...prev, [id]: { ...base, ...patch } }
+    })
+
+  const saveSupplement = async (result: MediaUploadResult) => {
+    const form = supplementForms[result.id]
+    if (!form?.date && !form?.event_id) return
+    try {
+      const res = await supplementMedia({
+        media_id: result.id,
+        date: form.date || undefined,
+        event_id: form.event_id || undefined,
+        description: form.description || undefined,
+      })
+      // 업데이트된 결과 반영
+      setResults((prev) =>
+        prev.map((r) =>
+          r.id === result.id
+            ? {
+                ...r,
+                needs_info: false,
+                linked_event_id: res.linked_event_id || r.linked_event_id,
+                exif_date: form.date || r.exif_date,
+              }
+            : r,
+        ),
+      )
+    } catch (e) {
+      console.error(e)
+    }
   }
 
-  return (
-    <div className="max-w-3xl mx-auto space-y-6">
-      <div>
-        <h1 className="text-2xl font-bold text-gray-900">미디어 업로드</h1>
-        <p className="text-gray-500 mt-1">사진, 영상, 음성을 업로드하면 자동으로 분석되어 Memory Graph에 연결됩니다.</p>
-      </div>
+  const eventTitle = (id: string) => events.find((e) => e.id === id)?.title || id
 
-      {/* Drop Zone */}
+  return (
+    <Page width={820}>
+      <PageHeader
+        eyebrow="Upload"
+        title="기록 올리기"
+        lead="사진·영상·음성을 올리면 촬영 시점과 장소를 읽어 사건에 연결합니다. 읽을 정보가 없으면 추측하지 않고 물어봅니다."
+      />
+
       <div
-        onDragOver={(e) => { e.preventDefault(); setDragOver(true) }}
+        onDragOver={(e) => {
+          e.preventDefault()
+          setDragOver(true)
+        }}
         onDragLeave={() => setDragOver(false)}
         onDrop={handleDrop}
-        className={`border-2 border-dashed rounded-xl p-12 text-center transition-colors cursor-pointer ${
-          dragOver ? 'border-primary-400 bg-primary-50' : 'border-gray-300 hover:border-gray-400'
-        }`}
         onClick={() => document.getElementById('file-input')?.click()}
+        className="mt-9 cursor-pointer rounded-lg px-8 py-16 text-center
+                   transition-colors duration-150 ease-out"
+        style={{
+          border: `1px dashed ${dragOver ? 'var(--accent)' : 'var(--border-strong)'}`,
+          background: dragOver ? 'var(--accent-soft)' : 'transparent',
+        }}
       >
-        <Upload size={40} className={`mx-auto mb-4 ${dragOver ? 'text-primary-500' : 'text-gray-400'}`} />
-        <p className="text-gray-600 font-medium">
-          {uploading ? '업로드 중...' : '파일을 끌어오거나 클릭하세요'}
+        <p className="m-0 text-[17px] font-semibold text-ink-700">
+          {uploading ? '올리는 중…' : '파일을 끌어오거나 눌러서 고르세요'}
         </p>
-        <p className="text-sm text-gray-400 mt-2">사진(JPG, PNG), 영상(MP4, MOV), 음성(MP3, M4A) 지원</p>
+        <p className="t-caption m-0 mt-2">
+          사진 JPG · PNG / 영상 MP4 · MOV / 음성 MP3 · M4A
+        </p>
         <input
           id="file-input"
           type="file"
@@ -78,143 +145,145 @@ export default function UploadPage() {
       </div>
 
       {error && (
-        <div className="bg-red-50 text-red-700 px-4 py-3 rounded-lg text-sm flex items-center gap-2">
-          <X size={16} /> {error}
-        </div>
+        <p className="t-body-sm mt-4" style={{ color: 'var(--critical-ink)' }}>
+          {error}
+        </p>
       )}
 
-      {/* Results */}
       {results.length > 0 && (
-        <div className="space-y-3">
-          <h2 className="text-lg font-semibold text-gray-800">업로드 결과</h2>
-          {results.map((result) => (
-            <div key={result.id} className="card">
-              <div className="flex items-start gap-4">
-                {/* Thumbnail */}
-                <div className="w-16 h-16 rounded-lg overflow-hidden bg-gray-100 flex-shrink-0">
+        <div className="mt-9">
+          <div
+            className="flex items-baseline justify-between pb-3"
+            style={{ borderBottom: '2px solid var(--ink-700)' }}
+          >
+            <p className="t-eyebrow m-0">읽은 결과</p>
+            <button onClick={() => setResults([])} className="btn-link">
+              다시 올리기
+            </button>
+          </div>
+
+          {results.map((result) => {
+            const form = supplementForms[result.id]
+            const needsForm = result.needs_info && !result.linked_event_id
+
+            return (
+              <div
+                key={result.id}
+                className="px-1 py-5"
+                style={{ borderBottom: '1px solid var(--border)' }}
+              >
+                <div className="flex items-start gap-5">
                   {result.thumbnail_path ? (
-                    <img src={mediaUrl(result.thumbnail_path)} alt="" className="w-full h-full object-cover" />
+                    <img
+                      src={mediaUrl(result.thumbnail_path)}
+                      alt=""
+                      className="h-[72px] w-[72px] shrink-0 rounded bg-ink-50 object-cover"
+                    />
                   ) : (
-                    <div className="w-full h-full flex items-center justify-center">
-                      {mediaIcon(result.media_type)}
-                    </div>
+                    <span
+                      className="flex h-[72px] w-[72px] shrink-0 items-center justify-center
+                                 rounded bg-ink-50 text-[11px] text-ink-300"
+                    >
+                      {MEDIA_TYPE_LABEL[result.media_type] || result.media_type}
+                    </span>
                   )}
+
+                  <div className="min-w-0 flex-1">
+                    <p className="t-mono m-0 text-xs text-ink-700">{result.original_filename}</p>
+                    <div className="mt-2.5 flex flex-wrap gap-1.5">
+                      <span className="pill bg-ink-50 font-normal text-ink-500">
+                        {MEDIA_TYPE_LABEL[result.media_type] || result.media_type}
+                      </span>
+                      {result.exif_date && (
+                        <span className="pill bg-ink-50 font-normal text-ink-500">
+                          촬영 {result.exif_date.slice(0, 10)}
+                        </span>
+                      )}
+                      {result.exif_lat != null && (
+                        <span className="pill bg-ink-50 font-normal text-ink-500">
+                          GPS 좌표 있음
+                        </span>
+                      )}
+                      {result.linked_event_id && (
+                        <span
+                          className="pill font-normal"
+                          style={{
+                            background: 'var(--accent-soft)',
+                            color: 'var(--accent-ink)',
+                          }}
+                        >
+                          사건 연결 · {eventTitle(result.linked_event_id)}
+                        </span>
+                      )}
+                    </div>
+                  </div>
+
+                  <span
+                    className="pill px-2.5 py-1"
+                    style={
+                      result.needs_info
+                        ? {
+                            background: 'var(--critical-soft)',
+                            color: 'var(--critical-ink)',
+                          }
+                        : {
+                            background: 'var(--positive-soft)',
+                            color: 'var(--positive-ink)',
+                          }
+                    }
+                  >
+                    {result.needs_info ? '추가 정보 필요' : '자동 연결 완료'}
+                  </span>
                 </div>
 
-                {/* Info */}
-                <div className="flex-1 min-w-0">
-                  <div className="flex items-center gap-2">
-                    {result.needs_info ? (
-                      <AlertCircle size={16} className="text-orange-500 flex-shrink-0" />
-                    ) : (
-                      <CheckCircle size={16} className="text-green-500 flex-shrink-0" />
-                    )}
-                    <p className="font-medium text-gray-800 truncate">{result.original_filename}</p>
+                {/* EXIF가 없는 기록 — 추측해서 채우지 않고 아는 것만 받는다 */}
+                {needsForm && (
+                  <div className="ml-[92px] mt-4 rounded-lg bg-ink-50 p-5">
+                    <p className="t-body-sm m-0 mb-3">
+                      EXIF 정보가 없습니다. 추측해서 채우지 않습니다. 아는 것만 알려주세요.
+                    </p>
+                    <div className="flex flex-col gap-2">
+                      <input
+                        type="date"
+                        value={form?.date || ''}
+                        onChange={(e) => patchForm(result.id, { date: e.target.value })}
+                        className="field field-sm"
+                      />
+                      <select
+                        value={form?.event_id || ''}
+                        onChange={(e) => patchForm(result.id, { event_id: e.target.value })}
+                        className="field field-sm"
+                      >
+                        <option value="">기존 사건에 연결 (선택)</option>
+                        {events.map((ev) => (
+                          <option key={ev.id} value={ev.id}>
+                            {ev.title}
+                            {ev.date_start ? ` (${ev.date_start})` : ''}
+                          </option>
+                        ))}
+                      </select>
+                      <input
+                        type="text"
+                        placeholder="사진 설명 (선택)"
+                        value={form?.description || ''}
+                        onChange={(e) => patchForm(result.id, { description: e.target.value })}
+                        className="field field-sm"
+                      />
+                      <button
+                        onClick={() => saveSupplement(result)}
+                        disabled={!form?.date && !form?.event_id}
+                        className="btn-primary mt-1 self-start px-[18px] py-2.5 text-[13px]"
+                      >
+                        정보 저장
+                      </button>
+                    </div>
                   </div>
-                  <div className="flex flex-wrap gap-2 mt-2">
-                    {result.media_type && (
-                      <span className="inline-flex items-center gap-1 text-xs bg-gray-100 text-gray-600 px-2 py-0.5 rounded">
-                        {mediaIcon(result.media_type)} {result.media_type}
-                      </span>
-                    )}
-                    {result.exif_date && (
-                      <span className="text-xs bg-blue-50 text-blue-600 px-2 py-0.5 rounded">
-                        📅 {result.exif_date.slice(0, 10)}
-                      </span>
-                    )}
-                    {result.exif_lat && (
-                      <span className="text-xs bg-green-50 text-green-600 px-2 py-0.5 rounded">
-                        📍 GPS
-                      </span>
-                    )}
-                    {result.linked_event_id && (
-                      <span className="text-xs bg-purple-50 text-purple-600 px-2 py-0.5 rounded">
-                        🔗 이벤트 연결됨
-                      </span>
-                    )}
-                    {result.needs_info && (
-                      <span className="text-xs bg-orange-50 text-orange-600 px-2 py-0.5 rounded">
-                        ⚠️ 추가 정보 필요
-                      </span>
-                    )}
-                  </div>
-                </div>
+                )}
               </div>
-
-              {/* Supplement Form for EXIF-less media */}
-              {result.needs_info && !result.linked_event_id && (
-                <div className="mt-3 pt-3 border-t border-gray-100">
-                  <p className="text-sm text-gray-500 mb-2">EXIF 정보가 없습니다. 아래 정보를 입력해주세요:</p>
-                  <div className="grid grid-cols-1 gap-2">
-                    <input
-                      type="date"
-                      placeholder="촬영 날짜"
-                      value={supplementForms[result.id]?.date || ''}
-                      onChange={(e) => setSupplementForms((prev) => ({
-                        ...prev,
-                        [result.id]: { ...prev[result.id], date: e.target.value, event_id: prev[result.id]?.event_id || '', description: prev[result.id]?.description || '' },
-                      }))}
-                      className="px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary-500"
-                    />
-                    <select
-                      value={supplementForms[result.id]?.event_id || ''}
-                      onChange={(e) => setSupplementForms((prev) => ({
-                        ...prev,
-                        [result.id]: { ...prev[result.id], event_id: e.target.value, date: prev[result.id]?.date || '', description: prev[result.id]?.description || '' },
-                      }))}
-                      className="px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary-500"
-                    >
-                      <option value="">기존 이벤트에 연결 (선택)</option>
-                      {events.map((ev) => (
-                        <option key={ev.id} value={ev.id}>
-                          {ev.title} {ev.date_start ? `(${ev.date_start})` : ''}
-                        </option>
-                      ))}
-                    </select>
-                    <input
-                      type="text"
-                      placeholder="사진 설명 (선택)"
-                      value={supplementForms[result.id]?.description || ''}
-                      onChange={(e) => setSupplementForms((prev) => ({
-                        ...prev,
-                        [result.id]: { ...prev[result.id], description: e.target.value, date: prev[result.id]?.date || '', event_id: prev[result.id]?.event_id || '' },
-                      }))}
-                      className="px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary-500"
-                    />
-                    <button
-                      onClick={async () => {
-                        const form = supplementForms[result.id]
-                        if (!form?.date && !form?.event_id) return
-                        try {
-                          const res = await supplementMedia({
-                            media_id: result.id,
-                            date: form.date || undefined,
-                            event_id: form.event_id || undefined,
-                            description: form.description || undefined,
-                          })
-                          // 업데이트된 결과 반영
-                          setResults((prev) =>
-                            prev.map((r) =>
-                              r.id === result.id
-                                ? { ...r, needs_info: false, linked_event_id: res.linked_event_id || r.linked_event_id, exif_date: form.date || r.exif_date }
-                                : r
-                            )
-                          )
-                        } catch (e) {
-                          console.error(e)
-                        }
-                      }}
-                      className="btn-primary text-sm"
-                    >
-                      정보 저장
-                    </button>
-                  </div>
-                </div>
-              )}
-            </div>
-          ))}
+            )
+          })}
         </div>
       )}
-    </div>
+    </Page>
   )
 }
