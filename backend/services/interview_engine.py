@@ -40,6 +40,10 @@ async def start_interview(target_type: str = "auto", target_id: Optional[str] = 
 
     # 타겟 결정
     target_node = None
+    # 수집한 기억을 누구의 것으로 기록할지. Gap이 "기억이 없는 참여자"를 이미 지목한다.
+    contributor_id = None
+    contributor_name = None
+
     if target_id:
         target_node = graph_manager.get_node(target_id)
 
@@ -50,9 +54,11 @@ async def start_interview(target_type: str = "auto", target_id: Optional[str] = 
             gap = gaps[0]
             if gap.get("event_id"):
                 target_node = graph_manager.get_node(gap["event_id"])
+            contributor_id = gap.get("target_person_id")
+            contributor_name = gap.get("target_person")
 
     # 타겟 정보 구성
-    context = _build_interview_context(target_node)
+    context = _build_interview_context(target_node, contributor_name)
 
     # 첫 질문 생성
     first_question = await _generate_question(context, [])
@@ -61,6 +67,8 @@ async def start_interview(target_type: str = "auto", target_id: Optional[str] = 
     _sessions[session_id] = {
         "target_node": target_node,
         "context": context,
+        "contributor_id": contributor_id,
+        "contributor_name": contributor_name,
         "questions": [first_question],
         "answers": [],
         "updated_nodes": [],
@@ -75,6 +83,7 @@ async def start_interview(target_type: str = "auto", target_id: Optional[str] = 
             "target_type": target_node.get("node_type") if target_node else None,
             "target_id": target_node.get("id") if target_node else None,
             "target_title": target_node.get("title", target_node.get("name", "")) if target_node else None,
+            "contributor_name": contributor_name,
         },
     }
 
@@ -131,13 +140,17 @@ def get_session_status(session_id: str) -> Optional[dict]:
     }
 
 
-def _build_interview_context(target_node: Optional[dict]) -> str:
+def _build_interview_context(target_node: Optional[dict], contributor_name: Optional[str] = None) -> str:
     """인터뷰 컨텍스트 구성"""
     if not target_node:
         return "가족의 기억에 대해 전반적으로 질문합니다."
 
     node_type = target_node.get("node_type", "")
     lines = []
+
+    if contributor_name:
+        # 질문이 특정 가족을 향하게 한다 (그 사람의 기억이 빠져 있어서 인터뷰 대상이 됐다)
+        lines.append(f"인터뷰 대상: {contributor_name} (이 사람의 기억이 아직 기록되지 않았습니다)")
 
     if node_type == "event":
         lines.append(f"이벤트: {target_node.get('title', '')}")
@@ -201,13 +214,20 @@ def _simulate_question(context: str, previous_answers: list[str]) -> str:
 
 
 async def _process_answer_to_graph(session: dict, answer: str) -> list[str]:
-    """답변을 구조화하여 Graph에 저장"""
+    """답변을 구조화하여 Graph에 저장
+
+    같은 사건에 대한 가족별 기억을 따로 보존하려면 "누가 말했는지"가 남아야 한다.
+    contributor_id와 REMEMBERS 엣지가 없으면 Gap 탐지도 "아직 기억을 남기지
+    않은 참여자"를 찾을 수 없다.
+    """
     updated_nodes = []
+    contributor_id = session.get("contributor_id")
 
     # Memory 노드 생성
     memory = MemoryNode(
         content=answer,
         source_type=SourceType.INTERVIEW,
+        contributor_id=contributor_id,
         confidence=Confidence.CONFIRMED,
     )
     graph_manager.add_memory(memory)
@@ -222,5 +242,13 @@ async def _process_answer_to_graph(session: dict, answer: str) -> list[str]:
             relation=RelationType.ABOUT,
         )
         graph_manager.add_edge(edge)
+
+    # 화자 → 기억 (REMEMBERS)
+    if contributor_id and graph_manager.get_node(contributor_id):
+        graph_manager.add_edge(Edge(
+            source=contributor_id,
+            target=memory.id,
+            relation=RelationType.REMEMBERS,
+        ))
 
     return updated_nodes

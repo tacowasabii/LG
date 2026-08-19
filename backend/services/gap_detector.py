@@ -112,6 +112,7 @@ def detect_gaps() -> list[dict]:
                     description=f"'{event_title}'에 대해 {target_person.get('name', '')}의 기억이 없습니다.",
                     suggested_question=f"{target_person.get('name', '')}님, '{event_title}' 때 어떤 기억이 있으세요?",
                     target_person=target_person.get("name"),
+                    target_person_id=target_person.get("id"),
                     priority=4,
                 ))
 
@@ -136,6 +137,7 @@ def _create_gap(
     description: str,
     suggested_question: str,
     target_person: Optional[str] = None,
+    target_person_id: Optional[str] = None,
     priority: int = 1,
 ) -> dict:
     """Gap 아이템 생성"""
@@ -150,5 +152,7 @@ def _create_gap(
         "description": description,
         "suggested_question": suggested_question,
         "target_person": target_person,
+        # 인터뷰가 수집한 기억을 이 인물에게 귀속시키기 위해 id도 함께 넘긴다
+        "target_person_id": target_person_id,
         "priority": priority,
     }
