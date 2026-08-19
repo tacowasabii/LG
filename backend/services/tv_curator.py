@@ -5,9 +5,7 @@ from __future__ import annotations
 import uuid
 from typing import Optional
 
-import httpx
-
-from backend.config import EXAONE_API_URL, EXAONE_API_KEY, EXAONE_MODEL
+from backend.services import llm_client
 from backend.models.graph_models import NodeType
 from backend.services.graph_manager import graph_manager
 
@@ -249,7 +247,7 @@ async def _generate_narration(query: str, slides: list[dict]) -> str:
         if s.get("caption"):
             slide_summary.append(s["caption"])
 
-    if not EXAONE_API_KEY:
+    if not llm_client.is_enabled():
         return _simulate_narration(query, slide_summary)
 
     messages = [
@@ -257,26 +255,10 @@ async def _generate_narration(query: str, slides: list[dict]) -> str:
         {"role": "user", "content": f"주제: {query}\n사진들: {', '.join(slide_summary)}"},
     ]
 
-    try:
-        async with httpx.AsyncClient(timeout=30.0) as client:
-            response = await client.post(
-                EXAONE_API_URL,
-                headers={
-                    "Authorization": f"Bearer {EXAONE_API_KEY}",
-                    "Content-Type": "application/json",
-                },
-                json={
-                    "model": EXAONE_MODEL,
-                    "messages": messages,
-                    "temperature": 0.8,
-                    "max_tokens": 256,
-                },
-            )
-            response.raise_for_status()
-            data = response.json()
-            return data["choices"][0]["message"]["content"]
-    except Exception:
+    narration = await llm_client.complete(messages, max_tokens=256)
+    if narration is None:
         return _simulate_narration(query, slide_summary)
+    return narration
 
 
 def _simulate_narration(query: str, slide_summary: list[str]) -> str:

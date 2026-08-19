@@ -5,9 +5,7 @@ from __future__ import annotations
 import uuid
 from typing import Optional
 
-import httpx
-
-from backend.config import EXAONE_API_URL, EXAONE_API_KEY, EXAONE_MODEL
+from backend.services import llm_client
 from backend.models.graph_models import (
     MemoryNode, Edge, RelationType, SourceType, Confidence, NodeType,
 )
@@ -182,29 +180,10 @@ async def _generate_question(context: str, previous_answers: list[str]) -> str:
 
     messages.append({"role": "user", "content": user_content})
 
-    if not EXAONE_API_KEY:
+    question = await llm_client.complete(messages, max_tokens=256)
+    if question is None:
         return _simulate_question(context, previous_answers)
-
-    try:
-        async with httpx.AsyncClient(timeout=30.0) as client:
-            response = await client.post(
-                EXAONE_API_URL,
-                headers={
-                    "Authorization": f"Bearer {EXAONE_API_KEY}",
-                    "Content-Type": "application/json",
-                },
-                json={
-                    "model": EXAONE_MODEL,
-                    "messages": messages,
-                    "temperature": 0.8,
-                    "max_tokens": 256,
-                },
-            )
-            response.raise_for_status()
-            data = response.json()
-            return data["choices"][0]["message"]["content"]
-    except Exception:
-        return _simulate_question(context, previous_answers)
+    return question
 
 
 def _simulate_question(context: str, previous_answers: list[str]) -> str:
