@@ -83,6 +83,25 @@ class PersonNode:
     created_at: str = field(default_factory=lambda: datetime.now().isoformat())
 
 
+class VerifyAction(str, Enum):
+    """가족이 사건을 확인할 때 할 수 있는 행동
+
+    기획안: "맞음 / 수정 / 모름". 이견(dispute)은 사실을 지우는 대신 다른 버전의
+    기억으로 보존한다.
+    """
+    CONFIRM = "confirm"      # 맞음
+    UNKNOWN = "unknown"      # 모르겠어요 (확인 불가도 정보다)
+    DISPUTE = "dispute"      # 내 기억은 다르다
+
+
+class VerificationState(str, Enum):
+    """사건의 확인 상태 (저장하지 않고 verifications·기억에서 파생한다)"""
+    CONFIRMED = "confirmed"    # 가족 확인 완료
+    SUPPORTED = "supported"    # 다중 근거 일치
+    INFERRED = "inferred"      # AI 추정·확인 필요
+    CONFLICTED = "conflicted"  # 기억 또는 근거 충돌
+
+
 @dataclass
 class EventNode:
     id: str = field(default_factory=lambda: _gen_id("event"))
@@ -94,6 +113,10 @@ class EventNode:
     location_id: Optional[str] = None
     confidence: str = Confidence.USER_UNVERIFIED
     source: str = SourceType.USER_INPUT
+    # 가족 확인 이력. 확인자와 확인 시점을 함께 남긴다 (기획안 공통 속성).
+    # [{"person_id": "P01", "action": "confirm", "at": "...", "note": "..."}]
+    # confidence(자료 출처의 신뢰도)와는 별개 축이다.
+    verifications: list = field(default_factory=list)
     created_at: str = field(default_factory=lambda: datetime.now().isoformat())
 
 

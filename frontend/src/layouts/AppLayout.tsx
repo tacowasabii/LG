@@ -6,6 +6,7 @@ import {
   MessageCircle,
   Mic,
   AlertCircle,
+  ShieldCheck,
   Tv,
   Users,
 } from 'lucide-react'
@@ -17,6 +18,7 @@ const navItems = [
   { to: '/chat', icon: MessageCircle, label: '채팅' },
   { to: '/interview', icon: Mic, label: '인터뷰' },
   { to: '/gaps', icon: AlertCircle, label: 'Gap' },
+  { to: '/verify', icon: ShieldCheck, label: '확인' },
   { to: '/tv', icon: Tv, label: 'TV' },
   { to: '/family', icon: Users, label: '인물' },
 ]

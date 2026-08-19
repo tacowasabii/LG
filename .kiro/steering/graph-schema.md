@@ -97,6 +97,26 @@ Graph 관련 작업 시 `#graph-schema`로 불러서 사용하세요.
 
 ---
 
+## 확인 상태 (가족 확인, STEP 04)
+
+`confidence`(자료 출처의 신뢰도)와 **다른 축**이다. 저장하지 않고 파생한다.
+
+EventNode.verifications 에 `[{person_id, action, at, note?}]` 형태로 쌓인다.
+action: `confirm`(맞음) / `unknown`(모름) / `dispute`(이견)
+
+| 상태 | 판정 조건 |
+|------|-----------|
+| `conflicted` | 이견이 하나라도 있음 (확인이 더 많아도 유지 - 다수결로 지우지 않는다) |
+| `confirmed` | 확인이 하나 이상, 이견 없음 |
+| `supported` | 확인은 없지만 서로 다른 두 사람 이상의 기억이 있음 |
+| `inferred` | 그 외 (확인 필요) |
+
+이견은 기존 기록을 덮어쓰지 않고 그 사람의 MemoryNode로 보존되며
+`REMEMBERS`(Person→Memory)와 `ABOUT`(Memory→Event) 엣지가 함께 생긴다.
+`backend/services/verification.py` 참조.
+
+---
+
 ## 엣지 타입 (8종)
 
 | relation | From → To | 의미 | 예시 |

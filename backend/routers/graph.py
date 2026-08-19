@@ -4,9 +4,10 @@ from fastapi import APIRouter, HTTPException
 
 from backend.models.schemas import (
     GraphResponse, PersonCreate, PersonResponse,
-    EventResponse, EventListItem,
+    EventResponse, EventListItem, VerifyRequest, VerifyResponse,
 )
-from backend.models.graph_models import PersonNode, NodeType
+from backend.models.graph_models import PersonNode, NodeType, VerifyAction
+from backend.services import verification
 from backend.services.graph_manager import graph_manager
 
 router = APIRouter()
@@ -71,6 +72,55 @@ async def get_event_detail(event_id: str):
             {"id": m["id"], "content": m.get("content", ""), "contributor_id": m.get("contributor_id")}
             for m in detail.get("memories", [])
         ],
+        verification=verification.get_state(event_id),
+    )
+
+
+@router.get("/verify")
+async def verification_inbox():
+    """확인이 필요한 사건 목록 (Verification Inbox)
+
+    충돌 > 미확인 > 다중근거 > 확인완료 순으로 정렬된다.
+    """
+    items = verification.list_pending()
+    return {"items": items, "total": len(items)}
+
+
+@router.post("/event/{event_id}/verify", response_model=VerifyResponse)
+async def verify_event(event_id: str, request: VerifyRequest):
+    """가족 확인 기록 (맞음 / 모름 / 이견)
+
+    이견은 사실을 덮어쓰지 않는다. 그 사람의 기억을 별도 Memory로 보존하고
+    사건을 충돌 상태로 표시한다.
+    """
+    if request.action not in {a.value for a in VerifyAction}:
+        raise HTTPException(
+            status_code=400,
+            detail=f"action은 {[a.value for a in VerifyAction]} 중 하나여야 합니다.",
+        )
+    if request.action == VerifyAction.DISPUTE and not (request.note or "").strip():
+        raise HTTPException(
+            status_code=400,
+            detail="이견을 남길 때는 어떻게 기억하는지 note에 적어주세요. 사실을 지우지 않고 함께 보존합니다.",
+        )
+
+    result = verification.record(
+        event_id, request.person_id, request.action, request.note
+    )
+    if result is None:
+        raise HTTPException(status_code=404, detail="이벤트 또는 인물을 찾을 수 없습니다.")
+
+    messages = {
+        VerifyAction.CONFIRM: "확인해주셔서 감사합니다. 확인자와 시점이 기록되었어요.",
+        VerifyAction.UNKNOWN: "모른다고 기록했어요. 다른 가족에게 물어볼게요.",
+        VerifyAction.DISPUTE: "다른 기억을 함께 보존했어요. 기존 기록은 지우지 않았습니다.",
+    }
+
+    return VerifyResponse(
+        event_id=event_id,
+        verification=result["state"],
+        created_memory_id=result["created_memory_id"],
+        message=messages[VerifyAction(request.action)],
     )
 
 

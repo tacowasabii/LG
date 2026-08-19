@@ -112,6 +112,22 @@ class EventResponse(BaseModel):
     participants: list[dict] = []
     media: list[dict] = []
     memories: list[dict] = []
+    # 가족 확인 상태 (confidence와 다른 축: 자료 출처 vs 가족이 확인했는지)
+    verification: Optional[dict] = None
+
+
+class VerifyRequest(BaseModel):
+    person_id: str
+    action: str  # "confirm" | "unknown" | "dispute"
+    # 이견일 때 그 사람의 기억. 사실을 덮어쓰지 않고 별도 Memory로 보존된다.
+    note: Optional[str] = None
+
+
+class VerifyResponse(BaseModel):
+    event_id: str
+    verification: dict
+    created_memory_id: Optional[str] = None
+    message: str
 
 
 class EventListItem(BaseModel):

@@ -7,6 +7,7 @@ import GraphPage from './pages/GraphPage'
 import ChatPage from './pages/ChatPage'
 import InterviewPage from './pages/InterviewPage'
 import GapsPage from './pages/GapsPage'
+import VerifyPage from './pages/VerifyPage'
 import TVViewPage from './pages/TVViewPage'
 import FamilyPage from './pages/FamilyPage'
 
@@ -26,6 +27,7 @@ function App() {
         <Route path="chat" element={<ChatPage />} />
         <Route path="interview" element={<InterviewPage />} />
         <Route path="gaps" element={<GapsPage />} />
+        <Route path="verify" element={<VerifyPage />} />
         <Route path="family" element={<FamilyPage />} />
       </Route>
     </Routes>

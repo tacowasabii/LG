@@ -6,7 +6,7 @@ import uuid
 from datetime import date
 from typing import Optional
 
-from backend.services import chat_graph, graph_search, llm_client
+from backend.services import chat_graph, graph_search, llm_client, verification
 from backend.services.graph_manager import graph_manager
 from backend.models.schemas import SourceItem
 
@@ -22,7 +22,11 @@ SYSTEM_PROMPT = """너는 "LG HomeStory"의 AI 어시스턴트야.
 규칙:
 1. 반드시 제공된 [검색 결과]를 근거로 답변해. 근거 없는 내용은 만들어내지 마.
 2. 답변할 때 어떤 사진/이벤트/기억을 참고했는지 명시해.
-3. 확실하지 않은 정보는 "~으로 추정됩니다"라고 표시해.
+3. 이벤트에 붙은 확인 상태에 따라 말투를 달리해.
+   - confirmed(가족 확인 완료), supported(다중 근거 일치) → 단정적으로
+   - inferred(확인 필요) → "~으로 추정됩니다"처럼 불확실성을 함께
+   - conflicted(기억이 충돌) → 한쪽으로 정리하지 말고 누가 어떻게 기억하는지
+     복수 버전을 나란히 제시해. 어느 쪽이 맞다고 판정하지 마.
 4. 따뜻하고 다정한 톤으로 답변해.
 5. 한국어로 답변해.
 """
@@ -92,11 +96,19 @@ def _format_search_results(results: list[dict]) -> str:
         node_type = node.get("node_type", "unknown")
 
         if node_type == "event":
-            lines.append(
-                f"{i}. [이벤트] {node.get('title', '')} "
-                f"(날짜: {node.get('date_start', '미상')}, "
-                f"설명: {node.get('description', '')})"
-            )
+            info = [
+                f"날짜: {node.get('date_start', '미상')}",
+                f"설명: {node.get('description', '')}",
+            ]
+            # 확인 상태에 따라 답변 말투가 달라진다 (단정 / 추정 / 복수 버전).
+            # 이걸 안 주면 충돌하는 기억을 한쪽으로 정리해서 말한다.
+            state = verification.get_state(node["id"])
+            if state:
+                info.append(f"확인상태: {state['state']}")
+                if state["disputed_by"]:
+                    names = ", ".join(p["name"] for p in state["disputed_by"])
+                    info.append(f"이견 제기: {names}")
+            lines.append(f"{i}. [이벤트] {node.get('title', '')} ({', '.join(info)})")
         elif node_type == "person":
             info = [f"관계: {node.get('relation', '')}"]
             # 나이를 묻는 질문에 답하려면 생일이 컨텍스트에 있어야 한다.

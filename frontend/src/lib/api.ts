@@ -276,3 +276,59 @@ export async function createTVJourney(query: string, style?: string): Promise<TV
     body: JSON.stringify({ query, style: style || 'timeline' }),
   });
 }
+
+// --- Verification (가족 확인) ---
+
+export type VerificationState = 'confirmed' | 'supported' | 'inferred' | 'conflicted';
+
+export interface VerifierRef {
+  id: string;
+  name: string;
+}
+
+export interface InboxMemory {
+  id: string;
+  content: string;
+  contributor_id?: string | null;
+  contributor_name?: string | null;
+}
+
+export interface InboxItem {
+  event_id: string;
+  event_title: string;
+  date_start?: string | null;
+  state: VerificationState;
+  confirmed_by: VerifierRef[];
+  disputed_by: VerifierRef[];
+  unknown_by: VerifierRef[];
+  participants: Array<{ id: string; name: string; relation: string }>;
+  memories: InboxMemory[];
+}
+
+export interface VerifyResult {
+  event_id: string;
+  verification: {
+    state: VerificationState;
+    confirmed_by: VerifierRef[];
+    disputed_by: VerifierRef[];
+    unknown_by: VerifierRef[];
+  };
+  created_memory_id?: string | null;
+  message: string;
+}
+
+export async function getVerificationInbox(): Promise<{ items: InboxItem[]; total: number }> {
+  return fetchJSON(`${BASE_URL}/graph/verify`);
+}
+
+export async function verifyEvent(
+  eventId: string,
+  personId: string,
+  action: 'confirm' | 'unknown' | 'dispute',
+  note?: string,
+): Promise<VerifyResult> {
+  return fetchJSON(`${BASE_URL}/graph/event/${eventId}/verify`, {
+    method: 'POST',
+    body: JSON.stringify({ person_id: personId, action, note }),
+  });
+}
