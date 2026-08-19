@@ -453,6 +453,61 @@ export async function getAnniversaries(): Promise<Anniversary[]> {
   return fetchJSON(`${BASE_URL}/film/anniversaries`);
 }
 
+
+// --- Trust Harness ---
+
+export interface TrustMetric {
+  key: string;
+  label: string;
+  /** 0~100. 잴 것이 없으면 null (0점과 구분한다) */
+  score: number | null;
+  description: string;
+  method: string;
+}
+
+export interface TrustQuestionRow {
+  id: string;
+  query: string;
+  expected: string;
+  actual: string;
+  confidence: string;
+  verdict: 'pass' | 'partial' | 'fail';
+  note: string;
+  unsupported_persons: string[];
+}
+
+export interface TrustReport {
+  ran: boolean;
+  message?: string;
+  question_count?: number;
+  ran_at?: string;
+  graph?: { nodes: number; edges: number; file: string };
+  llm_enabled?: boolean;
+  metrics?: TrustMetric[];
+  questions?: TrustQuestionRow[];
+  counts?: {
+    total: number;
+    graded: number;
+    no_record: number;
+    pass: number;
+    partial: number;
+    fail: number;
+  };
+  details?: {
+    relations: { expected: number; found: number; missing_count: number };
+    media_integrity: { scenes_checked: number; violation_count: number };
+    asset_integrity: {
+      media_total: number;
+      missing_file_count: number;
+      orphan_edge_count: number;
+    };
+  };
+}
+
+export async function getTrustReport(): Promise<TrustReport> {
+  return fetchJSON(`${BASE_URL}/trust/report`);
+}
+
 // --- Verification (가족 확인) ---
 
 export type VerificationState = 'confirmed' | 'supported' | 'inferred' | 'conflicted';

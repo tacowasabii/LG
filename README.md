@@ -145,6 +145,30 @@ cp .env.example .env
 
 ---
 
+## 검증
+
+```bash
+# 회귀 테스트 (venv 활성화 상태에서)
+python tests/test_chat_search.py        # 검색 15개
+python tests/test_chat_graph.py         # 질의 계획 8개
+python tests/test_verification.py       # 가족 확인 9개
+python tests/test_events_and_voice.py   # 사건 요약·음성·화자 귀속 11개
+python tests/test_film.py               # Memory Film 9개
+
+# Memory Trust Harness — 정답표로 실제 질의를 돌려 채점
+python scripts/run_trust_harness.py            # 20문항 (LLM 호출, 수 분)
+python scripts/run_trust_harness.py --limit 5  # 앞 5문항만
+```
+
+채점 결과는 `data/trust_report.json`에 저장되고 `/trust` 화면이 그 파일을 읽습니다.
+정답표는 `data/goldset.json`이며, 그래프를 바꾸면 함께 손봐야 합니다.
+
+측정하는 것: 근거 회수율 · 기록 없음을 없다고 말하는 정직성 · 인물 귀속 안전성 ·
+관계 정합성(정답 메타데이터 대조) · Film 효과가 허용 범위 안인지 · 원본 파일과
+그래프 참조의 정합성.
+
+---
+
 ## 배포 구성
 
 | 서비스 | 플랫폼 | URL |
@@ -213,6 +237,8 @@ cp .env.example .env
 | Gaps | `GET /api/gaps` | Gap 목록 |
 | Film | `POST /api/film` | 사건 하나를 30~60초 이야기로 구성 |
 | | `GET /api/film/anniversaries` | 다가오는 기념일 |
+| Trust | `GET /api/trust/report` | 마지막 채점 리포트 |
+| | `POST /api/trust/run` | 채점 실행 (LLM 호출, 수 분) |
 | TV | `POST /api/tv/journey` | Journey 생성 |
 
 상세 요청/응답 형식: `docs/SPEC_SUMMARY.md` 참조

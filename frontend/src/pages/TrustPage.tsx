@@ -1,32 +1,30 @@
 /**
  * 신뢰도 리포트 — Memory Trust Harness (기획안 05장)
  *
- * 기획안이 평가항목 "구현 완성도"에 직접 내건 약속이다: 6개 지표와 Gold Set으로
- * 정확성을 검증한다. 지금은 채점 파이프라인이 없어 화면부터 만들었다.
- * 숫자는 전부 목데이터이며 화면에도 그렇게 표시한다.
+ * 기획안이 평가항목 "구현 완성도"에 직접 내건 약속이다. 여기 있는 숫자는
+ * data/goldset.json 정답표로 실제 질의를 돌려 채점한 결과다
+ * (backend/services/trust_harness.py · scripts/run_trust_harness.py).
+ *
+ * 채점은 LLM 호출이 문항마다 들어가 몇 분 걸리므로 화면에서 돌리지 않는다.
+ * 미리 돌려 저장한 리포트를 읽고, 아직 없으면 실행 방법을 알려 준다 —
+ * 발표 중에 눌러서 기다리는 화면이 되지 않게.
  *
  * 표를 <table>에서 grid로 옮겼다. 판정 칸에 알약과 사유 문장이 함께 들어가면서
  * 행 높이가 제각각이 되는데, grid는 열 너비를 고정하면서도 각 칸이 위로 정렬되어
  * 여러 줄을 훑을 때 눈이 열을 따라간다.
- *
- * 실기능 개발 시 교체 지점:
- *   MOCK_METRICS   -> GET /api/trust/metrics
- *   MOCK_GOLD_SET  -> GET /api/trust/goldset  (data/metadata/ 정답과 대조)
- *   MOCK_MODEL_CMP -> GET /api/trust/models
- *   "채점 다시 돌리기" -> POST /api/trust/run
  */
 
 import { useEffect, useState } from 'react'
-import {
-  METRIC_STATUS_LABEL,
-  MOCK_GOLD_SET,
-  MOCK_METRICS,
-  MOCK_MODEL_CMP,
-  MOCK_RUN_INFO,
-  VERDICT_LABEL,
-  Verdict,
-} from '../mock/trust'
+import { TrustReport, TrustQuestionRow, getTrustReport } from '../lib/api'
 import { Page, PageHeader } from '../components/Page'
+
+type Verdict = TrustQuestionRow['verdict']
+
+const VERDICT_LABEL: Record<Verdict, string> = {
+  pass: '통과',
+  partial: '부분',
+  fail: '실패',
+}
 
 const VERDICT_STYLE: Record<Verdict, { bg: string; fg: string }> = {
   pass: { bg: 'var(--positive-soft)', fg: 'var(--positive-ink)' },
@@ -34,80 +32,104 @@ const VERDICT_STYLE: Record<Verdict, { bg: string; fg: string }> = {
   fail: { bg: 'var(--critical-soft)', fg: 'var(--critical-ink)' },
 }
 
-const GOLD_COLS = '2fr 1.4fr 1.4fr 130px'
-const MODEL_COLS = '1.3fr 1.5fr 1.5fr 1.4fr'
+const GOLD_COLS = '2fr 1.2fr 1.4fr 150px'
 
 export default function TrustPage() {
-  const [running, setRunning] = useState(false)
-  const [ranAt, setRanAt] = useState(MOCK_RUN_INFO.last_run_at)
+  const [report, setReport] = useState<TrustReport | null>(null)
+  const [loading, setLoading] = useState(true)
 
   useEffect(() => {
-    if (!running) return
-    const t = window.setTimeout(() => {
-      setRunning(false)
-      setRanAt(MOCK_RUN_INFO.last_run_at + ' (재실행)')
-    }, 1800)
-    return () => window.clearTimeout(t)
-  }, [running])
+    getTrustReport()
+      .then(setReport)
+      .catch(console.error)
+      .finally(() => setLoading(false))
+  }, [])
 
-  const counts: Array<{ label: string; value: number; bg: string; fg: string }> = [
-    {
-      label: '통과',
-      value: MOCK_GOLD_SET.filter((r) => r.verdict === 'pass').length,
-      bg: 'var(--positive-soft)',
-      fg: 'var(--positive-ink)',
-    },
-    {
-      label: '부분',
-      value: MOCK_GOLD_SET.filter((r) => r.verdict === 'partial').length,
-      bg: 'var(--critical-soft)',
-      fg: 'var(--critical-ink)',
-    },
-    {
-      label: '실패',
-      value: MOCK_GOLD_SET.filter((r) => r.verdict === 'fail').length,
-      bg: 'var(--ink-50)',
-      fg: 'var(--ink-400)',
-    },
-  ]
+  if (loading) {
+    return (
+      <Page width={1000}>
+        <p className="t-caption">불러오는 중…</p>
+      </Page>
+    )
+  }
+
+  // 아직 채점하지 않았다 — 가짜 숫자를 채우지 않고 실행 방법을 알린다
+  if (!report?.ran) {
+    return (
+      <Page width={1000}>
+        <PageHeader
+          eyebrow="Memory Trust Harness"
+          title="신뢰도 리포트"
+          lead="답변이 실제 기록에 근거하는지, 관계가 정답 그래프와 맞는지 측정합니다."
+        />
+        <div
+          className="mt-10 rounded-lg px-7 py-8"
+          style={{ border: '1px dashed var(--border-strong)' }}
+        >
+          <p className="m-0 text-[17px] font-semibold text-ink-900">아직 채점하지 않았습니다</p>
+          <p className="t-body-sm mt-2.5 max-w-[60ch]">
+            정답표 {report?.question_count ?? 0}문항이 준비되어 있습니다. 아래 명령으로 채점하면
+            결과가 이 화면에 남습니다. 문항마다 실제 질의를 돌리므로 몇 분 걸립니다.
+          </p>
+          <pre
+            className="t-mono mt-5 overflow-x-auto rounded px-4 py-3 text-xs"
+            style={{ background: 'var(--ink-50)', color: 'var(--ink-700)' }}
+          >
+            python scripts/run_trust_harness.py
+          </pre>
+          <p className="t-caption mt-4">
+            빠르게 확인하려면 <span className="t-mono">--limit 5</span> 를 붙여 앞 5문항만 돌릴 수
+            있습니다.
+          </p>
+        </div>
+      </Page>
+    )
+  }
+
+  const counts = report.counts
+  const details = report.details
+  const badges: Array<{ label: string; value: number; bg: string; fg: string }> = counts
+    ? [
+        {
+          label: '통과',
+          value: counts.pass,
+          bg: 'var(--positive-soft)',
+          fg: 'var(--positive-ink)',
+        },
+        {
+          label: '부분',
+          value: counts.partial,
+          bg: 'var(--critical-soft)',
+          fg: 'var(--critical-ink)',
+        },
+        { label: '실패', value: counts.fail, bg: 'var(--ink-50)', fg: 'var(--ink-400)' },
+      ]
+    : []
 
   return (
     <Page width={1000}>
       <PageHeader
-        mock
         eyebrow="Memory Trust Harness"
         title="신뢰도 리포트"
         lead="답변이 실제 기록에 근거하는지, 관계가 정답 그래프와 맞는지 측정합니다."
-        action={
-          <button
-            onClick={() => setRunning(true)}
-            disabled={running}
-            className="btn-quiet px-[18px] py-2.5 text-[13px]"
-          >
-            {running ? '채점 중…' : '채점 다시 돌리기'}
-          </button>
-        }
       />
 
-      {/* 숫자가 가짜라는 사실을 지표보다 먼저 읽히게 둔다 */}
-      <p
-        className="t-body-sm mt-8 rounded-lg px-6 py-5"
-        style={{ background: 'var(--critical-soft)', color: 'var(--critical-ink)' }}
-      >
-        {MOCK_RUN_INFO.note} 실제 측정은 data/metadata의 정답 그래프와 질문 정답표로 채점
-        스크립트를 붙여야 합니다.
-      </p>
+      {/* LLM 없이 돌린 결과는 품질 측정이 아니다. 지표보다 먼저 밝힌다. */}
+      {report.llm_enabled === false && (
+        <p
+          className="t-body-sm mt-8 rounded-lg px-6 py-5"
+          style={{ background: 'var(--critical-soft)', color: 'var(--critical-ink)' }}
+        >
+          LLM 키 없이 시뮬레이션 응답으로 채점한 결과입니다. 실제 답변 품질이 아닙니다.
+        </p>
+      )}
 
-      {/*
-        여기는 점수가 아니라 채점을 언제 무엇으로 돌렸는지를 밝히는 자리다. 숫자를
-        크게 세우는 통계 표와 달리 라벨을 먼저 두고 값은 고정폭으로 작게 적는다.
-      */}
       <div className="rule-strong mt-8 grid grid-cols-4">
         {[
-          { label: '마지막 채점', value: ranAt },
-          { label: '질문 수', value: MOCK_RUN_INFO.question_count + '개' },
-          { label: '그래프 노드', value: MOCK_RUN_INFO.graph_nodes + '개' },
-          { label: '그래프 엣지', value: MOCK_RUN_INFO.graph_edges + '개' },
+          { label: '마지막 채점', value: (report.ran_at || '').replace('T', ' ') },
+          { label: '문항 수', value: (counts?.total ?? 0) + '개' },
+          { label: '그래프 노드', value: (report.graph?.nodes ?? 0) + '개' },
+          { label: '그래프 엣지', value: (report.graph?.edges ?? 0) + '개' },
         ].map((r, i) => (
           <div
             key={r.label}
@@ -125,7 +147,7 @@ export default function TrustPage() {
       <div className="mt-10">
         <p className="t-eyebrow m-0 mb-4">측정 지표</p>
         <div className="grid grid-cols-2 gap-4">
-          {MOCK_METRICS.map((metric) => (
+          {(report.metrics || []).map((metric) => (
             <div key={metric.key} className="surface p-6">
               <div className="flex items-start justify-between gap-4">
                 <div className="min-w-0">
@@ -135,24 +157,17 @@ export default function TrustPage() {
                 <div className="shrink-0 text-right">
                   <p
                     className="m-0 text-[32px] font-bold leading-none tracking-display"
-                    style={{
-                      color: metric.score == null ? 'var(--ink-200)' : 'var(--ink-900)',
-                    }}
+                    style={{ color: metric.score == null ? 'var(--ink-200)' : 'var(--ink-900)' }}
                   >
                     {metric.score == null ? '—' : metric.score}
                   </p>
                   <p
                     className="t-caption m-0 mt-1"
                     style={{
-                      color:
-                        metric.status === 'measured'
-                          ? 'var(--positive-ink)'
-                          : metric.status === 'partial'
-                            ? 'var(--critical-ink)'
-                            : 'var(--ink-300)',
+                      color: metric.score == null ? 'var(--ink-300)' : 'var(--positive-ink)',
                     }}
                   >
-                    {METRIC_STATUS_LABEL[metric.status]}
+                    {metric.score == null ? '측정 대상 없음' : '측정됨'}
                   </p>
                 </div>
               </div>
@@ -162,8 +177,7 @@ export default function TrustPage() {
                   <div
                     className="h-0.5"
                     style={{
-                      background:
-                        metric.status === 'measured' ? 'var(--accent)' : 'var(--critical)',
+                      background: metric.score >= 90 ? 'var(--accent)' : 'var(--critical)',
                       width: metric.score + '%',
                     }}
                   />
@@ -181,11 +195,12 @@ export default function TrustPage() {
           <div>
             <p className="t-eyebrow m-0">Gold Set 채점</p>
             <p className="t-caption m-0 mt-1">
-              질문마다 어떤 근거가 나와야 하는지 미리 정해두고 대조합니다.
+              질문마다 어떤 근거가 나와야 하는지 미리 정해두고 대조합니다. 기록이 없어야 하는
+              질문은 “없다”고 답하는지를 봅니다.
             </p>
           </div>
           <div className="flex gap-1.5">
-            {counts.map((c) => (
+            {badges.map((c) => (
               <span
                 key={c.label}
                 className="pill px-2.5 py-1"
@@ -200,26 +215,20 @@ export default function TrustPage() {
         <div className="rule-strong mt-4">
           <div
             className="grid gap-4 px-1 py-2.5"
-            style={{
-              gridTemplateColumns: GOLD_COLS,
-              borderBottom: '1px solid var(--border)',
-            }}
+            style={{ gridTemplateColumns: GOLD_COLS, borderBottom: '1px solid var(--border)' }}
           >
             <span className="t-eyebrow text-ink-300">질문</span>
             <span className="t-eyebrow text-ink-300">기대 근거</span>
             <span className="t-eyebrow text-ink-300">실제 근거</span>
             <span className="t-eyebrow text-ink-300">판정</span>
           </div>
-          {MOCK_GOLD_SET.map((row) => (
+          {(report.questions || []).map((row) => (
             <div
-              key={row.question}
+              key={row.id || row.query}
               className="grid items-start gap-4 px-1 py-3.5"
-              style={{
-                gridTemplateColumns: GOLD_COLS,
-                borderBottom: '1px solid var(--border)',
-              }}
+              style={{ gridTemplateColumns: GOLD_COLS, borderBottom: '1px solid var(--border)' }}
             >
-              <span className="text-sm text-ink-900">{row.question}</span>
+              <span className="text-sm text-ink-900">{row.query}</span>
               <span className="t-caption text-ink-400">{row.expected}</span>
               <span className="t-caption text-ink-400">{row.actual}</span>
               <span>
@@ -233,48 +242,92 @@ export default function TrustPage() {
                   {VERDICT_LABEL[row.verdict]}
                 </span>
                 <span className="t-caption mt-1.5 block text-ink-300">{row.note}</span>
+                {row.unsupported_persons.length > 0 && (
+                  <span
+                    className="t-caption mt-1 block"
+                    style={{ color: 'var(--critical-ink)' }}
+                  >
+                    근거 없이 언급: {row.unsupported_persons.join(', ')}
+                  </span>
+                )}
               </span>
             </div>
           ))}
         </div>
       </div>
 
+      {/* 그래프·파일 검사 결과 */}
+      {details && (
+        <div className="mt-10">
+          <p className="t-eyebrow m-0 mb-4">그래프 · 파일 검사</p>
+          <div className="grid grid-cols-3 gap-4">
+            <div className="surface p-6">
+              <p className="m-0 text-sm font-semibold text-ink-900">관계 정합성</p>
+              <p className="t-caption m-0 mt-2">
+                기대 관계 {details.relations.expected}개 중 {details.relations.found}개 일치
+              </p>
+              <p
+                className="t-caption m-0 mt-1"
+                style={{
+                  color:
+                    details.relations.missing_count > 0
+                      ? 'var(--critical-ink)'
+                      : 'var(--positive-ink)',
+                }}
+              >
+                누락 {details.relations.missing_count}개
+              </p>
+            </div>
+            <div className="surface p-6">
+              <p className="m-0 text-sm font-semibold text-ink-900">Film 효과</p>
+              <p className="t-caption m-0 mt-2">
+                장면 {details.media_integrity.scenes_checked}개 검사
+              </p>
+              <p
+                className="t-caption m-0 mt-1"
+                style={{
+                  color:
+                    details.media_integrity.violation_count > 0
+                      ? 'var(--critical-ink)'
+                      : 'var(--positive-ink)',
+                }}
+              >
+                허용 범위 위반 {details.media_integrity.violation_count}건
+              </p>
+            </div>
+            <div className="surface p-6">
+              <p className="m-0 text-sm font-semibold text-ink-900">원본 파일</p>
+              <p className="t-caption m-0 mt-2">
+                미디어 {details.asset_integrity.media_total}개 검사
+              </p>
+              <p
+                className="t-caption m-0 mt-1"
+                style={{
+                  color:
+                    details.asset_integrity.missing_file_count +
+                      details.asset_integrity.orphan_edge_count >
+                    0
+                      ? 'var(--critical-ink)'
+                      : 'var(--positive-ink)',
+                }}
+              >
+                파일 없음 {details.asset_integrity.missing_file_count} · 고아 엣지{' '}
+                {details.asset_integrity.orphan_edge_count}
+              </p>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* 모델 비교는 다른 모델을 실제로 돌린 뒤에만 적는다 */}
       <div className="mt-10">
         <p className="t-eyebrow m-0">모델 비교</p>
-        <p className="t-caption m-0 mt-1">
-          “EXAONE이 모든 면에서 우수하다”고 말하지 않습니다. 어느 항목이 유리하고 어느 항목이
-          불리한지 그대로 적습니다.
+        <p className="t-body-sm mt-2 max-w-[70ch]">
+          아직 비교하지 않았습니다. 기획안이 정한 방식은 같은 정답표를 다른 모델로 돌려 근거
+          회수율과 무근거 문장 비율을 나란히 놓는 것입니다. 다른 모델 키를 넣고{' '}
+          <span className="t-mono text-xs">EXAONE_MODEL</span> 을 바꿔 다시 채점하면 이 자리에
+          두 결과가 함께 남습니다. “EXAONE이 모든 면에서 우수하다”는 문장은 쓰지 않습니다.
         </p>
-
-        <div className="rule-strong mt-4">
-          <div
-            className="grid gap-4 px-1 py-2.5"
-            style={{
-              gridTemplateColumns: MODEL_COLS,
-              borderBottom: '1px solid var(--border)',
-            }}
-          >
-            <span className="t-eyebrow text-ink-300">항목</span>
-            <span className="t-eyebrow text-ink-300">EXAONE</span>
-            <span className="t-eyebrow text-ink-300">비교 대상 상용 LLM</span>
-            <span className="t-eyebrow text-ink-300">검증 방식</span>
-          </div>
-          {MOCK_MODEL_CMP.map((row) => (
-            <div
-              key={row.item}
-              className="grid items-start gap-4 px-1 py-3.5"
-              style={{
-                gridTemplateColumns: MODEL_COLS,
-                borderBottom: '1px solid var(--border)',
-              }}
-            >
-              <span className="text-sm text-ink-900">{row.item}</span>
-              <span className="t-caption text-ink-500">{row.exaone}</span>
-              <span className="t-caption text-ink-500">{row.other}</span>
-              <span className="t-caption text-ink-300">{row.verification}</span>
-            </div>
-          ))}
-        </div>
       </div>
     </Page>
   )

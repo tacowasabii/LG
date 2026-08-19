@@ -1,0 +1,126 @@
+{
+  "note": "Memory Trust Harness 정답표. 질문마다 '어떤 근거가 나와야 하는가'를 사람이 미리 정한다. 그래프를 바꾸면 이 파일도 함께 손봐야 한다.",
+  "questions": [
+    {
+      "id": "Q01",
+      "query": "우리 가족이 부산 처음 간 게 언제야?",
+      "expect_any": ["E01"],
+      "intent": "fact"
+    },
+    {
+      "id": "Q02",
+      "query": "제주도 여행에서 뭐 했어?",
+      "expect_any": ["E03", "M003"],
+      "intent": "story"
+    },
+    {
+      "id": "Q03",
+      "query": "아빠가 기억하는 부산 여행 이야기 알려줘",
+      "expect_any": ["M001", "E01"],
+      "intent": "story"
+    },
+    {
+      "id": "Q04",
+      "query": "엄마는 부산 여행 때 몇 살이었어?",
+      "expect_any": ["P02", "E01"],
+      "intent": "fact"
+    },
+    {
+      "id": "Q05",
+      "query": "할머니 칠순잔치는 어디서 했어?",
+      "expect_any": ["E04", "place_E04"],
+      "intent": "fact"
+    },
+    {
+      "id": "Q06",
+      "query": "하늘이 결혼식에 누가 왔어?",
+      "expect_any": ["E07"],
+      "intent": "list"
+    },
+    {
+      "id": "Q07",
+      "query": "첫 가족 캠핑은 언제였어?",
+      "expect_any": ["E06"],
+      "intent": "fact"
+    },
+    {
+      "id": "Q08",
+      "query": "지우가 남긴 기억이 있어?",
+      "expect_any": ["M006", "P04"],
+      "intent": "story"
+    },
+    {
+      "id": "Q09",
+      "query": "졸업식 사진 보여줘",
+      "expect_any": ["E05", "E05_001", "E05_002", "E05_003"],
+      "intent": "photos"
+    },
+    {
+      "id": "Q10",
+      "query": "부모님 환갑 모임은 어디서 했어?",
+      "expect_any": ["E08", "place_E08"],
+      "intent": "fact"
+    },
+    {
+      "id": "Q11",
+      "query": "민지는 누구야?",
+      "expect_any": ["P06"],
+      "intent": "fact"
+    },
+    {
+      "id": "Q12",
+      "query": "준호는 누구야?",
+      "expect_any": ["P07"],
+      "intent": "fact"
+    },
+    {
+      "id": "Q13",
+      "query": "할머니는 몇 년생이야?",
+      "expect_any": ["P05"],
+      "intent": "fact"
+    },
+    {
+      "id": "Q14",
+      "query": "하늘이 초등학교 입학은 언제야?",
+      "expect_any": ["E02"],
+      "intent": "fact"
+    },
+    {
+      "id": "Q15",
+      "query": "광안리에서 찍은 사진 있어?",
+      "expect_any": ["place_E01", "E01", "E01_001", "E01_002", "E01_003"],
+      "intent": "photos"
+    },
+    {
+      "id": "Q16",
+      "query": "엄마가 기억하는 입학식 이야기 알려줘",
+      "expect_any": ["M002", "E02"],
+      "intent": "story"
+    },
+    {
+      "id": "Q17",
+      "query": "런던 여행은 어땠어?",
+      "no_record": true,
+      "intent": "fact"
+    },
+    {
+      "id": "Q18",
+      "query": "큰엄마는 어디 살아?",
+      "no_record": true,
+      "intent": "fact"
+    },
+    {
+      "id": "Q19",
+      "query": "우리 강아지 이름이 뭐야?",
+      "no_record": true,
+      "intent": "fact"
+    },
+    {
+      "id": "Q20",
+      "query": "2020년에는 무슨 일이 있었어?",
+      "no_record": true,
+      "note": "2017년과 2021년 사이는 기록이 없는 구간이다",
+      "intent": "fact"
+    }
+  ]
+}

@@ -3,7 +3,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 
 from backend.config import MEDIA_DIR
-from backend.routers import media, graph, chat, interview, gaps, tv, film
+from backend.routers import media, graph, chat, interview, gaps, tv, film, trust
 
 app = FastAPI(
     title="LG HomeStory",
@@ -31,6 +31,7 @@ app.include_router(interview.router, prefix="/api/interview", tags=["Interview"]
 app.include_router(gaps.router, prefix="/api/gaps", tags=["Gaps"])
 app.include_router(tv.router, prefix="/api/tv", tags=["TV"])
 app.include_router(film.router, prefix="/api/film", tags=["Film"])
+app.include_router(trust.router, prefix="/api/trust", tags=["Trust"])
 
 
 @app.get("/api/health")
