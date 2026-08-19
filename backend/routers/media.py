@@ -14,6 +14,7 @@ from backend.models.graph_models import (
 from backend.services.media_analyzer import analyze_media, generate_thumbnail
 from backend.services.event_resolver import resolve_event_for_media
 from backend.services.graph_manager import graph_manager
+from backend.services import visibility
 
 router = APIRouter()
 
@@ -29,6 +30,8 @@ async def upload_media(
     transcript: Optional[str] = Form(None),
     speaker_id: Optional[str] = Form(None),
     event_id: Optional[str] = Form(None),
+    # 올린 사람. 공개 범위를 정할 수 있는 사람이고, 비공개로 두면 이 사람만 본다.
+    owner_id: Optional[str] = Form(None),
 ):
     """미디어 파일 업로드 + 자동 분석 + Graph 연결"""
     if not file.filename:
@@ -69,6 +72,11 @@ async def upload_media(
         media_node.transcript = transcript
     if speaker_id and graph_manager.get_node(speaker_id):
         media_node.speaker_id = speaker_id
+    if owner_id and graph_manager.get_node(owner_id):
+        media_node.owner_id = owner_id
+    elif media_node.speaker_id:
+        # 녹음은 말한 사람이 곧 올린 사람이다
+        media_node.owner_id = media_node.speaker_id
 
     if is_audio:
         # 인터뷰 녹음은 말한 사람이 곧 출처다. 사람이 확인한 기록으로 본다.
@@ -149,9 +157,14 @@ def _parse_waveform(raw: str) -> list[float]:
 async def list_media(
     media_type: Optional[str] = Query(None, description="photo/video/audio"),
     person_id: Optional[str] = Query(None),
+    viewer_id: Optional[str] = Query(None, description="지금 보는 사람 (공개 범위 적용)"),
 ):
-    """미디어 목록 조회"""
-    media_nodes = graph_manager.get_media_nodes()
+    """미디어 목록 조회
+
+    공개 범위를 실제로 적용한다. 설정만 저장하고 가려 주지 않으면 동의는
+    형식이 된다 (기획안 08장).
+    """
+    media_nodes = visibility.filter_media(graph_manager.get_media_nodes(), viewer_id)
 
     # 필터링
     if media_type:
@@ -221,10 +234,17 @@ def _to_list_item(node: dict) -> MediaListItem:
 
 
 @router.get("/{media_id}", response_model=MediaDetail)
-async def get_media_detail(media_id: str):
+async def get_media_detail(
+    media_id: str,
+    viewer_id: Optional[str] = Query(None, description="지금 보는 사람"),
+):
     """미디어 상세 조회"""
     node = graph_manager.get_node(media_id)
     if not node or node.get("node_type") != NodeType.MEDIA:
+        raise HTTPException(status_code=404, detail="미디어를 찾을 수 없습니다.")
+
+    if not visibility.can_view(node, viewer_id):
+        # 있다는 사실 자체가 정보가 되지 않도록 없는 것처럼 답한다
         raise HTTPException(status_code=404, detail="미디어를 찾을 수 없습니다.")
 
     # 연결된 이벤트/인물

@@ -11,7 +11,7 @@ router = APIRouter()
 @router.post("", response_model=ChatResponse)
 async def chat(request: ChatRequest):
     """자연어 질의 → 답변 + 근거 미디어/이벤트"""
-    result = await process_chat(request.query, request.conversation_id)
+    result = await process_chat(request.query, request.conversation_id, request.viewer_id)
 
     return ChatResponse(
         answer=result["answer"],

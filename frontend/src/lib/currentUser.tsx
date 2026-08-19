@@ -1,35 +1,82 @@
 /**
- * 현재 사용자(= 지금 답하는 사람) 컨텍스트
+ * 현재 사용자(= 지금 쓰는 사람) 컨텍스트
  *
  * 기획안 08장은 "누가 남긴 기억이고 누가 확인했는지"를 제품의 핵심으로 둔다.
  * 계정 로그인은 아직 없으므로, 가족 공간 안에서 "지금 나는 누구인가"를
  * 명시적으로 고르는 방식으로 귀속을 분명히 한다.
  *
- * 실기능 개발 시 교체 지점: MOCK_MEMBERS -> 로그인 세션 / GET /api/family/me
+ * 고른 사람은 api.setViewer로 심어 모든 조회에 함께 나간다. 서버가 그 사람의
+ * 열람 범위에 맞춰 기록을 가려 준다 (backend/services/visibility.py).
+ *
+ * 로그인이 붙으면 이 파일은 세션에서 사용자를 읽고 고르는 UI는 사라진다.
  */
 
-import { createContext, useContext, useState, ReactNode } from 'react'
-import { MOCK_MEMBERS, FamilyMember } from '../mock/family'
+import { createContext, useContext, useEffect, useState, ReactNode } from 'react'
+import { FamilyMember, getFamilySpace, setViewer } from './api'
 
 interface CurrentUserValue {
-  current: FamilyMember
+  current: FamilyMember | null
   members: FamilyMember[]
+  spaceName: string
+  loading: boolean
   setCurrentId: (id: string) => void
+  /** 역할·동의가 바뀐 뒤 다시 받아온다 */
+  reload: () => void
 }
 
 const CurrentUserContext = createContext<CurrentUserValue | null>(null)
 
-/** 기본값은 가족 관리자(김하늘) — 기획안이 지목한 30~50대 "가족 기록자" */
-const DEFAULT_ID = 'P03'
+/** 마지막으로 고른 사람을 기억한다 (새로고침해도 같은 사람으로) */
+const STORAGE_KEY = 'homestory.viewer'
 
 export function CurrentUserProvider({ children }: { children: ReactNode }) {
-  const [currentId, setCurrentId] = useState(DEFAULT_ID)
+  const [members, setMembers] = useState<FamilyMember[]>([])
+  const [spaceName, setSpaceName] = useState('')
+  const [currentId, setCurrentId] = useState<string | null>(
+    () => window.localStorage.getItem(STORAGE_KEY),
+  )
+  const [loading, setLoading] = useState(true)
 
-  const members = MOCK_MEMBERS.filter((m) => m.role !== 'invited')
-  const current = members.find((m) => m.id === currentId) || members[0]
+  const load = () => {
+    getFamilySpace()
+      .then((space) => {
+        setSpaceName(space.space_name)
+        setMembers(space.members)
+      })
+      .catch((e) => console.error('[family] 구성원을 불러오지 못했습니다', e))
+      .finally(() => setLoading(false))
+  }
+
+  useEffect(() => {
+    load()
+  }, [])
+
+  // 초대 대기는 아직 쓰는 사람이 아니다
+  const active = members.filter((m) => m.role !== 'invited')
+  const current =
+    active.find((m) => m.id === currentId) ||
+    // 처음 열었으면 가족 관리자로 시작한다 (기획안이 지목한 30~50대 기록자)
+    active.find((m) => m.role === 'owner') ||
+    active[0] ||
+    null
+
+  // 고른 사람을 API 계층에 심는다 — 이후 모든 조회가 이 사람의 시야로 나간다
+  useEffect(() => {
+    setViewer(current?.id ?? null)
+    if (current) window.localStorage.setItem(STORAGE_KEY, current.id)
+  }, [current?.id])
 
   return (
-    <CurrentUserContext.Provider value={{ current, members, setCurrentId }}>
+    <CurrentUserContext.Provider
+      value={{
+        current,
+        members: active,
+        spaceName,
+        loading,
+        setCurrentId,
+        reload: load,
+      }}
+    >
       {children}
     </CurrentUserContext.Provider>
   )

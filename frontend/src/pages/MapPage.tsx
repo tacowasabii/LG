@@ -17,7 +17,7 @@ import { Link } from 'react-router-dom'
 import { mediaUrl } from '../lib/api'
 import { coverageGaps } from '../lib/coverage'
 import { useEvents } from '../lib/useGraphData'
-import { MOCK_MEMBERS } from '../mock/family'
+import { useCurrentUser } from '../lib/currentUser'
 import KoreaMap, { MapPoint } from '../components/KoreaMap'
 import { STATE_CONFIG } from '../components/StatusPill'
 import { Page, PageHeader } from '../components/Page'
@@ -31,6 +31,7 @@ const DECADES = [
 
 export default function MapPage() {
   const { events, loading } = useEvents()
+  const { members } = useCurrentUser()
   const [personIds, setPersonIds] = useState<string[]>([])
   const [decades, setDecades] = useState<string[]>([])
   const [selectedId, setSelectedId] = useState<string | null>(null)
@@ -99,7 +100,7 @@ export default function MapPage() {
         <div className="min-w-[280px]">
           <p className="t-eyebrow m-0 mb-2.5 text-ink-300">인물 · 모두 참여한 사건</p>
           <div className="flex flex-wrap gap-1.5">
-            {MOCK_MEMBERS.map((m) => (
+            {members.map((m) => (
               <button
                 key={m.id}
                 onClick={() => togglePerson(m.id)}

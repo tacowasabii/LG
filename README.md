@@ -154,6 +154,7 @@ python tests/test_chat_graph.py         # 질의 계획 8개
 python tests/test_verification.py       # 가족 확인 9개
 python tests/test_events_and_voice.py   # 사건 요약·음성·화자 귀속 11개
 python tests/test_film.py               # Memory Film 9개
+python tests/test_family_visibility.py  # 가족 공간·공개 범위 14개
 
 # Memory Trust Harness — 정답표로 실제 질의를 돌려 채점
 python scripts/run_trust_harness.py            # 20문항 (LLM 호출, 수 분)
@@ -184,6 +185,23 @@ python scripts/run_trust_harness.py --limit 5  # 앞 5문항만
 ### Railway (백엔드)
 - 별도 폴더 `prompthon-2026-railway/`에서 `railway up`
 - 또는 Dockerfile 기반 자동 빌드
+
+---
+
+## 공개 범위
+
+모든 조회에 `viewer_id`가 함께 나가고, 서버가 그 사람이 볼 수 없는 원본을 뺍니다.
+목록·사건 요약의 썸네일·인물 상세·채팅 근거 검색이 모두 같은 판정을 지납니다
+(`backend/services/visibility.py`).
+
+| 범위 | 누가 보는가 |
+|------|------------|
+| `family` | 참여한 구성원 모두 (새 기록의 기본값) |
+| `partial` | `allowed_ids`에 있는 사람과 소유자 |
+| `private` | 올린 사람만 |
+
+여기에 인물 동의가 겹칩니다. 어떤 인물이 비공개를 요청하면 그 사람이 등장하는
+기록이 다른 가족에게 가려집니다. 본인은 계속 봅니다.
 
 ---
 
@@ -239,6 +257,13 @@ python scripts/run_trust_harness.py --limit 5  # 앞 5문항만
 | | `GET /api/film/anniversaries` | 다가오는 기념일 |
 | Trust | `GET /api/trust/report` | 마지막 채점 리포트 |
 | | `POST /api/trust/run` | 채점 실행 (LLM 호출, 수 분) |
+| Family | `GET /api/family` | 가족 공간 · 구성원 · 역할 · 초대 |
+| | `PUT /api/family/member/{id}` | 역할 변경 · 비공개 요청 |
+| | `POST /api/family/invite` | 초대 링크 발급 (72시간) |
+| | `PUT /api/family/media/{id}/visibility` | 기록별 공개 범위 |
+| | `GET /api/family/media/{id}/cascade` | 삭제 영향 미리보기 |
+| Export | `GET /api/export/manifest` | 내보낼 항목과 실제 용량 |
+| | `POST /api/export` | 아카이브(zip) 생성 |
 | TV | `POST /api/tv/journey` | Journey 생성 |
 
 상세 요청/응답 형식: `docs/SPEC_SUMMARY.md` 참조

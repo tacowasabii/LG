@@ -87,6 +87,36 @@ class PersonNode:
     birth_date: Optional[str] = None  # ISO date string
     thumbnail_url: Optional[str] = None
     created_at: str = field(default_factory=lambda: datetime.now().isoformat())
+    # --- 가족 공간 (기획안 02장 Family Space · 08장 인물 동의) ---
+    # 기본값은 기록자. 시드 데이터의 인물도 모두 참여자로 본다.
+    role: str = "contributor"
+    joined_at: Optional[str] = None
+    # 이 사람이 등장하는 기록을 가족 공유에서 빼 달라는 요청.
+    # 원본을 지우지 않는다 — 올린 사람만 볼 수 있게 된다.
+    private_request: bool = False
+
+
+class FamilyRole(str, Enum):
+    """가족 공간에서의 역할 (기획안 02장 Family Space)
+
+    권한이 아니라 참여 방식의 구분이다. 열람자도 함께 보고 듣지만 기록을 바꾸지
+    않고, 초대 대기는 아직 참여하지 않은 상태다.
+    """
+    OWNER = "owner"            # 가족 관리자 — 초대·공개 범위·삭제를 결정한다
+    CONTRIBUTOR = "contributor"  # 기록자 — 올리고 기억을 남기고 확인에 참여한다
+    VIEWER = "viewer"          # 열람자 — 함께 보지만 바꾸지 않는다
+    INVITED = "invited"        # 초대 대기 — 링크를 보냈고 아직 들어오지 않았다
+
+
+class Visibility(str, Enum):
+    """기록 하나의 공개 범위 (기획안 08장 Asset 권한)
+
+    가족 데이터는 기본 비공개다. FAMILY는 "이 가족 공간 안에서 전체"를 뜻하고,
+    바깥으로 나가는 범위는 없다.
+    """
+    FAMILY = "family"    # 참여한 구성원 모두
+    PARTIAL = "partial"  # allowed_ids에 있는 사람만
+    PRIVATE = "private"  # 올린 사람만
 
 
 class VerifyAction(str, Enum):
@@ -165,6 +195,12 @@ class MediaNode:
     transcript: Optional[str] = None
     # 이 음성에서 말하는 사람 (NARRATED_BY 엣지와 함께 저장한다)
     speaker_id: Optional[str] = None
+    # --- 권한 (기획안 08장 Asset 권한) ---
+    # 올린 사람. 공개 범위를 정할 수 있는 사람이고, 비공개로 두면 이 사람만 본다.
+    owner_id: Optional[str] = None
+    visibility: str = "family"
+    # visibility가 partial일 때 열람 가능한 인물
+    allowed_ids: list = field(default_factory=list)
 
 
 @dataclass

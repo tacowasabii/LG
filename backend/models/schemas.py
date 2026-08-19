@@ -184,6 +184,8 @@ class EventListItem(BaseModel):
 class ChatRequest(BaseModel):
     query: str
     conversation_id: Optional[str] = None
+    # 지금 묻는 사람. 이 사람이 볼 수 없는 기록은 근거에서 빠진다 (기획안 08장).
+    viewer_id: Optional[str] = None
 
 
 class SourceItem(BaseModel):
@@ -249,6 +251,76 @@ class GapItem(BaseModel):
 class GapsResponse(BaseModel):
     gaps: list[GapItem]
     total: int
+
+
+# --- Family Space / 공개 범위 ---
+
+class FamilyMemberItem(BaseModel):
+    id: str
+    name: str
+    relation: str = ""
+    birth_year: Optional[int] = None
+    thumbnail_url: Optional[str] = None
+    # owner | contributor | viewer | invited
+    role: str = "contributor"
+    joined_at: Optional[str] = None
+    # 이 사람이 등장하는 기록을 가족 공유에서 빼 달라는 요청
+    private_request: bool = False
+    asset_count: int = 0
+    memory_count: int = 0
+    verified_count: int = 0
+
+
+class InviteItem(BaseModel):
+    code: str
+    link: str
+    person_id: Optional[str] = None
+    created_at: str
+    expires_at: str
+    expires_in_hours: int = 72
+
+
+class VisibilitySummary(BaseModel):
+    viewer_id: Optional[str] = None
+    media_total: int = 0
+    visible: int = 0
+    hidden: int = 0
+
+
+class FamilySpaceResponse(BaseModel):
+    space_name: str
+    members: list[FamilyMemberItem] = []
+    invites: list[InviteItem] = []
+    # 누가 얼마나 모았는지
+    ownership: list[dict] = []
+    # 지금 보는 사람에게 몇 개가 가려지는지
+    visibility: VisibilitySummary
+
+
+class MemberUpdateRequest(BaseModel):
+    role: Optional[str] = None
+    private_request: Optional[bool] = None
+
+
+class InviteRequest(BaseModel):
+    # 특정 인물을 초대하면 그 사람이 '초대 대기'로 바뀐다
+    person_id: Optional[str] = None
+
+
+class InviteResponse(BaseModel):
+    code: str
+    link: str
+    person_id: Optional[str] = None
+    created_at: str
+    expires_at: str
+    expires_in_hours: int = 72
+
+
+class VisibilityRequest(BaseModel):
+    # family | partial | private
+    visibility: str
+    allowed_ids: Optional[list[str]] = None
+    owner_id: Optional[str] = None
 
 
 # --- Memory Film ---

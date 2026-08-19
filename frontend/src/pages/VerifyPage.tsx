@@ -3,7 +3,7 @@ import { getVerificationInbox, verifyEvent, InboxItem } from '../lib/api'
 import { STATE_CONFIG } from '../components/StatusPill'
 import { invalidateEvents } from '../lib/useGraphData'
 import { Page, PageHeader } from '../components/Page'
-import { MOCK_MEMBERS } from '../mock/family'
+import { useCurrentUser } from '../lib/currentUser'
 import { mediaUrl } from '../lib/api'
 
 /**
@@ -26,6 +26,7 @@ const VERDICT_TEXT: Record<Verdict, { label: string; color: string }> = {
 }
 
 export default function VerifyPage() {
+  const { members } = useCurrentUser()
   const [items, setItems] = useState<InboxItem[]>([])
   const [loading, setLoading] = useState(true)
   const [busy, setBusy] = useState<string | null>(null)
@@ -70,8 +71,8 @@ export default function VerifyPage() {
     }
   }
 
-  /** 사람 사진은 아직 가족 목데이터에서 붙인다 (id는 그래프와 동일) */
-  const photoOf = (id: string) => MOCK_MEMBERS.find((m) => m.id === id)?.thumbnail_url || null
+  /** 사람 사진은 가족 공간 구성원에서 찾는다 */
+  const photoOf = (id: string) => members.find((m) => m.id === id)?.thumbnail_url || null
 
   if (loading) {
     return (

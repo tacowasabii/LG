@@ -4,7 +4,8 @@ import { getPersons, createPerson, PersonData, mediaUrl } from '../lib/api'
 import AudioClip from '../components/AudioClip'
 import MockBadge from '../components/MockBadge'
 import { Page, PageHeader } from '../components/Page'
-import { MOCK_MEMBERS, ROLE_LABEL, ROLE_DESC } from '../mock/family'
+import { ROLE_LABEL, ROLE_DESC } from '../lib/familyLabels'
+import { useCurrentUser } from '../lib/currentUser'
 import { useEvents, useVoiceClips } from '../lib/useGraphData'
 
 /**
@@ -21,6 +22,7 @@ export default function FamilyPage() {
   const [formData, setFormData] = useState({ name: '', relation: '', birth_year: '' })
   const [selectedPerson, setSelectedPerson] = useState<PersonData | null>(null)
   const { events } = useEvents()
+  const { members } = useCurrentUser()
   const { clips: voiceClips } = useVoiceClips()
 
   useEffect(() => {
@@ -54,8 +56,8 @@ export default function FamilyPage() {
     }
   }
 
-  /** 가족 공간의 역할·동의 정보는 아직 목데이터에서 붙인다 (id는 그래프와 동일) */
-  const memberInfo = (id: string) => MOCK_MEMBERS.find((m) => m.id === id)
+  /** 역할·동의는 가족 공간에서 온다 (인물 노드에 얹혀 있다) */
+  const memberInfo = (id: string) => members.find((m) => m.id === id)
   /** 이 사람이 남긴 목소리 — NARRATED_BY로 이어진 실제 음성 */
   const clipsOf = (id: string) => voiceClips.filter((c) => c.speaker_id === id)
   const eventsOf = (id: string) =>

@@ -15,6 +15,9 @@ data/media/*
 data/graph.json
 # 채점 결과는 그래프 상태에 딸린 생성물이다 (scripts/run_trust_harness.py)
 data/trust_report.json
+# 내보낸 아카이브와 가족 공간 설정 (실행 중 만들어진다)
+data/exports/
+data/family_space.json
 data/profiles/*
 !data/media/.gitkeep
 !data/profiles/.gitkeep

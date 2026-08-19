@@ -8,6 +8,28 @@ const MEDIA_BASE = import.meta.env.VITE_API_URL
   ? import.meta.env.VITE_API_URL.replace('/api', '')
   : '';
 
+/**
+ * 지금 보는 사람. 공개 범위(기획안 08장)를 서버가 적용할 수 있게 모든 조회에
+ * 함께 보낸다. CurrentUserProvider가 사용자를 바꿀 때 여기에 심는다.
+ *
+ * 로그인이 붙으면 이 값은 토큰에서 나오고 setViewer는 사라진다.
+ */
+let viewerId: string | null = null;
+
+export function setViewer(id: string | null): void {
+  viewerId = id;
+}
+
+export function getViewer(): string | null {
+  return viewerId;
+}
+
+/** 조회 URL에 열람자를 붙인다 */
+function withViewer(url: string): string {
+  if (!viewerId) return url;
+  return url + (url.includes('?') ? '&' : '?') + 'viewer_id=' + encodeURIComponent(viewerId);
+}
+
 /** 미디어 파일 경로를 절대 URL로 변환 */
 export function mediaUrl(path: string | null | undefined): string {
   if (!path) return '';
@@ -123,6 +145,8 @@ export interface MediaUploadResult {
 export async function uploadMedia(file: File): Promise<MediaUploadResult> {
   const formData = new FormData();
   formData.append('file', file);
+  // 올린 사람이 소유자다 (기획안 08장 Asset 권한)
+  if (viewerId) formData.append('owner_id', viewerId);
   const response = await fetch(`${BASE_URL}/media/upload`, {
     method: 'POST',
     body: formData,
@@ -132,7 +156,7 @@ export async function uploadMedia(file: File): Promise<MediaUploadResult> {
 }
 
 export async function getMediaList(): Promise<MediaItem[]> {
-  return fetchJSON(`${BASE_URL}/media`);
+  return fetchJSON(withViewer(`${BASE_URL}/media`));
 }
 
 /**
@@ -158,6 +182,8 @@ export async function uploadVoice(
   if (meta.transcript) formData.append('transcript', meta.transcript);
   if (meta.speakerId) formData.append('speaker_id', meta.speakerId);
   if (meta.eventId) formData.append('event_id', meta.eventId);
+  // 올린 사람이 소유자다 — 공개 범위를 정할 수 있는 사람
+  if (meta.speakerId) formData.append('owner_id', meta.speakerId);
 
   const response = await fetch(`${BASE_URL}/media/upload`, {
     method: 'POST',
@@ -172,7 +198,7 @@ export async function getVoiceClips(personId?: string): Promise<VoiceClip[]> {
   const query = personId
     ? '?media_type=audio&person_id=' + encodeURIComponent(personId)
     : '?media_type=audio';
-  const items: MediaItem[] = await fetchJSON(`${BASE_URL}/media${query}`);
+  const items: MediaItem[] = await fetchJSON(withViewer(`${BASE_URL}/media${query}`));
   return items.map(toVoiceClip);
 }
 
@@ -268,7 +294,7 @@ export async function getGraph(): Promise<GraphData> {
 }
 
 export async function getEvents(): Promise<EventListItem[]> {
-  return fetchJSON(`${BASE_URL}/graph/events`);
+  return fetchJSON(withViewer(`${BASE_URL}/graph/events`));
 }
 
 export async function getPersons(): Promise<PersonData[]> {
@@ -302,7 +328,11 @@ export interface ChatResponse {
 export async function sendChat(query: string, conversationId?: string): Promise<ChatResponse> {
   return fetchJSON(`${BASE_URL}/chat`, {
     method: 'POST',
-    body: JSON.stringify({ query, conversation_id: conversationId }),
+    body: JSON.stringify({
+      query,
+      conversation_id: conversationId,
+      viewer_id: viewerId,
+    }),
   });
 }
 
@@ -401,6 +431,101 @@ export async function createTVJourney(query: string, style?: string): Promise<TV
 }
 
 
+
+// --- Family Space / 공개 범위 ---
+
+export type FamilyRole = 'owner' | 'contributor' | 'viewer' | 'invited';
+export type Visibility = 'family' | 'partial' | 'private';
+
+export interface FamilyMember {
+  id: string;
+  name: string;
+  relation: string;
+  birth_year?: number | null;
+  thumbnail_url?: string | null;
+  role: FamilyRole;
+  joined_at?: string | null;
+  private_request: boolean;
+  asset_count: number;
+  memory_count: number;
+  verified_count: number;
+}
+
+export interface FamilyInvite {
+  code: string;
+  link: string;
+  person_id?: string | null;
+  created_at: string;
+  expires_at: string;
+  expires_in_hours: number;
+}
+
+export interface FamilySpace {
+  space_name: string;
+  members: FamilyMember[];
+  invites: FamilyInvite[];
+  ownership: Array<{ id: string | null; name: string; count: number }>;
+  /** 지금 보는 사람에게 몇 개가 가려지는지 */
+  visibility: {
+    viewer_id?: string | null;
+    media_total: number;
+    visible: number;
+    hidden: number;
+  };
+}
+
+export interface CascadePreview {
+  media_id: string;
+  target: string;
+  scene_description?: string | null;
+  derived: Array<{ label: string; detail: string }>;
+}
+
+export async function getFamilySpace(): Promise<FamilySpace> {
+  return fetchJSON(withViewer(`${BASE_URL}/family`));
+}
+
+export async function updateMember(
+  personId: string,
+  patch: { role?: FamilyRole; private_request?: boolean },
+): Promise<FamilyMember> {
+  return fetchJSON(`${BASE_URL}/family/member/${personId}`, {
+    method: 'PUT',
+    body: JSON.stringify(patch),
+  });
+}
+
+export async function createInvite(personId?: string): Promise<FamilyInvite> {
+  return fetchJSON(`${BASE_URL}/family/invite`, {
+    method: 'POST',
+    body: JSON.stringify({ person_id: personId }),
+  });
+}
+
+/**
+ * 기록 하나의 공개 범위. 비공개·부분공개로 바꿀 때는 소유자를 함께 남긴다 —
+ * 소유자가 없으면 아무도 볼 수 없게 되기 때문이다.
+ */
+export async function setMediaVisibility(
+  mediaId: string,
+  visibility: Visibility,
+  allowedIds?: string[],
+  ownerId?: string | null,
+): Promise<{ media_id: string; visibility: Visibility; allowed_ids: string[]; owner_id?: string | null }> {
+  return fetchJSON(`${BASE_URL}/family/media/${mediaId}/visibility`, {
+    method: 'PUT',
+    body: JSON.stringify({
+      visibility,
+      allowed_ids: allowedIds,
+      owner_id: ownerId ?? viewerId,
+    }),
+  });
+}
+
+export async function getDeleteCascade(mediaId: string): Promise<CascadePreview> {
+  return fetchJSON(`${BASE_URL}/family/media/${mediaId}/cascade`);
+}
+
 // --- Memory Film ---
 
 export interface FilmScene {
@@ -453,6 +578,49 @@ export async function getAnniversaries(): Promise<Anniversary[]> {
   return fetchJSON(`${BASE_URL}/film/anniversaries`);
 }
 
+
+
+// --- 내보내기 ---
+
+export interface ExportItem {
+  id: string;
+  label: string;
+  detail: string;
+  /** 디스크에서 잰 실제 크기. 만들면서 정해지는 항목은 null */
+  size_bytes: number | null;
+  count: number;
+  required: boolean;
+}
+
+export interface ExportManifest {
+  viewer_id?: string | null;
+  items: ExportItem[];
+  /** 열람 범위 밖이라 아카이브에 들어가지 않는 기록 수 */
+  hidden_media: number;
+  note: string;
+}
+
+export interface ExportResult {
+  file_name: string;
+  size_bytes: number;
+  built_at: string;
+  included: string[];
+  download_url: string;
+}
+
+export async function getExportManifest(): Promise<ExportManifest> {
+  return fetchJSON(withViewer(`${BASE_URL}/export/manifest`));
+}
+
+export async function buildArchive(items: string[]): Promise<ExportResult> {
+  const query = withViewer(`${BASE_URL}/export?items=` + encodeURIComponent(items.join(',')));
+  return fetchJSON(query, { method: 'POST' });
+}
+
+/** 다운로드 링크 (서버가 준 상대 경로를 절대 URL로) */
+export function exportDownloadUrl(result: ExportResult): string {
+  return MEDIA_BASE + result.download_url;
+}
 
 // --- Trust Harness ---
 

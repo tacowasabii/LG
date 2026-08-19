@@ -1,6 +1,6 @@
 """Graph Router - Graph 조회, Person/Event CRUD"""
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Query
 
 from backend.models.schemas import (
     GraphResponse, PersonCreate, PersonResponse,
@@ -10,7 +10,7 @@ from backend.models.schemas import (
 from backend.models.graph_models import (
     PersonNode, NodeType, MediaType, VerificationState, VerifyAction,
 )
-from backend.services import verification
+from backend.services import verification, visibility
 from backend.services.graph_manager import graph_manager
 
 router = APIRouter()
@@ -24,7 +24,9 @@ async def get_full_graph():
 
 
 @router.get("/events", response_model=list[EventListItem])
-async def list_events():
+async def list_events(
+    viewer_id: str = Query(None, description="지금 보는 사람 (공개 범위 적용)"),
+):
     """이벤트 목록 (타임라인 · 지도 · TV 공용)
 
     장소 좌표, 참여자, 썸네일, 기억·음성 개수, 확인 상태까지 한 번에 내려준다.
@@ -36,7 +38,10 @@ async def list_events():
     for event in sorted(events, key=lambda e: e.get("date_start", "") or "", reverse=True):
         connected = graph_manager.get_connected_nodes(event["id"])
         participants = [n for n in connected if n.get("node_type") == NodeType.PERSON]
-        media = [n for n in connected if n.get("node_type") == NodeType.MEDIA]
+        # 볼 수 없는 원본은 썸네일·개수에서 모두 빠진다 (기획안 08장)
+        media = visibility.filter_media(
+            [n for n in connected if n.get("node_type") == NodeType.MEDIA], viewer_id
+        )
         memories = [n for n in connected if n.get("node_type") == NodeType.MEMORY]
         places = [n for n in connected if n.get("node_type") == NodeType.PLACE]
 
@@ -182,11 +187,17 @@ async def update_event(event_id: str, updates: dict):
 
 
 @router.get("/person/{person_id}", response_model=PersonResponse)
-async def get_person_detail(person_id: str):
+async def get_person_detail(
+    person_id: str,
+    viewer_id: str = Query(None, description="지금 보는 사람 (공개 범위 적용)"),
+):
     """인물 상세"""
     detail = graph_manager.get_person_detail(person_id)
     if not detail:
         raise HTTPException(status_code=404, detail="인물을 찾을 수 없습니다.")
+
+    # 이 사람이 나온 사진이라도 열람 범위 밖이면 보이지 않는다
+    detail["media"] = visibility.filter_media(detail.get("media", []), viewer_id)
 
     return PersonResponse(
         id=detail["id"],

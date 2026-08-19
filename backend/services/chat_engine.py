@@ -6,7 +6,7 @@ import uuid
 from datetime import date
 from typing import Optional
 
-from backend.services import chat_graph, graph_search, llm_client, verification
+from backend.services import chat_graph, graph_search, llm_client, verification, visibility
 from backend.services.graph_manager import graph_manager
 from backend.models.schemas import SourceItem
 
@@ -32,7 +32,11 @@ SYSTEM_PROMPT = """너는 "LG HomeStory"의 AI 어시스턴트야.
 """
 
 
-async def process_chat(query: str, conversation_id: Optional[str] = None) -> dict:
+async def process_chat(
+    query: str,
+    conversation_id: Optional[str] = None,
+    viewer_id: Optional[str] = None,
+) -> dict:
     """채팅 질의 처리
 
     Flow:
@@ -48,7 +52,9 @@ async def process_chat(query: str, conversation_id: Optional[str] = None) -> dic
 
     # 1. 질의 계획 + 검색 (LangGraph). 실패해도 규칙 기반 결과가 돌아온다.
     plan_state = await chat_graph.run(query)
-    search_results = plan_state["results"]
+    # 볼 수 없는 원본은 근거로도 쓰지 않는다. 뱃지에서만 감추면 LLM이 본문에서
+    # 그 사진의 장면 설명을 말해 버린다 (기획안 08장 Asset 권한).
+    search_results = visibility.filter_search_results(plan_state["results"], viewer_id)
     missing_entities = plan_state["missing_entities"]
     context_text = _format_search_results(search_results)
 

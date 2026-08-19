@@ -148,7 +148,7 @@ export default function InterviewPage() {
         ...updated[updated.length - 1],
         answer,
         by_voice: byVoice,
-        speaker_name: current.name,
+        speaker_name: current?.name,
       }
       return updated
     })
@@ -162,7 +162,7 @@ export default function InterviewPage() {
             durationSec: recorded.durationSec,
             waveform: recorded.waveform,
             transcript: answer,
-            speakerId: current.id,
+            speakerId: current?.id,
             eventId: context?.target_id,
           })
           audioMediaId = uploaded.id
@@ -178,7 +178,7 @@ export default function InterviewPage() {
       const result: InterviewAnswerResult = await submitInterviewAnswer(
         sessionId,
         answer,
-        current.id,
+        current?.id,
         audioMediaId,
       )
       setUpdatedCount((prev) => prev + result.updated_nodes.length)
@@ -233,9 +233,11 @@ export default function InterviewPage() {
         <div className="flex flex-wrap items-center justify-between gap-5">
           <div>
             <p className="m-0 text-sm text-ink-700">
-              지금 답하는 사람 · <span className="font-semibold">{current.name}</span>
+              지금 답하는 사람 · <span className="font-semibold">{current?.name ?? '—'}</span>
             </p>
-            <p className="t-caption m-0 mt-[3px]">{current.name}님의 기억으로 저장됩니다.</p>
+            <p className="t-caption m-0 mt-[3px]">
+              {current ? current.name + '님의 기억으로 저장됩니다.' : '구성원을 불러오는 중입니다.'}
+            </p>
           </div>
           <div className="flex flex-wrap gap-1.5">
             {members.map((m) => (
@@ -243,7 +245,7 @@ export default function InterviewPage() {
                 key={m.id}
                 onClick={() => setCurrentId(m.id)}
                 className={`chip flex items-center gap-1.5 py-1 pl-1 pr-2.5 ${
-                  current.id === m.id ? 'chip-on' : ''
+                  current?.id === m.id ? 'chip-on' : ''
                 }`}
               >
                 {m.thumbnail_url ? (
@@ -277,11 +279,11 @@ export default function InterviewPage() {
           </p>
           <p className="t-body-sm mx-auto mt-2.5 max-w-[44ch]">
             기억이 가장 비어 있는 사건을 찾아 질문 {QUESTION_TOTAL}개로 채웁니다. 답변은{' '}
-            {current.name}님의 기억으로 저장됩니다.
+            {current?.name ?? '지금 답하는 사람'}님의 기억으로 저장됩니다.
           </p>
           <button
             onClick={handleStart}
-            disabled={loading}
+            disabled={loading || !current}
             className="btn-primary mt-7 px-7 py-3 text-[15px]"
           >
             {loading ? '준비 중…' : '인터뷰 시작하기'}

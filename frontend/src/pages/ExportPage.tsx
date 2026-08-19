@@ -4,125 +4,111 @@
  * "플랫폼에 종속되지 않는다"는 약속을 화면으로 보여주는 자리다.
  * 원본·그래프·이야기를 통째로 받아갈 수 있어야 가족이 장기 자산으로 신뢰한다.
  *
- * 항목마다 아이콘을 달지 않는다. 다섯 줄짜리 목록에서 아이콘은 체크 표시와
+ * 항목마다 아이콘을 달지 않는다. 네 줄짜리 목록에서 아이콘은 체크 표시와
  * 경쟁만 하고, 여기서 눌러야 하는 것은 체크 하나다.
  *
- * 실기능 개발 시 교체 지점:
- *   항목 용량      -> GET  /api/export/manifest
- *   내보내기 실행  -> POST /api/export  (작업 큐 + 진행률 폴링)
- *   다운로드 링크  -> 서명된 임시 URL
+ * 용량은 서버가 디스크에서 잰 실제 값이고, zip도 실제로 만들어진다. 가짜
+ * 진행률을 돌리지 않는다 — 만드는 동안 "만들고 있습니다"만 정직하게 띄운다.
  */
 
 import { useEffect, useState } from 'react'
+import {
+  ExportManifest,
+  ExportResult,
+  buildArchive,
+  exportDownloadUrl,
+  getExportManifest,
+} from '../lib/api'
+import { useCurrentUser } from '../lib/currentUser'
 import { Page, PageHeader } from '../components/Page'
-
-interface ExportItem {
-  id: string
-  label: string
-  detail: string
-  size_mb: number
-  /** 끌 수 없는 항목 — 원본과 그래프는 아카이브의 뼈대다 */
-  required?: boolean
-}
-
-const ITEMS: ExportItem[] = [
-  {
-    id: 'media',
-    label: '원본 사진 · 영상',
-    detail: '사진 24장, 영상 4개 · 보정 없는 원본',
-    size_mb: 412,
-    required: true,
-  },
-  {
-    id: 'graph',
-    label: 'Memory Graph',
-    detail: '노드 59개, 엣지 204개 · JSON',
-    size_mb: 1,
-    required: true,
-  },
-  {
-    id: 'voice',
-    label: '음성과 전사문',
-    detail: '인터뷰 음성 4개 · 텍스트 포함',
-    size_mb: 18,
-  },
-  {
-    id: 'chronicle',
-    label: '가족 연대기 PDF',
-    detail: '1998–2024 · 사건 8개 · 사진과 기억 문장 포함',
-    size_mb: 26,
-  },
-  {
-    id: 'film',
-    label: 'Memory Film 영상',
-    detail: '만들어 둔 30–60초 영상 3편',
-    size_mb: 154,
-  },
-]
 
 type Phase = 'idle' | 'running' | 'done'
 
-function sizeLabel(mb: number): string {
-  return mb >= 1000 ? (mb / 1024).toFixed(1) + 'GB' : mb + 'MB'
+function sizeLabel(bytes: number | null): string {
+  if (bytes == null) return '만들 때 결정'
+  if (bytes < 1024) return bytes + 'B'
+  const mb = bytes / 1048576
+  if (mb < 1) return Math.round(bytes / 1024) + 'KB'
+  if (mb >= 1024) return (mb / 1024).toFixed(2) + 'GB'
+  return mb.toFixed(1) + 'MB'
 }
 
 export default function ExportPage() {
-  const [selected, setSelected] = useState<string[]>(ITEMS.map((i) => i.id))
+  const { current } = useCurrentUser()
+  const [manifest, setManifest] = useState<ExportManifest | null>(null)
+  const [selected, setSelected] = useState<string[]>([])
   const [phase, setPhase] = useState<Phase>('idle')
-  const [progress, setProgress] = useState(0)
+  const [result, setResult] = useState<ExportResult | null>(null)
+  const [error, setError] = useState<string | null>(null)
 
   useEffect(() => {
-    if (phase !== 'running') return
-
-    const timer = window.setInterval(() => {
-      setProgress((prev) => {
-        const next = prev + 5
-        if (next >= 100) {
-          setPhase('done')
-          return 100
-        }
-        return next
+    getExportManifest()
+      .then((data) => {
+        setManifest(data)
+        // 담을 것이 있는 항목만 기본 선택 (빈 항목을 체크해 두면 거짓말이 된다)
+        setSelected(data.items.filter((i) => i.required || i.count > 0).map((i) => i.id))
       })
-    }, 110)
+      .catch((e) => {
+        console.error(e)
+        setError('내보낼 목록을 불러오지 못했습니다.')
+      })
+  }, [current?.id])
 
-    return () => window.clearInterval(timer)
-  }, [phase])
+  const toggle = (id: string, required: boolean) => {
+    if (required) return
+    setSelected((prev) => (prev.includes(id) ? prev.filter((i) => i !== id) : [...prev, id]))
+  }
 
-  const toggle = (item: ExportItem) => {
-    if (item.required) return
-    setSelected((prev) =>
-      prev.includes(item.id) ? prev.filter((i) => i !== item.id) : [...prev, item.id],
+  const build = async () => {
+    setPhase('running')
+    setError(null)
+    try {
+      setResult(await buildArchive(selected))
+      setPhase('done')
+    } catch (e) {
+      console.error(e)
+      setError('아카이브를 만들지 못했습니다.')
+      setPhase('idle')
+    }
+  }
+
+  if (!manifest) {
+    return (
+      <Page width={820}>
+        <p className="t-caption">{error || '불러오는 중…'}</p>
+      </Page>
     )
   }
 
-  const totalMb = ITEMS.filter((i) => selected.includes(i.id)).reduce(
-    (sum, i) => sum + i.size_mb,
-    0,
-  )
-  const totalGb = (totalMb / 1024).toFixed(2)
+  const chosen = manifest.items.filter((i) => selected.includes(i.id))
+  const knownTotal = chosen.reduce((sum, i) => sum + (i.size_bytes ?? 0), 0)
 
   return (
     <Page width={820}>
       <PageHeader
-        mock
         eyebrow="Export"
         title="기록은 가족의 것입니다"
-        lead="언제든 통째로 받아갈 수 있습니다. 그래프는 표준 JSON이라 다른 도구에서도 열립니다."
+        lead="언제든 통째로 받아갈 수 있습니다. 그래프는 표준 JSON이고 연대기는 브라우저로 열립니다."
       />
 
       <div className="mt-10 flex flex-col gap-2">
-        {ITEMS.map((item) => {
+        {manifest.items.map((item) => {
           const on = selected.includes(item.id)
+          const empty = item.count === 0 && !item.required
 
           return (
             <button
               key={item.id}
-              onClick={() => toggle(item)}
-              className={`flex w-full items-center gap-4 rounded-lg px-5 py-[18px] text-left
-                          ${item.required ? 'cursor-default' : 'cursor-pointer'}`}
+              onClick={() => toggle(item.id, item.required)}
+              disabled={empty}
+              className={
+                'flex w-full items-center gap-4 rounded-lg px-5 py-[18px] text-left ' +
+                (item.required || empty ? 'cursor-default' : 'cursor-pointer')
+              }
               style={{
                 background: 'var(--paper-pure)',
-                border: `1px solid ${on ? 'var(--accent)' : 'var(--border)'}`,
+                border: '1px solid ' + (on ? 'var(--accent)' : 'var(--border)'),
+                opacity: empty ? 0.55 : 1,
               }}
             >
               <span
@@ -151,7 +137,7 @@ export default function ExportPage() {
               </span>
 
               <span className="t-mono shrink-0 text-xs text-ink-300">
-                {sizeLabel(item.size_mb)}
+                {sizeLabel(item.size_bytes)}
               </span>
             </button>
           )
@@ -159,42 +145,39 @@ export default function ExportPage() {
       </div>
 
       <div
-        className="mt-6 flex items-center justify-between gap-5 pt-5"
+        className="mt-6 flex flex-wrap items-center justify-between gap-5 pt-5"
         style={{ borderTop: '1px solid var(--border)' }}
       >
         <p className="t-body-sm m-0">
-          합계 약 {totalGb}GB · 항목 {selected.length}개
+          합계 {sizeLabel(knownTotal)} · 항목 {chosen.length}개
         </p>
 
         {phase === 'idle' && (
-          <button
-            onClick={() => {
-              setProgress(0)
-              setPhase('running')
-            }}
-            className="btn-primary px-[22px]"
-          >
+          <button onClick={build} className="btn-primary px-[22px]">
             아카이브 만들기
           </button>
         )}
 
         {phase === 'running' && (
-          <span className="t-mono text-xs text-ink-400">준비 중 {progress}%</span>
+          <span className="t-mono text-xs text-ink-400">만들고 있습니다…</span>
         )}
       </div>
 
-      {phase === 'running' && (
-        <div className="mt-4 h-0.5" style={{ background: 'var(--ink-100)' }}>
-          <div
-            className="h-0.5 transition-all duration-150"
-            style={{ background: 'var(--accent)', width: progress + '%' }}
-          />
-        </div>
+      {/* 열람 범위 밖의 기록은 담기지 않는다는 사실을 숫자로 밝힌다 */}
+      <p className="t-caption mt-3">
+        {manifest.note}
+        {manifest.hidden_media > 0 && ' (' + manifest.hidden_media + '개 제외)'}
+      </p>
+
+      {error && (
+        <p className="t-body-sm mt-4" style={{ color: 'var(--critical-ink)' }}>
+          {error}
+        </p>
       )}
 
-      {phase === 'done' && (
+      {phase === 'done' && result && (
         <div
-          className="mt-5 flex items-center gap-5 rounded-lg p-6"
+          className="mt-5 flex flex-wrap items-center gap-5 rounded-lg p-6"
           style={{ background: 'var(--positive-soft)' }}
         >
           <span className="min-w-0 flex-1">
@@ -204,23 +187,26 @@ export default function ExportPage() {
             >
               아카이브가 준비됐습니다
             </span>
-            <span
-              className="t-caption mt-1 block"
-              style={{ color: 'var(--positive-ink)' }}
-            >
-              homestory-archive-2026-08-19.zip · 약 {totalGb}GB · 링크는 48시간 뒤 만료됩니다
+            <span className="t-caption mt-1 block" style={{ color: 'var(--positive-ink)' }}>
+              {result.file_name} · {sizeLabel(result.size_bytes)} ·{' '}
+              {result.built_at.replace('T', ' ')}
             </span>
           </span>
-          <button
-            className="shrink-0 cursor-pointer rounded border-0 px-5 py-2.5 text-[13px] font-semibold"
+
+          <a
+            href={exportDownloadUrl(result)}
+            download={result.file_name}
+            className="shrink-0 cursor-pointer rounded border-0 px-5 py-2.5 text-[13px]
+                       font-semibold no-underline hover:no-underline"
             style={{ background: 'var(--positive)', color: 'var(--paper)' }}
           >
             받기 ↓
-          </button>
+          </a>
+
           <button
             onClick={() => {
               setPhase('idle')
-              setProgress(0)
+              setResult(null)
             }}
             className="btn-link"
             style={{ color: 'var(--positive-ink)' }}
@@ -231,10 +217,11 @@ export default function ExportPage() {
       )}
 
       <div className="mt-10">
-        <p className="t-eyebrow m-0 mb-2.5">계정 이전과 상속</p>
+        <p className="t-eyebrow m-0 mb-2.5">아카이브에 들어 있는 것</p>
         <p className="t-body m-0 max-w-[64ch]">
-          가족 관리자는 다른 구성원에게 관리 권한을 넘길 수 있습니다. 서비스를 그만 쓰더라도
-          아카이브 파일 하나로 원본과 관계, 이야기가 모두 남습니다.
+          원본 사진·영상은 보정 없이 그대로, 그래프는 표준 JSON, 가족이 남긴 문장은
+          memories.md로 들어갑니다. 연대기는 chronicle.html이며 사진을 상대 경로로 가리키므로
+          zip을 풀고 브라우저로 열면 그대로 보입니다. 이 서비스 없이도 열립니다.
         </p>
       </div>
 

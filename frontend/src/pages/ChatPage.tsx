@@ -239,7 +239,7 @@ export default function ChatPage() {
                 {needsMore && (
                   <div className="mt-2.5 rounded-lg bg-ink-50 px-4 py-3.5">
                     <p className="t-body-sm m-0">
-                      {current.name}님이 지금 기억을 남기면 다음부터는 근거를 갖고 답할 수
+                      {current?.name ?? '지금 보는 사람'}님이 지금 기억을 남기면 다음부터는 근거를 갖고 답할 수
                       있습니다.
                     </p>
                     <div className="mt-2.5 flex flex-wrap gap-2">

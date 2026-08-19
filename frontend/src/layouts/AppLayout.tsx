@@ -106,7 +106,7 @@ export default function AppLayout() {
                        transition-colors duration-150 ease-out hover:bg-accent-soft"
             style={{ border: '1px solid var(--border)' }}
           >
-            {current.thumbnail_url ? (
+            {current?.thumbnail_url ? (
               <img
                 src={mediaUrl(current.thumbnail_url)}
                 alt=""
@@ -117,15 +117,15 @@ export default function AppLayout() {
                 className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full
                            bg-ink-100 text-xs text-ink-300"
               >
-                {current.name.slice(0, 1)}
+                {current?.name.slice(0, 1) || '·'}
               </span>
             )}
             <span className="min-w-0 flex-1">
               <span className="block truncate text-[13px] font-semibold text-ink-700">
-                {current.name}
+                {current?.name || '불러오는 중…'}
               </span>
               <span className="mt-px block text-[11px] text-ink-300">
-                {current.relation}으로 사용 중
+                {current ? current.relation + '으로 사용 중' : ''}
               </span>
             </span>
             <span className="text-[10px] text-ink-300">{switcherOpen ? '▲' : '▼'}</span>
@@ -137,7 +137,7 @@ export default function AppLayout() {
               style={{ border: '1px solid var(--border)', boxShadow: 'var(--shadow-sm)' }}
             >
               {members
-                .filter((m) => m.id !== current.id)
+                .filter((m) => m.id !== current?.id)
                 .map((m) => (
                   <li key={m.id}>
                     <button
