@@ -15,6 +15,11 @@
  * 사진에 클립(motion_url)이 있으면 그것을 재생하고, 없으면 원본 사진에 CSS
  * 카메라 움직임을 건다. 어느 쪽인지는 서버가 정하고 AI 라벨에 그대로 적힌다.
  *
+ * 배경 음악도 무엇을 깔지는 서버가 정하고(무드), 소리는 화면이 만든다
+ * (lib/filmMusic.ts). 음원 파일이 아니라 무드만 내려오므로 화면이 합성한다 —
+ * narrator가 브라우저 목소리를 쓰는 것과 같은 분업이다. 앱이 만든 소리라는 사실과
+ * 그 무드를 고른 근거를 함께 적고, 가족의 목소리가 나는 동안에는 음량을 낮춘다.
+ *
  * 남은 교체 지점: 미리보기 진행바 -> 장면 전체를 이어 붙인 영상 플레이어
  */
 
@@ -32,6 +37,7 @@ import { AUDIENCE_DESC, AUDIENCE_LABEL, Audience, FilmLength } from '../lib/film
 import { useEvents, useVoiceClips } from '../lib/useGraphData'
 import { usePrefersReducedMotion } from '../lib/reducedMotion'
 import { useNarrator } from '../lib/narrator'
+import { useFilmMusic } from '../lib/filmMusic'
 import { Page, PageHeader } from '../components/Page'
 import AudioClip from '../components/AudioClip'
 import RichText from '../components/RichText'
@@ -74,8 +80,12 @@ export default function FilmPage() {
   const [anniversaries, setAnniversaries] = useState<Anniversary[]>([])
   const [playing, setPlaying] = useState(false)
   const [elapsed, setElapsed] = useState(0)
+  const [musicOn, setMusicOn] = useState(true)
+  // 지금 이 장면의 가족 음성이 나고 있는가. AudioClip만 아는 값이라 받아 둔다.
+  const [voicePlaying, setVoicePlaying] = useState(false)
   const reducedMotion = usePrefersReducedMotion()
   const narrator = useNarrator()
+  const music = useFilmMusic()
 
   // 사진이 가장 많은 사건에서 시작한다 (이야기가 될 자료가 있는 쪽)
   useEffect(() => {
@@ -121,6 +131,7 @@ export default function FilmPage() {
   const scenes = board?.scenes ?? []
   const totalSec = board?.total_sec ?? 0
   const motionPending = board?.motion_pending ?? []
+  const filmMusic = board?.music ?? null
 
   /*
     아직 만들고 있는 클립을 기다린다.
@@ -196,6 +207,30 @@ export default function FilmPage() {
     }, 250)
     return () => window.clearInterval(timer)
   }, [playing, totalSec])
+
+  /*
+    이야기가 멈추면 음악도 멈춘다.
+
+    멈추는 길이 여럿이다 — 일시정지 · 끝까지 재생 · 사건·길이·대상 변경. 한 자리에서
+    받아야 어느 길로 멈춰도 소리가 남지 않는다.
+
+    시작은 여기서 하지 못한다. 소리는 사용자 동작 없이 시작할 수 없어서(자동재생
+    정책) 재생 버튼 클릭 안에서 부른다.
+  */
+  useEffect(() => {
+    if (!playing) music.stop()
+  }, [playing, music.stop])
+
+  /*
+    가족의 목소리·낭독이 나는 동안 배경 음악을 낮춘다.
+
+    끄지 않고 낮춘다. 목소리 한 마디마다 음악이 꺼졌다 켜지면 그 편집이 목소리보다
+    더 들린다. 배경 음악이 할머니 목소리를 덮는 것은 이 제품에서 가장 중요한 자산을
+    우리가 가리는 일이라, 어느 쪽이든 목소리가 이긴다.
+  */
+  useEffect(() => {
+    music.duck(narrator.speaking || voicePlaying)
+  }, [narrator.speaking, voicePlaying, music.duck])
 
   // 현재 재생 위치가 몇 번째 장면인지
   let acc = 0
@@ -390,7 +425,14 @@ export default function FilmPage() {
                     // 장면마다 실제 가족 음성이 재생되므로 기계 낭독을 겹치지
                     // 않는다. 둘이 함께 나면 어느 쪽이 가족 목소리인지 알 수 없다.
                     narrator.stop()
-                    setPlaying((p) => !p)
+                    const next = !playing
+                    setPlaying(next)
+                    // 배경 음악은 이 클릭 안에서 시작해야 한다. 자동재생 정책은
+                    // 사용자 동작 안에서만 소리를 열어 준다 — 효과에서 부르면
+                    // 브라우저가 막는다. 멈추는 것은 위 효과가 맡는다.
+                    if (next && musicOn && filmMusic) {
+                      music.start(filmMusic.mood, filmMusic.pace)
+                    }
                   }}
                   aria-label={playing ? '일시정지' : '재생'}
                   className="h-[38px] w-[38px] shrink-0 cursor-pointer rounded-full border-0 text-[11px]"
@@ -420,10 +462,49 @@ export default function FilmPage() {
                 </div>
               </div>
 
+              {/*
+                배경 음악을 밝히는 자리. 무드와 그것을 고른 근거를 함께 적는다 —
+                앱이 만든 소리를 가족의 기록처럼 들리게 두지 않는다는 것이 AudioClip이
+                정한 경계이고, 여기서도 같다. 끄는 버튼을 문구 옆에 둔다.
+              */}
+              {filmMusic && (
+                <div
+                  className="mt-4 flex items-start gap-3 pt-4"
+                  style={{ borderTop: '1px solid var(--border)' }}
+                >
+                  <div className="min-w-0 flex-1">
+                    <p className="t-caption m-0">
+                      배경 음악 · <strong>{filmMusic.label}</strong> · {filmMusic.reason}
+                    </p>
+                    <p className="t-caption m-0 mt-0.5">
+                      {music.supported
+                        ? '앱이 그 자리에서 만드는 소리입니다 — 가족이 남긴 기록이 아닙니다. 가족의 목소리나 낭독이 나는 동안에는 음량을 낮춥니다.'
+                        : '이 브라우저에서는 배경 음악을 만들지 못합니다.'}
+                    </p>
+                  </div>
+                  {music.supported && (
+                    <button
+                      onClick={() => {
+                        const next = !musicOn
+                        setMusicOn(next)
+                        // 재생 중에 켜면 그 자리에서 들린다. 이 클릭이 자동재생
+                        // 정책이 요구하는 사용자 동작이다.
+                        if (next && playing) music.start(filmMusic.mood, filmMusic.pace)
+                        if (!next) music.stop()
+                      }}
+                      className="btn-quiet shrink-0 whitespace-nowrap"
+                    >
+                      {musicOn ? '♪ 음악 끄기' : '♪ 음악 켜기'}
+                    </button>
+                  )}
+                </div>
+              )}
+
               {voice && (
                 <div className="mt-4 pt-4" style={{ borderTop: '1px solid var(--border)' }}>
                   <p className="t-caption m-0 mb-2">이 장면에 함께 재생되는 실제 음성</p>
-                  <AudioClip clip={voice} compact />
+                  {/* 이 목소리가 나는 동안 배경 음악을 낮춘다 */}
+                  <AudioClip clip={voice} compact onPlayingChange={setVoicePlaying} />
                 </div>
               )}
             </div>

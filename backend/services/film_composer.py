@@ -10,6 +10,8 @@
     뒤는 없던 픽셀이 생긴 것이라, 같은 문구로 덮으면 구분이 사라진다
   - 원본 영상은 효과를 걸지 않는다 (ai_effects가 빈 배열)
   - 내레이션은 확인된 기록 안에서만 쓴다. LLM이 없으면 사실만 적는다
+  - 배경 음악은 무드만 정한다. 소리는 화면이 만들고, 그것이 원본 기록이 아니라는
+    사실을 화면이 함께 밝힌다 (film_music)
 
 세대별 옵션(child/adult/elder)은 장면 길이와 내레이션 어투를 바꾼다.
 어르신에게는 전환을 늦추고, 아이에게는 문장을 짧게 한다.
@@ -22,7 +24,7 @@ from pathlib import Path
 from typing import Optional
 
 from backend.config import MEDIA_DIR, MOTION_COVERS_PER_EVENT
-from backend.services import cover_picker, llm_client, motion_clips, visibility
+from backend.services import cover_picker, film_music, llm_client, motion_clips, visibility
 from backend.services.graph_manager import graph_manager
 from backend.models.graph_models import MediaType, NodeType
 
@@ -233,6 +235,10 @@ async def compose(
 
     fitted = _fit(scenes, length_sec)
     narration = await _narration(event, memories, persons, place_name, audience)
+    # 무엇을 깔지만 정한다. 소리는 화면이 만든다 (frontend/src/lib/filmMusic.ts).
+    # 장면 배수를 함께 넘긴다 — 어르신에게 장면을 늦추면서 음악만 제 속도로 가면
+    # 화면과 소리가 갈라진다.
+    music = film_music.pick(event, place_name, pace=pace)
 
     # 지금 만들고 있는 것 중 이 화면에 실제로 나오는 장면만 알린다. 방금 맡긴
     # 것과 앞선 요청으로 이미 돌고 있는 것이 모두 여기 들어온다.
@@ -244,6 +250,9 @@ async def compose(
         "title": _title(event, memories),
         "subtitle": " · ".join([p for p in (date_label, place_name) if p]),
         "narration": narration,
+        # 배경 음악의 무드와 그것을 고른 근거. 화면이 이 무드로 소리를 만들고,
+        # 앱이 만든 소리라는 사실을 근거와 함께 적는다.
+        "music": music,
         "scenes": fitted,
         # 아직 만들고 있는 사진. 화면은 이게 비어 있지 않으면 잠시 뒤 되묻는다.
         "motion_pending": pending,

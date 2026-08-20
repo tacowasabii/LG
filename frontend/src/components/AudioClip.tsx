@@ -30,9 +30,22 @@ interface Props {
   dark?: boolean
   /** 채팅 답변·인물 상세처럼 다른 내용 사이에 끼울 때 한 단계 작게 */
   compact?: boolean
+  /**
+   * 이 목소리가 나기 시작했는지·멈췄는지 알린다.
+   *
+   * Memory Film이 배경 음악을 낮추는 데 쓴다. 가족의 목소리를 앱이 만든 소리가
+   * 덮으면, 이 제품에서 가장 중요한 자산을 우리가 가린 셈이 된다. 재생 상태는
+   * 이 컴포넌트만 알고 있어서(오디오 요소가 여기 있다) 밖으로 알려 준다.
+   */
+  onPlayingChange?: (playing: boolean) => void
 }
 
-export default function AudioClip({ clip, dark = false, compact = false }: Props) {
+export default function AudioClip({
+  clip,
+  dark = false,
+  compact = false,
+  onPlayingChange,
+}: Props) {
   const [playing, setPlaying] = useState(false)
   const [elapsed, setElapsed] = useState(0)
   const [failed, setFailed] = useState(false)
@@ -52,6 +65,19 @@ export default function AudioClip({ clip, dark = false, compact = false }: Props
     setFailed(false)
     setDuration(clip.duration_sec || 0)
   }, [clip.id, clip.duration_sec])
+
+  // 재생 상태를 밖으로 알린다 (배경 음악을 낮추는 쪽이 듣는다)
+  useEffect(() => {
+    onPlayingChange?.(playing)
+    // onPlayingChange를 의존성에 넣지 않는다. 부르는 쪽이 인라인 함수를 넘기면
+    // 매 렌더마다 다시 돌아, 재생 중이 아닌데도 계속 알리게 된다.
+  }, [playing])
+
+  // 화면에서 사라질 때는 소리도 사라진다 (오디오 요소가 함께 없어진다).
+  // 알리지 않으면 듣는 쪽이 낮춘 음량을 그대로 들고 있게 된다.
+  useEffect(() => {
+    return () => onPlayingChange?.(false)
+  }, [])
 
   // 흉내 재생 타이머 (파일이 없는 클립에서만 돈다)
   useEffect(() => {

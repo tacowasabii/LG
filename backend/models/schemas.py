@@ -524,11 +524,34 @@ class FilmScene(BaseModel):
     voice_id: Optional[str] = None
 
 
+class FilmMusic(BaseModel):
+    """배경 음악 — 서버는 무드만 정하고, 소리는 화면이 합성한다
+
+    음원 파일을 내려보내지 않는다 (frontend/src/lib/filmMusic.ts가 Web Audio로
+    만든다). narrator가 브라우저 목소리를 쓰는 것과 같은 분업이다.
+
+    무드를 서버가 정하는 이유는 화면에 적히는 근거와 실제로 나는 소리가 갈라지지
+    않게 하기 위해서다 — 카메라 움직임에서 같은 실수를 한 적이 있다.
+    """
+    # warm | nostalgic | bright | calm | solemn (film_music.MOOD_LABEL)
+    mood: str
+    # 사람이 읽을 무드 이름. 화면이 조립하지 않는다
+    label: str
+    # 왜 이 무드인지. 화면은 이것을 그대로 밝힌다
+    reason: str = ""
+    # 코드 전환·음 간격에 곱하는 배수. 장면 길이와 같은 방향이다
+    # (film_composer.AUDIENCE_PACE) — 어르신에게는 음악도 늦춘다
+    pace: float = 1.0
+
+
 class FilmResponse(BaseModel):
     event_id: str
     title: str
     subtitle: str = ""
     narration: str = ""
+    # 이 이야기에 깔리는 배경 음악. 화면은 이것이 앱이 만든 소리이고 가족의
+    # 기록이 아니라는 사실을 함께 밝힌다.
+    music: Optional[FilmMusic] = None
     scenes: list[FilmScene] = []
     total_sec: int = 0
     audience: str = "adult"

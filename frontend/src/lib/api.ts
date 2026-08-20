@@ -923,11 +923,27 @@ export interface FilmScene {
   voice_id?: string | null;
 }
 
+export interface FilmMusic {
+  /** warm | nostalgic | bright | calm | solemn. 서버가 고른다 (film_music.py) */
+  mood: string;
+  /** 사람이 읽을 무드 이름. 화면이 조립하지 않는다 */
+  label: string;
+  /** 왜 이 무드인지 — 화면은 이걸 그대로 밝힌다 */
+  reason: string;
+  /** 코드 전환·음 간격에 곱하는 배수 (대상 세대의 장면 배수와 같은 값) */
+  pace: number;
+}
+
 export interface FilmStoryboard {
   event_id: string;
   title: string;
   subtitle: string;
   narration: string;
+  /**
+   * 배경 음악의 무드. 음원 파일이 아니라 무드만 온다 — 소리는 화면이 만든다
+   * (lib/filmMusic.ts). 화면은 앱이 만든 소리라는 사실을 함께 밝힌다.
+   */
+  music?: FilmMusic | null;
   scenes: FilmScene[];
   total_sec: number;
   audience: string;

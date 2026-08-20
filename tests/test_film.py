@@ -8,6 +8,7 @@
   - 적어 놓은 효과가 화면이 실제로 거는 것과 같은가
   - 요청한 길이를 넘지 않고, 잘라낸 장면 수를 밝히는가
   - 내레이션이 기록에 있는 사실만 쓰는가 (LLM 없이도 성립해야 한다)
+  - 배경 음악의 무드가 사건이 가진 말에서 나오고, 그 근거를 함께 밝히는가
 
 LLM 키가 없어도 통과해야 한다. 내레이션은 폴백 경로로 검증한다.
 
@@ -17,12 +18,13 @@ LLM 키가 없어도 통과해야 한다. 내레이션은 폴백 경로로 검�
 
 import asyncio
 import sys
+from datetime import date
 from pathlib import Path
 
 ROOT_DIR = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT_DIR))
 
-from backend.services import film_composer  # noqa: E402
+from backend.services import film_composer, film_music  # noqa: E402
 from backend.services.graph_manager import graph_manager  # noqa: E402
 
 EVENT = "E01"  # 1998 부산 가족여행 (사진 3장 + 영상 1개)
@@ -145,6 +147,70 @@ def test_narration_uses_only_recorded_facts():
     print("  폴백 내레이션 OK:", plain[:60], "…")
 
 
+def test_music_carries_a_mood_and_its_reason():
+    """배경 음악은 무드와 그것을 고른 근거를 함께 내려보낸다
+
+    소리는 화면이 만든다 (frontend/src/lib/filmMusic.ts). 서버가 무드를 정하는
+    이유는 화면에 적히는 근거와 실제로 나는 소리가 갈라지지 않게 하기 위해서다.
+    """
+    board = asyncio.run(film_composer.compose(EVENT))
+    music = board["music"]
+
+    assert music["mood"] in film_music.MOOD_LABEL, music
+    # 라벨은 서버가 준 대로 쓴다. 화면이 조립하면 무드와 갈라진다.
+    assert music["label"] == film_music.MOOD_LABEL[music["mood"]], music
+    assert music["reason"], "무드를 고른 근거가 없다"
+    print(f"  {EVENT} 음악: {music['label']} · {music['reason']}")
+
+
+def test_memorial_records_never_get_bright_music():
+    """추모하는 자리에는 밝은 음악을 깔지 않는다
+
+    한 사건이 여러 낱말에 걸린다 — "추석 가족모임 겸 성묘"에는 잔치의 말과 추모의
+    말이 함께 있다. 그때 추모가 이겨야 한다. 제사에 밝은 음악이 깔리는 것은 고치면
+    되는 실수가 아니라 그 자리를 망치는 일이다.
+    """
+    event = {
+        "title": "2019 할아버지 성묘",
+        "description": "추석 가족모임 겸 성묘",
+        "date_start": "2019-09-13",
+    }
+    picked = film_music.pick(event, place_name="경기 남양주 산소", today=date(2026, 8, 21))
+
+    assert picked["mood"] == "solemn", picked
+    print("  성묘 + 가족모임 ->", picked["label"], "·", picked["reason"])
+
+
+def test_old_records_are_remembered_and_recent_ones_are_not():
+    """한 세대가 지난 기록은 회상으로, 같은 자리라도 최근이면 그 자리의 소리로
+
+    판단 순서를 못 박아 둔다. 20년이 넘은 기록은 그것 자체가 회상이라 낱말보다
+    먼저 본다 — 순서를 정해 두지 않으면 같은 사건이 열 때마다 다르게 들린다.
+    """
+    today = date(2026, 8, 21)
+    old = {"title": "1998 부산 가족여행", "date_start": "1998-08-13"}
+    recent = {"title": "2025 부산 가족여행", "date_start": "2025-08-13"}
+
+    assert film_music.pick(old, today=today)["mood"] == "nostalgic"
+    assert film_music.pick(recent, today=today)["mood"] == "bright"
+    print("  1998 여행 -> 회상하듯 · 2025 여행 -> 밝게")
+
+
+def test_music_follows_the_audience_pace():
+    """장면을 늦추면 음악도 늦춘다
+
+    어르신에게 전환을 늦추면서 음악만 제 속도로 가면 화면과 소리가 갈라진다.
+    """
+    elder = asyncio.run(film_composer.compose(EVENT, audience="elder"))
+    child = asyncio.run(film_composer.compose(EVENT, audience="child"))
+
+    assert elder["music"]["pace"] > child["music"]["pace"], (
+        elder["music"]["pace"],
+        child["music"]["pace"],
+    )
+    print(f"  어르신 {elder['music']['pace']} > 아이 {child['music']['pace']}")
+
+
 def test_missing_event_returns_none():
     """자료가 없는 사건은 억지로 만들지 않는다"""
     assert asyncio.run(film_composer.compose("없는-사건")) is None
@@ -194,6 +260,10 @@ TESTS = [
     test_length_is_respected_and_truncation_is_reported,
     test_audience_changes_pace,
     test_narration_uses_only_recorded_facts,
+    test_music_carries_a_mood_and_its_reason,
+    test_memorial_records_never_get_bright_music,
+    test_old_records_are_remembered_and_recent_ones_are_not,
+    test_music_follows_the_audience_pace,
     test_missing_event_returns_none,
     test_anniversaries_are_upcoming_and_sorted,
     test_http_film_endpoints,
