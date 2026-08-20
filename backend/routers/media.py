@@ -8,7 +8,8 @@ from pathlib import Path
 
 from backend.config import MEDIA_DIR
 from backend.models.schemas import (
-    AlbumResponse, MediaUploadResponse, MediaListItem, MediaDetail, MediaPersonTagRequest,
+    AlbumResponse, MediaBulkDeleteRequest, MediaBulkDeleteResponse, MediaUploadResponse,
+    MediaListItem, MediaDetail, MediaPersonTagRequest,
 )
 from backend.models.graph_models import (
     NodeType, MediaType, RelationType, Edge, Confidence, SourceType,
@@ -20,6 +21,10 @@ from backend.services import album, permissions, visibility
 from backend.services.permissions import current_actor
 
 router = APIRouter()
+
+# 한 번에 지울 수 있는 개수. 사진첩은 60장씩 받아 가므로 넉넉하다.
+# 상한을 두는 이유는 조용히 잘라내지 않기 위해서다 — 넘으면 몇 개인지 밝히고 막는다.
+MAX_BULK_DELETE = 200
 
 
 @router.post("/upload", response_model=MediaUploadResponse)
@@ -402,12 +407,12 @@ async def set_media_person_tags(
     return {"media_id": media_id, "detected_faces": tagged}
 
 
-@router.delete("/{media_id}")
-async def delete_media(
-    media_id: str,
-    actor: Optional[dict] = Depends(current_actor),
-):
-    """미디어 삭제 — 올린 사람이나 가족 관리자만"""
+def _authorize_delete(media_id: str, actor: Optional[dict]) -> dict:
+    """지울 수 있는 기록을 돌려준다. 아니면 그 이유로 막는다
+
+    한 장 삭제와 여러 장 삭제가 같은 판정을 지나야 한다. 규칙이 두 벌이면
+    한쪽만 고쳐졌을 때 남의 사진이 지워진다.
+    """
     node = graph_manager.get_node(media_id)
     if not node or node.get("node_type") != NodeType.MEDIA:
         raise HTTPException(status_code=404, detail="미디어를 찾을 수 없습니다.")
@@ -417,20 +422,101 @@ async def delete_media(
         raise HTTPException(status_code=404, detail="미디어를 찾을 수 없습니다.")
 
     permissions.require_owner_of(node, actor, what="기록")
+    return node
 
-    # 실제 파일 삭제
-    file_path = node.get("file_path", "")
-    if file_path:
-        actual_path = MEDIA_DIR / Path(file_path).name
-        if actual_path.exists():
-            actual_path.unlink()
-        # 썸네일도 삭제
-        thumb_path = node.get("thumbnail_path", "")
-        if thumb_path:
-            actual_thumb = MEDIA_DIR / Path(thumb_path).name
-            if actual_thumb.exists():
-                actual_thumb.unlink()
 
-    # Graph에서 삭제
+def _erase_files(node: dict) -> None:
+    """원본과 썸네일 파일을 지운다
+
+    노드를 먼저 지우고 파일을 나중에 지운다. 반대로 하면, 노드 삭제가 실패했을 때
+    파일 없는 기록이 남아 화면에 깨진 사진으로 뜬다. 이 순서에서 최악은 남는
+    파일 하나이고, 그건 화면에 보이지 않는다.
+    """
+    for path in (node.get("file_path"), node.get("thumbnail_path")):
+        if not path:
+            continue
+        actual = MEDIA_DIR / Path(path).name
+        if actual.exists():
+            actual.unlink()
+
+
+@router.post("/bulk-delete", response_model=MediaBulkDeleteResponse)
+async def bulk_delete_media(
+    request: MediaBulkDeleteRequest,
+    actor: Optional[dict] = Depends(current_actor),
+):
+    """여러 원본을 한 번에 지운다 (사진첩의 선택 삭제)
+
+    한 장씩 DELETE를 여러 번 부르지 않는 이유는 두 가지다.
+
+      1. JSON 저장소는 쓰기마다 파일 전체를 다시 쓴다. 50장이면 50번이다.
+         batch()로 묶어 저장을 한 번으로 모은다.
+      2. 하나가 막혀도 나머지는 지워져야 하고, 무엇이 왜 막혔는지를 함께
+         돌려줘야 한다. 요청이 50개로 흩어지면 화면이 그것을 다시 모아야 한다.
+
+    판정은 한 장 삭제와 같다(_authorize_delete). 남의 기록이 섞여 있으면 그것만
+    남고 failed에 이유가 담긴다 — 하나 때문에 전부 되돌리지 않는다. 되돌리면
+    "왜 아무것도 안 지워졌지"가 되고, 사용자는 어느 것이 남의 것인지 모른다.
+    """
+    # 같은 id를 두 번 보내도 한 번만 (순서는 보낸 그대로 둔다)
+    wanted: list[str] = []
+    for media_id in request.media_ids:
+        media_id = (media_id or "").strip()
+        if media_id and media_id not in wanted:
+            wanted.append(media_id)
+
+    if not wanted:
+        raise HTTPException(status_code=400, detail="지울 기록을 고르지 않았습니다.")
+
+    if len(wanted) > MAX_BULK_DELETE:
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                f"한 번에 {MAX_BULK_DELETE}개까지 지울 수 있습니다. "
+                f"{len(wanted)}개를 보냈습니다 — 나눠서 지워 주세요."
+            ),
+        )
+
+    deletable: list[dict] = []
+    failed: list[dict] = []
+
+    # 지우기 전에 전부 판정한다. 파일을 먼저 건드리고 중간에 막히면 되돌릴 수 없다.
+    for media_id in wanted:
+        try:
+            deletable.append(_authorize_delete(media_id, actor))
+        except HTTPException as e:
+            failed.append({"id": media_id, "reason": str(e.detail)})
+
+    if deletable:
+        # 저장을 한 번으로 모은다. 여기서 예외가 나면 Postgres는 전부 되돌리므로,
+        # 파일은 이 묶음이 끝난 뒤에 지운다.
+        with graph_manager.batch():
+            for node in deletable:
+                graph_manager.delete_node(node["id"])
+
+        for node in deletable:
+            _erase_files(node)
+
+    deleted = [node["id"] for node in deletable]
+    if deleted and failed:
+        message = f"{len(deleted)}개를 지웠습니다. {len(failed)}개는 지우지 못했습니다."
+    elif deleted:
+        message = f"{len(deleted)}개를 지웠습니다."
+    else:
+        message = "지운 것이 없습니다."
+
+    return MediaBulkDeleteResponse(deleted=deleted, failed=failed, message=message)
+
+
+@router.delete("/{media_id}")
+async def delete_media(
+    media_id: str,
+    actor: Optional[dict] = Depends(current_actor),
+):
+    """미디어 삭제 — 올린 사람이나 가족 관리자만"""
+    node = _authorize_delete(media_id, actor)
+
     graph_manager.delete_node(media_id)
+    _erase_files(node)
+
     return {"message": "삭제 완료", "id": media_id}

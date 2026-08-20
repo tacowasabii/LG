@@ -290,7 +290,7 @@ python tests/test_permissions.py        # 역할 가드 11개
 python tests/test_interview_extraction.py # 답변에서 인물·장소·시점 추출
 python tests/test_interview_questions.py  # 인터뷰 대상·없는 호칭·질문 반복 13개
 python tests/test_media_person_tags.py  # 기록에 있는 사람 지목 6개
-python tests/test_album.py              # 사진첩 목록·필터·커서·공개 범위 17개
+python tests/test_album.py              # 사진첩 목록·필터·커서·공개 범위·삭제 23개
 python tests/test_transcript_source.py  # 전사문 출처·녹음 분류 7개
 python tests/test_video_upload.py       # 영상 길이·첫 장면 썸네일 4개
 
@@ -436,6 +436,7 @@ JSON 파일은 그대로 남습니다. `DATABASE_URL`을 지우면 다시 파일
 | | `PUT /api/media/{id}/persons` | 이 기록에 있는 사람 지목 (보낸 목록이 최종 상태) |
 | | `GET /api/media` | 미디어 목록 (`?media_type=audio&person_id=P02`) |
 | | `GET /api/media/album` | 사진첩 — 사진·영상만, 사건·인물·장소를 붙여 커서로 나눠 준다 (`?year=2025&person_id=P02&types=photo&event_status=unlinked`) |
+| | `POST /api/media/bulk-delete` | 고른 원본 여러 개를 한 번에 삭제 (막힌 것은 이유와 함께 돌려준다) |
 | Graph | `GET /api/graph` | 전체 노드+엣지 |
 | | `GET /api/graph/events` | 사건 목록 + 장소 좌표·참여자·썸네일·기억 상태 |
 | | `GET /api/graph/event/{id}` | 이벤트 상세 |

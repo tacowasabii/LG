@@ -11,6 +11,7 @@
   - 커서로 넘긴 페이지에 겹침도 빠짐도 없는가
   - 비공개 사진이 목록·개수·연도 목록에서 모두 빠지는가
   - 지운 원본이 목록·개수에서 빠지고, 남의 원본은 지워지지 않는가
+  - 여러 장을 한 번에 지울 때 막힌 것만 남고 그 이유가 함께 오는가
 
 그래프를 실제로 바꾸므로 끝에서 원래대로 되돌린다.
 
@@ -509,6 +510,93 @@ def test_cursor_survives_deleting_its_anchor():
         _drop(*ids)
 
 
+def test_bulk_delete_removes_all_of_them():
+    """여러 장을 한 번에 지운다 (요청 하나로)"""
+    ids = [f"album_test_bulk_{i}" for i in range(3)]
+    for media_id, day in zip(ids, ("11", "12", "13")):
+        _make_temp_photo(media_id, f"2012-05-{day}T10:00:00+09:00")
+    try:
+        before = album.query(viewer_id=VIEWER, limit=album.MAX_LIMIT)
+        assert set(ids) <= set(_ids(before))
+
+        with TestClient(app) as client:
+            response = client.post(
+                "/api/media/bulk-delete",
+                json={"media_ids": ids},
+                headers={"X-Viewer-Id": VIEWER},
+            )
+        assert response.status_code == 200, response.text
+        body = response.json()
+        assert sorted(body["deleted"]) == sorted(ids), body["deleted"]
+        assert body["failed"] == [], body["failed"]
+
+        after = album.query(viewer_id=VIEWER, limit=album.MAX_LIMIT)
+        assert not (set(ids) & set(_ids(after))), "지웠는데 목록에 남아 있다"
+        assert after["total"] == before["total"] - len(ids)
+        print(f"  {len(ids)}장 한 번에 · {before['total']} → {after['total']}")
+    finally:
+        _drop(*ids)
+
+
+def test_bulk_delete_keeps_what_it_cannot_delete():
+    """막힌 것만 남고 나머지는 지워진다 — 하나 때문에 전부 되돌리지 않는다
+
+    남의 사진이 섞여 있는 것은 정상이다(가족이 함께 쓰는 공간이다). 그때
+    "전부 실패"로 돌려주면 사용자는 어느 것이 남의 것인지 모른 채 다시 누른다.
+    """
+    mine = ["album_test_mine_1", "album_test_mine_2"]
+    theirs = "album_test_theirs"
+    for media_id, day in zip(mine, ("21", "22")):
+        _make_temp_photo(media_id, f"2012-05-{day}T10:00:00+09:00")
+    _make_temp_photo(theirs, "2012-05-23T10:00:00+09:00", owner_id=OTHER)
+    try:
+        with TestClient(app) as client:
+            response = client.post(
+                "/api/media/bulk-delete",
+                # 같은 id를 두 번 보내고 없는 id도 섞는다 (화면이 보낸 값이다)
+                json={"media_ids": mine + [theirs, mine[0], "album_test_ghost"]},
+                headers={"X-Viewer-Id": VIEWER},
+            )
+        assert response.status_code == 200, response.text
+        body = response.json()
+
+        assert sorted(body["deleted"]) == sorted(mine), body["deleted"]
+        failed = {f["id"]: f["reason"] for f in body["failed"]}
+        assert set(failed) == {theirs, "album_test_ghost"}, failed
+        # 왜 막혔는지가 함께 와야 한다 (화면이 그 문장을 그대로 보여준다)
+        assert all(reason for reason in failed.values()), failed
+
+        assert graph_manager.get_node(theirs), "남의 사진이 지워졌다"
+        assert theirs in _ids(album.query(viewer_id=VIEWER, limit=album.MAX_LIMIT))
+        print(f"  지움 {len(body['deleted'])} · 막힘 {len(failed)} · 남의 사진 그대로")
+    finally:
+        _drop(*mine, theirs)
+
+
+def test_bulk_delete_refuses_empty_and_oversized_requests():
+    """고르지 않았거나 한 번에 너무 많으면 조용히 넘기지 않고 막는다
+
+    상한을 넘겼을 때 앞의 200개만 지우면, 화면은 전부 지운 줄 알고 나머지를
+    잃어버린 것처럼 보게 된다.
+    """
+    from backend.routers.media import MAX_BULK_DELETE
+
+    with TestClient(app) as client:
+        empty = client.post(
+            "/api/media/bulk-delete", json={"media_ids": []}, headers={"X-Viewer-Id": VIEWER}
+        )
+        assert empty.status_code == 400, empty.status_code
+
+        too_many = client.post(
+            "/api/media/bulk-delete",
+            json={"media_ids": [f"id_{i}" for i in range(MAX_BULK_DELETE + 1)]},
+            headers={"X-Viewer-Id": VIEWER},
+        )
+        assert too_many.status_code == 400, too_many.status_code
+        assert str(MAX_BULK_DELETE) in too_many.json()["detail"], too_many.text
+    print(f"  빈 요청·{MAX_BULK_DELETE}개 초과 모두 400 OK")
+
+
 TESTS = [
     test_album_has_photos_and_videos_only,
     test_undated_photos_are_kept_and_pushed_last,
@@ -530,6 +618,9 @@ TESTS = [
     test_delete_removes_it_from_the_album,
     test_delete_refused_leaves_the_photo_in_place,
     test_cursor_survives_deleting_its_anchor,
+    test_bulk_delete_removes_all_of_them,
+    test_bulk_delete_keeps_what_it_cannot_delete,
+    test_bulk_delete_refuses_empty_and_oversized_requests,
 ]
 
 

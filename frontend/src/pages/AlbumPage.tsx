@@ -17,15 +17,17 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Link, useSearchParams } from 'react-router-dom'
-import { Images, Upload } from 'lucide-react'
+import { CheckSquare, Images, Trash2, Upload, X } from 'lucide-react'
 import {
   AlbumEventStatus,
   AlbumMediaItem,
   AlbumSort,
+  bulkDeleteMedia,
   getAlbum,
+  readDetail,
 } from '../lib/api'
 import { useCurrentUser } from '../lib/currentUser'
-import { useEvents } from '../lib/useGraphData'
+import { invalidateEvents, invalidateVoiceClips, useEvents } from '../lib/useGraphData'
 import { Page, PageHeader } from '../components/Page'
 import AlbumFilters, { AlbumFilterValue } from '../components/album/AlbumFilters'
 import AlbumGrid from '../components/album/AlbumGrid'
@@ -75,6 +77,19 @@ export default function AlbumPage() {
   const [autoLoad, setAutoLoad] = useState(true)
   /* 방금 지운 원본. 사진이 조용히 없어지는 것보다 무엇이 없어졌는지가 낫다 */
   const [deleted, setDeleted] = useState<string | null>(null)
+  /*
+    여러 장 지우기.
+
+    체크박스를 늘 깔아 두지 않고 "선택"으로 들어가는 모드로 둔다. 사진첩에서
+    하는 일은 보는 것이고, 지울 것을 고르는 일은 그것과 섞이면 안 된다 —
+    기획안도 삭제를 훑는 화면 전면에 두지 말라고 못 박았다.
+  */
+  const [selecting, setSelecting] = useState(false)
+  const [selected, setSelected] = useState<string[]>([])
+  const [confirming, setConfirming] = useState(false)
+  const [bulkBusy, setBulkBusy] = useState(false)
+  /* 지우지 못한 것과 그 이유 (남의 기록이 섞여 있었을 때) */
+  const [failures, setFailures] = useState<Array<{ id: string; reason: string }>>([])
 
   // 입력 중인 검색어. 글자마다 서버를 부르지 않고 잠깐 멈춘 뒤 주소에 반영한다.
   const [draftQuery, setDraftQuery] = useState(filters.q)
@@ -108,6 +123,10 @@ export default function AlbumPage() {
     setOpenIndex(null)
     setAutoLoad(true)
     setDeleted(null)
+    setSelecting(false)
+    setSelected([])
+    setConfirming(false)
+    setFailures([])
 
     getAlbum({ ...query, limit: PAGE_SIZE })
       .then((page) => {
@@ -253,10 +272,79 @@ export default function AlbumPage() {
       setOpenIndex((prev) =>
         prev == null ? prev : remaining.length === 0 ? null : Math.min(prev, remaining.length - 1),
       )
-      setDeleted(gone?.original_filename || id)
+      setDeleted(`${gone?.original_filename || id} 원본`)
     },
     [items],
   )
+
+  // --- 여러 장 고르기 ---
+
+  const selectedSet = useMemo(() => new Set(selected), [selected])
+  const selectedItems = useMemo(
+    () => items.filter((item) => selectedSet.has(item.id)),
+    [items, selectedSet],
+  )
+
+  const toggleSelect = useCallback((id: string) => {
+    setSelected((prev) => (prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]))
+  }, [])
+
+  const exitSelecting = () => {
+    setSelecting(false)
+    setSelected([])
+    setConfirming(false)
+    setFailures([])
+  }
+
+  /*
+    묻는 창은 Esc로 닫힌다. 상세에서 한 장 지울 때도 Esc가 취소이므로 같게 둔다.
+    지우는 중에는 닫지 않는다 — 요청은 이미 갔고, 창만 사라지면 무슨 일이
+    일어났는지 알 수 없게 된다.
+  */
+  useEffect(() => {
+    if (!confirming) return
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape' && !bulkBusy) setConfirming(false)
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [confirming, bulkBusy])
+
+  /**
+   * 고른 사진들을 지운다.
+   *
+   * 요청은 한 번이다 (POST /api/media/bulk-delete). 남의 기록이 섞여 있으면
+   * 그것만 남고 이유가 함께 온다 — 하나 때문에 전부 되돌리지 않는다.
+   *
+   * 지우지 못한 것은 고른 상태로 남긴다. 무엇이 남았는지 눈으로 보이는 편이
+   * "몇 개 실패"라는 문장보다 낫다.
+   */
+  const deleteSelected = async () => {
+    setBulkBusy(true)
+    setError(null)
+    try {
+      const result = await bulkDeleteMedia(selected)
+      // 홈·지도·TV의 개수와 썸네일에서도 즉시 빠져야 한다
+      invalidateEvents()
+      invalidateVoiceClips()
+
+      const removed = new Set(result.deleted)
+      setItems((prev) => prev.filter((item) => !removed.has(item.id)))
+      setTotal((prev) => Math.max(0, prev - result.deleted.length))
+      setOpenIndex(null)
+      setConfirming(false)
+      setFailures(result.failed)
+      setSelected(result.failed.map((f) => f.id))
+      setDeleted(result.deleted.length > 0 ? `사진 ${result.deleted.length}장` : null)
+      if (result.failed.length === 0) setSelecting(false)
+    } catch (e) {
+      console.error('[album] 고른 사진을 지우지 못했습니다', e)
+      setError(readDetail(e, '고른 사진을 지우지 못했습니다.'))
+      setConfirming(false)
+    } finally {
+      setBulkBusy(false)
+    }
+  }
 
   return (
     <Page width={1160}>
@@ -269,6 +357,20 @@ export default function AlbumPage() {
             <span className="t-mono text-[12px] text-ink-300">
               {loading ? '불러오는 중…' : `사진 · 영상 ${total}개`}
             </span>
+            {/*
+              고르는 모드로 들어가는 문. 지우는 일은 여기를 지나야 한다 —
+              훑어보는 화면에 체크박스를 늘 깔아 두지 않는다.
+            */}
+            {items.length > 0 && (
+              <button
+                onClick={() => (selecting ? exitSelecting() : setSelecting(true))}
+                className={`tab tab-sm flex items-center gap-1.5 ${selecting ? 'tab-on' : ''}`}
+                aria-pressed={selecting}
+              >
+                {selecting ? <X size={13} strokeWidth={2} /> : <CheckSquare size={13} strokeWidth={2} />}
+                {selecting ? '선택 마침' : '선택'}
+              </button>
+            )}
             {/* 올리는 길은 하나다 — 모으기로 보낸다 */}
             <Link to="/collect" className="btn-primary no-underline hover:no-underline">
               <span className="flex items-center gap-2">
@@ -293,11 +395,37 @@ export default function AlbumPage() {
 
       {deleted && (
         <p className="t-body-sm mt-8 flex flex-wrap items-center gap-2">
-          <span style={{ color: 'var(--critical-ink)' }}>{deleted} 원본을 지웠습니다.</span>
+          <span style={{ color: 'var(--critical-ink)' }}>{deleted}을 지웠습니다.</span>
           <span className="t-caption">
             가족이 남긴 기억 문장은 그대로 있습니다 — 원본과의 연결만 끊겼습니다.
           </span>
         </p>
+      )}
+
+      {/*
+        지우지 못한 것은 개수로 뭉개지 않는다. 어느 사진이 왜 남았는지를 그대로
+        적는다 — 대개 남이 올린 사진이고, 그건 사용자가 할 수 있는 일이 없다는
+        뜻이므로 알려주지 않으면 계속 다시 시도한다.
+      */}
+      {failures.length > 0 && (
+        <div className="mt-4 rounded-lg p-4" style={{ background: 'var(--critical-soft)' }}>
+          <p className="t-body-sm m-0" style={{ color: 'var(--critical-ink)' }}>
+            {failures.length}장은 지우지 못했습니다.
+          </p>
+          {failures.map((failure) => {
+            const name =
+              items.find((item) => item.id === failure.id)?.original_filename || failure.id
+            return (
+              <p
+                key={failure.id}
+                className="t-caption m-0 mt-1.5"
+                style={{ color: 'var(--critical-ink)', opacity: 0.8 }}
+              >
+                {name} — {failure.reason}
+              </p>
+            )
+          })}
+        </div>
       )}
 
       {error && (
@@ -316,7 +444,71 @@ export default function AlbumPage() {
         )
       ) : (
         <>
-          <AlbumGrid items={items} onOpen={setOpenIndex} />
+          <AlbumGrid
+            items={items}
+            onOpen={setOpenIndex}
+            selecting={selecting}
+            selectedIds={selectedSet}
+            onToggleSelect={toggleSelect}
+          />
+
+          {/*
+            고르는 동안 화면 아래에 붙어 따라온다. 사진을 고르려면 아래로 계속
+            훑어야 하는데, 지우는 단추가 맨 위에만 있으면 고를 때마다 올라가야 한다.
+          */}
+          {selecting && (
+            <div className="sticky bottom-4 z-30 mt-10">
+              <div
+                className="flex flex-wrap items-center gap-x-4 gap-y-2 rounded-lg px-5 py-3.5"
+                style={{
+                  background: 'var(--paper-pure)',
+                  border: '1px solid var(--border-strong)',
+                  boxShadow: 'var(--shadow-lg)',
+                }}
+              >
+                <span className="text-[13px] font-semibold text-ink-900">
+                  {selected.length}장 선택
+                </span>
+
+                <button
+                  onClick={() =>
+                    setSelected(
+                      selected.length === items.length ? [] : items.map((item) => item.id),
+                    )
+                  }
+                  className="btn-link"
+                >
+                  {selected.length === items.length
+                    ? '선택 해제'
+                    : `보이는 사진 모두 (${items.length}장)`}
+                </button>
+
+                {/*
+                  "모두"는 지금 받아 온 것까지다. 조건에 맞는 전체가 더 있으면
+                  그걸 밝힌다 — 전체를 골랐다고 착각한 채 지우게 하지 않는다.
+                */}
+                {items.length < total && (
+                  <span className="t-caption">
+                    조건에 맞는 {total}장 중 {items.length}장을 받아 왔습니다
+                  </span>
+                )}
+
+                <button
+                  onClick={() => setConfirming(true)}
+                  disabled={selected.length === 0}
+                  className="ml-auto flex cursor-pointer items-center gap-1.5 rounded border-0
+                             px-3.5 py-2 text-[13px] disabled:opacity-40"
+                  style={{ background: 'var(--critical-ink)', color: 'var(--paper)' }}
+                >
+                  <Trash2 size={13} strokeWidth={2} />
+                  선택한 사진 지우기
+                </button>
+                <button onClick={exitSelecting} className="btn-quiet">
+                  취소
+                </button>
+              </div>
+            </div>
+          )}
 
           <div ref={sentinel} className="pt-10 text-center">
             {cursor ? (
@@ -328,6 +520,85 @@ export default function AlbumPage() {
             )}
           </div>
         </>
+      )}
+
+      {/*
+        되돌릴 수 없는 일이므로 한 번 더 묻는다. 한 장 삭제는 상세에서 삭제
+        영향까지 보여주는데, 여러 장은 그 미리보기를 장마다 부르면 요청이 그만큼
+        늘어난다. 그래서 이미 받아 둔 것으로 셀 수 있는 것만 셈해 보여준다 —
+        몇 장이고, 그중 몇 장이 추억에 붙어 있는지.
+      */}
+      {confirming && (
+        <div
+          className="fixed inset-0 z-[60] flex items-center justify-center p-8"
+          style={{ background: 'rgba(14,13,11,0.5)' }}
+          onClick={() => (bulkBusy ? null : setConfirming(false))}
+        >
+          <div
+            className="w-[420px] rounded-lg bg-paper-pure p-7"
+            style={{ boxShadow: 'var(--shadow-lg)' }}
+            onClick={(e) => e.stopPropagation()}
+            role="dialog"
+            aria-modal="true"
+            aria-label="고른 사진 지우기"
+          >
+            <p className="t-eyebrow m-0" style={{ color: 'var(--critical-ink)' }}>
+              되돌릴 수 없습니다
+            </p>
+            <h3 className="t-h3 m-0 mt-2">사진 {selected.length}장을 지웁니다</h3>
+
+            <div className="mt-4 rounded p-4" style={{ background: 'var(--critical-soft)' }}>
+              {[
+                { label: '사진', value: selectedItems.filter((i) => i.media_type === 'photo').length },
+                { label: '영상', value: selectedItems.filter((i) => i.media_type === 'video').length },
+                { label: '추억에 연결된 것', value: selectedItems.filter((i) => i.event).length },
+              ]
+                .filter((row) => row.value > 0)
+                .map((row) => (
+                  <div
+                    key={row.label}
+                    className="flex justify-between gap-4 py-[6px]"
+                    style={{ borderBottom: '1px solid rgba(194,84,42,0.18)' }}
+                  >
+                    <span className="t-body-sm" style={{ color: 'var(--critical-ink)' }}>
+                      {row.label}
+                    </span>
+                    <span
+                      className="t-mono text-[12px]"
+                      style={{ color: 'var(--critical-ink)' }}
+                    >
+                      {row.value}개
+                    </span>
+                  </div>
+                ))}
+              <p className="t-caption m-0 mt-3" style={{ color: 'var(--critical-ink)' }}>
+                가족이 남긴 기억 문장은 지워지지 않습니다. 원본과의 연결만 끊깁니다.
+              </p>
+            </div>
+
+            <p className="t-caption mt-3">
+              남이 올린 사진이 섞여 있으면 그 사진은 지워지지 않고 이유를 알려드립니다.
+            </p>
+
+            <div className="mt-5 flex items-center gap-3">
+              <button
+                onClick={deleteSelected}
+                disabled={bulkBusy}
+                className="cursor-pointer rounded border-0 px-4 py-2 text-[13px] disabled:opacity-40"
+                style={{ background: 'var(--critical-ink)', color: 'var(--paper)' }}
+              >
+                {bulkBusy ? '지우는 중…' : `정말 ${selected.length}장을 지웁니다`}
+              </button>
+              <button
+                onClick={() => setConfirming(false)}
+                disabled={bulkBusy}
+                className="btn-quiet"
+              >
+                취소
+              </button>
+            </div>
+          </div>
+        </div>
       )}
 
       {openIndex != null && (
@@ -369,7 +640,7 @@ function EmptyState({
   return (
     <div className="py-20 text-center">
       <Images size={28} strokeWidth={1.5} className="mx-auto text-ink-200" />
-      <p className="t-body mx-auto mt-4 max-w-[44ch]">
+      <p className="t-body mx-auto mt-4 max-w-[33em]">
         아직 가족사진이 없습니다. 첫 사진을 올리면 촬영 시점과 장소를 읽어 사진첩에
         정리합니다.
       </p>

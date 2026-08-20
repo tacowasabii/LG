@@ -14,7 +14,7 @@
  */
 
 import { useMemo, useState } from 'react'
-import { ImageOff, Lock, Play, RefreshCw } from 'lucide-react'
+import { Check, ImageOff, Lock, Play, RefreshCw } from 'lucide-react'
 import { AlbumMediaItem, mediaUrl } from '../../lib/api'
 
 /** 촬영일을 모르는 사진들이 모이는 칸 */
@@ -72,9 +72,25 @@ interface AlbumGridProps {
   items: AlbumMediaItem[]
   /** 전체 목록에서의 순번으로 상세를 연다 */
   onOpen: (index: number) => void
+  /**
+   * 고르는 중인가.
+   *
+   * 훑어보는 화면에 체크박스를 늘 깔아 두지 않는다. 사진첩에서 하는 일은
+   * 보는 것이고, 지우려고 고르는 것은 따로 들어가는 모드다 — 늘 켜 두면
+   * 사진을 보려고 누른 손이 사진을 고르게 된다.
+   */
+  selecting?: boolean
+  selectedIds?: Set<string>
+  onToggleSelect?: (id: string) => void
 }
 
-export default function AlbumGrid({ items, onOpen }: AlbumGridProps) {
+export default function AlbumGrid({
+  items,
+  onOpen,
+  selecting = false,
+  selectedIds,
+  onToggleSelect,
+}: AlbumGridProps) {
   const sections = useMemo(() => groupByMonth(items), [items])
 
   return (
@@ -94,7 +110,11 @@ export default function AlbumGrid({ items, onOpen }: AlbumGridProps) {
               <AlbumTile
                 key={item.id}
                 item={item}
-                onOpen={() => onOpen(section.offsets[i])}
+                selecting={selecting}
+                selected={selectedIds?.has(item.id) ?? false}
+                onOpen={() =>
+                  selecting ? onToggleSelect?.(item.id) : onOpen(section.offsets[i])
+                }
               />
             ))}
           </div>
@@ -104,7 +124,17 @@ export default function AlbumGrid({ items, onOpen }: AlbumGridProps) {
   )
 }
 
-function AlbumTile({ item, onOpen }: { item: AlbumMediaItem; onOpen: () => void }) {
+function AlbumTile({
+  item,
+  onOpen,
+  selecting,
+  selected,
+}: {
+  item: AlbumMediaItem
+  onOpen: () => void
+  selecting: boolean
+  selected: boolean
+}) {
   // 썸네일을 못 불러왔을 때. 깨진 이미지 아이콘만 두면 사진이 사라진 것처럼
   // 보이므로, 무엇이었는지(파일명)와 다시 시도할 길을 함께 준다.
   const [failed, setFailed] = useState(false)
@@ -116,7 +146,14 @@ function AlbumTile({ item, onOpen }: { item: AlbumMediaItem; onOpen: () => void 
   const restricted = item.visibility !== 'family'
 
   return (
-    <div className="group relative aspect-square overflow-hidden rounded bg-ink-50">
+    <div
+      className="group relative aspect-square overflow-hidden rounded bg-ink-50"
+      style={
+        selected
+          ? { outline: '2px solid var(--accent)', outlineOffset: -2 }
+          : undefined
+      }
+    >
       {/*
         타일 전체가 상세를 여는 버튼이다. 다시 불러오기 버튼을 이 안에 두면
         버튼 안의 버튼이 되므로, 형제로 놓고 위에 겹친다.
@@ -124,7 +161,12 @@ function AlbumTile({ item, onOpen }: { item: AlbumMediaItem; onOpen: () => void 
       <button
         onClick={onOpen}
         className="absolute inset-0 block h-full w-full cursor-pointer border-0 bg-transparent p-0"
-        aria-label={`${item.original_filename} 크게 보기`}
+        aria-label={
+          selecting
+            ? `${item.original_filename} ${selected ? '고르기 해제' : '고르기'}`
+            : `${item.original_filename} 크게 보기`
+        }
+        aria-pressed={selecting ? selected : undefined}
       >
         {failed ? (
           <span className="flex h-full w-full flex-col items-center justify-center gap-1.5 px-3">
@@ -158,6 +200,20 @@ function AlbumTile({ item, onOpen }: { item: AlbumMediaItem; onOpen: () => void 
           <RefreshCw size={11} strokeWidth={2} />
           다시 불러오기
         </button>
+      )}
+
+      {selecting && (
+        <span
+          className="pointer-events-none absolute right-2 top-2 flex h-[22px] w-[22px]
+                     items-center justify-center rounded-full"
+          style={
+            selected
+              ? { background: 'var(--accent)', color: 'var(--accent-fg)' }
+              : { background: 'rgba(255,255,255,0.85)', border: '1px solid var(--border-strong)' }
+          }
+        >
+          {selected && <Check size={13} strokeWidth={3} />}
+        </span>
       )}
 
       {/* 사진이 스스로 말하지 못하는 것만 얹는다 */}
@@ -194,9 +250,10 @@ function AlbumTile({ item, onOpen }: { item: AlbumMediaItem; onOpen: () => void 
 
       {/* 마우스를 올리거나 키보드로 짚었을 때만 */}
       <span
-        className="pointer-events-none absolute inset-x-0 bottom-0 flex flex-col gap-0.5 px-2.5
-                   pb-2.5 pt-8 opacity-0 transition-opacity duration-150 ease-out
-                   group-hover:opacity-100 group-focus-within:opacity-100"
+        className={`pointer-events-none absolute inset-x-0 bottom-0 flex flex-col gap-0.5 px-2.5
+                   pb-2.5 pt-8 opacity-0 transition-opacity duration-150 ease-out ${
+                     selecting ? '' : 'group-hover:opacity-100 group-focus-within:opacity-100'
+                   }`}
         style={{
           background: 'linear-gradient(to top, rgba(14,13,11,0.78), rgba(14,13,11,0))',
         }}

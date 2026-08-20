@@ -294,6 +294,27 @@ export interface AlbumQuery {
   q?: string | null;
 }
 
+export interface BulkDeleteResult {
+  deleted: string[];
+  /** 지우지 못한 것과 그 이유 (남의 기록이 섞여 있을 때) */
+  failed: Array<{ id: string; reason: string }>;
+  message: string;
+}
+
+/**
+ * 고른 원본들을 한 번에 지운다.
+ *
+ * 한 장씩 DELETE를 여러 번 부르지 않는다. 서버가 저장을 한 번으로 모으고,
+ * 하나가 막혀도 나머지는 지운 뒤 무엇이 왜 막혔는지 함께 돌려준다 —
+ * 요청을 흩어 보내면 그 결과를 화면이 다시 모아야 한다.
+ */
+export async function bulkDeleteMedia(mediaIds: string[]): Promise<BulkDeleteResult> {
+  return fetchJSON(`${BASE_URL}/media/bulk-delete`, {
+    method: 'POST',
+    body: JSON.stringify({ media_ids: mediaIds }),
+  });
+}
+
 /**
  * 사진첩 한 페이지. 원본은 부르지 않는다 — 썸네일 경로만 받아 두고 원본은
  * 상세(Lightbox)를 열 때 처음 불러온다.

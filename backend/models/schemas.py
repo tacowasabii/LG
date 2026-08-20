@@ -52,6 +52,31 @@ class MediaPersonTagRequest(BaseModel):
     person_ids: list[str] = []
 
 
+class MediaBulkDeleteRequest(BaseModel):
+    """여러 원본을 한 번에 지운다 (사진첩의 선택 삭제)
+
+    같은 id가 두 번 들어와도 한 번만 지운다. 개수 상한은 라우터에 있다
+    (routers/media.MAX_BULK_DELETE).
+    """
+    media_ids: list[str] = []
+
+
+class MediaBulkDeleteFailure(BaseModel):
+    """지우지 못한 하나와 그 이유
+
+    이유를 함께 주는 것이 요점이다. 남의 기록이 섞여 있을 때 "몇 개 실패"만
+    알려주면 무엇을 어떻게 해야 하는지 알 수 없다.
+    """
+    id: str
+    reason: str
+
+
+class MediaBulkDeleteResponse(BaseModel):
+    deleted: list[str] = []
+    failed: list[MediaBulkDeleteFailure] = []
+    message: str = ""
+
+
 class MediaListItem(BaseModel):
     id: str
     media_type: str
