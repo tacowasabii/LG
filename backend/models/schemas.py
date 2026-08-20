@@ -34,6 +34,8 @@ class MediaUploadResponse(BaseModel):
     exif_lng: Optional[float] = None
     detected_faces: list[str] = []
     scene_description: Optional[str] = None
+    # 영상·음성일 때. 브라우저가 재서 보낸 값이다 (서버에 디코더를 두지 않는다)
+    duration_sec: Optional[float] = None
     linked_event_id: Optional[str] = None
     needs_info: bool = False  # EXIF 없을 때 True
     message: str = "업로드 완료"
@@ -56,7 +58,8 @@ class MediaListItem(BaseModel):
     original_filename: str
     created_at: str
     exif_date: Optional[str] = None
-    # --- 음성 (media_type == "audio") ---
+    # --- 음성·영상 ---
+    # 길이는 둘 다 채워진다 (브라우저가 잰다). 파형은 음성만.
     duration_sec: Optional[float] = None
     waveform: list[float] = []
     transcript: Optional[str] = None

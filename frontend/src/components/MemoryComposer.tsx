@@ -25,7 +25,10 @@ import { invalidateEvents, invalidateVoiceClips } from '../lib/useGraphData'
 
 interface Attachment {
   id: string
-  thumb: string
+  /** 미리보기용 그림. 영상도 첫 장면이 있으면 그림이다 (lib/videoMeta.ts) */
+  thumb: string | null
+  /** 원본 경로. 그림이 없는 영상만 여기로 떨어진다 */
+  file_path: string
   media_type: string
   filename: string
 }
@@ -149,7 +152,8 @@ export default function MemoryComposer({ eventId, onSaved, onCancel, placeholder
           ...prev,
           {
             id: uploaded.id,
-            thumb: uploaded.thumbnail_path || uploaded.file_path,
+            thumb: uploaded.thumbnail_path || null,
+            file_path: uploaded.file_path,
             media_type: uploaded.media_type,
             filename: uploaded.original_filename,
           },
@@ -299,16 +303,25 @@ export default function MemoryComposer({ eventId, onSaved, onCancel, placeholder
         <div className="mt-3 flex flex-wrap gap-2">
           {attachments.map((item) => (
             <span key={item.id} className="relative">
-              {item.media_type === 'video' ? (
-                <video
+              {/* 첫 장면이 있으면 그림으로 그린다. 영상 원본을 미리보기로
+                  물리면 칩 하나에 수십 MB가 붙는다 (lib/videoMeta.ts). */}
+              {item.thumb ? (
+                <img
                   src={mediaUrl(item.thumb)}
+                  alt=""
+                  className="h-14 w-20 rounded bg-ink-100 object-cover"
+                />
+              ) : item.media_type === 'video' ? (
+                <video
+                  src={mediaUrl(item.file_path)}
+                  preload="metadata"
                   className="h-14 w-20 rounded bg-ink-100 object-cover"
                   muted
                   playsInline
                 />
               ) : (
                 <img
-                  src={mediaUrl(item.thumb)}
+                  src={mediaUrl(item.file_path)}
                   alt=""
                   className="h-14 w-20 rounded bg-ink-100 object-cover"
                 />

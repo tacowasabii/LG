@@ -101,6 +101,11 @@ BEDROCK_TIMEOUT = float(os.getenv("BEDROCK_TIMEOUT", "30"))
 # 용도별 제공자: bedrock | exaone
 # 기본값이 bedrock이지만, 자격증명이 없으면 자동으로 EXAONE으로 돌아간다 —
 # 설정하지 않은 사람의 화면이 깨지지 않게.
+# 채팅 답변을 어디로 보낼지. 기본은 EXAONE이다 — 사내망에서는 그게 동작하고,
+# 프롬프톤 산출물이니 답변만은 EXAONE으로 두는 게 맞다. 다만 EXAONE 게이트웨이는
+# 사내망 사설 주소(10.x)라서 공용 클라우드에 배포하면 닿지 않는다. 배포에서는
+# 이 값을 bedrock으로 주면 답변도 모델이 만든다.
+LLM_ANSWER_PROVIDER = os.getenv("LLM_ANSWER_PROVIDER", "exaone").strip().lower()
 LLM_PLAN_PROVIDER = os.getenv("LLM_PLAN_PROVIDER", "bedrock").strip().lower()
 LLM_EXTRACT_PROVIDER = os.getenv("LLM_EXTRACT_PROVIDER", "bedrock").strip().lower()
 

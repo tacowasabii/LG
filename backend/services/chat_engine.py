@@ -6,7 +6,6 @@ import uuid
 from datetime import date
 from typing import Optional
 
-from backend.config import EXAONE_MODEL
 from backend.services import chat_graph, graph_search, llm_client, memories, visibility
 from backend.services.graph_manager import graph_manager
 from backend.models.schemas import SourceItem
@@ -82,7 +81,8 @@ async def process_chat(
         "conversation_id": conversation_id,
         # 이 답변을 실제 모델이 썼는지. 폴백이면 화면이 그렇게 밝힌다.
         "llm_used": llm_used,
-        "model": EXAONE_MODEL if llm_used else None,
+        # 어느 모델이 답했는지. 배포는 Bedrock, 사내망은 EXAONE이라 고정할 수 없다.
+        "model": llm_client.model_for() if llm_used else None,
     }
 
 

@@ -11,9 +11,13 @@ extra_body로 넘긴다.
 
 용도에 따라 제공자가 갈린다 (backend/config.py).
 
-    answer · question · narrate   EXAONE
+    answer · question · narrate   EXAONE (기본값, LLM_ANSWER_PROVIDER로 변경)
         한국어 서술과 호칭·세대별 어투가 걸린 곳. 기획안이 EXAONE 강점으로
         내세운 자리이고, 채점(Trust Harness)도 이 경로를 돈다.
+
+        다만 EXAONE 게이트웨이는 사내망 사설 주소(10.x)다 — 공용 클라우드에
+        배포하면 연결이 열리지 않고 타임아웃까지 매달린다. 배포에서는
+        LLM_ANSWER_PROVIDER=bedrock으로 돌린다.
 
     plan · extract                Bedrock (기본값)
         질문이나 답변에서 JSON 조각만 뽑는 기계적인 호출. 질의 계획은 채팅
@@ -54,6 +58,7 @@ from backend.config import (
     EXAONE_TOP_K,
     EXAONE_TOP_P,
     LLM_EXTRACT_PROVIDER,
+    LLM_ANSWER_PROVIDER,
     LLM_PLAN_PROVIDER,
 )
 
@@ -69,6 +74,7 @@ _JSON_FENCE = re.compile(r"```(?:json)?\s*(.*?)\s*```", re.DOTALL)
 
 # 용도 -> 설정된 제공자
 _PROVIDER_BY_PURPOSE = {
+    "answer": LLM_ANSWER_PROVIDER,
     "plan": LLM_PLAN_PROVIDER,
     "extract": LLM_EXTRACT_PROVIDER,
 }
@@ -85,7 +91,7 @@ _announced: set = set()
 
 def provider_for(purpose: Optional[str]) -> str:
     """이 용도를 어디로 보낼지. 설정이 bedrock이라도 자격증명이 없으면 EXAONE."""
-    provider = _PROVIDER_BY_PURPOSE.get(purpose or "", "exaone")
+    provider = _PROVIDER_BY_PURPOSE.get(purpose or "answer", "exaone")
     if provider == "bedrock" and not bedrock_enabled():
         provider = "exaone"
 
@@ -93,9 +99,18 @@ def provider_for(purpose: Optional[str]) -> str:
     if key not in _announced:
         _announced.add(key)
         model = BEDROCK_MODEL_ID if provider == "bedrock" else EXAONE_MODEL
-        print(f"[LLM] {key[0]} -> {provider} ({model})")
+        print(f"[LLM] {key[0]} -> {provider} ({model})", flush=True)
 
     return provider
+
+
+def model_for(purpose: Optional[str] = None) -> str:
+    """이 용도가 실제로 부르는 모델 이름
+
+    화면에 "무엇이 답했는지" 밝히는 데 쓴다. 제공자와 따로 관리하면 Bedrock이
+    답한 것을 EXAONE 이름으로 적게 된다.
+    """
+    return BEDROCK_MODEL_ID if provider_for(purpose) == "bedrock" else EXAONE_MODEL
 
 
 def is_enabled(purpose: Optional[str] = None) -> bool:
@@ -237,12 +252,12 @@ def _bedrock_invoke(messages: list[dict], max_tokens: int, temperature: float) -
             break
         except (ConnectionClosedError, EndpointConnectionError) as e:
             if attempt == 1:
-                print(f"[Bedrock] 연결이 끊겼습니다 ({type(e).__name__}) → 다시 겁니다")
+                print(f"[Bedrock] 연결이 끊겼습니다 ({type(e).__name__}) → 다시 겁니다", flush=True)
                 continue
-            print(f"[Bedrock] 연결 실패 ({type(e).__name__}) → EXAONE으로 재시도")
+            print(f"[Bedrock] 연결 실패 ({type(e).__name__}) → EXAONE으로 재시도", flush=True)
             return None
         except Exception as e:  # 자격증명·권한·모델 접근·형식 오류
-            print(f"[Bedrock] 호출 실패 ({type(e).__name__}: {str(e)[:200]}) → EXAONE으로 재시도")
+            print(f"[Bedrock] 호출 실패 ({type(e).__name__}: {str(e)[:200]}) → EXAONE으로 재시도", flush=True)
             return None
 
     if response is None:
@@ -251,7 +266,7 @@ def _bedrock_invoke(messages: list[dict], max_tokens: int, temperature: float) -
     blocks = (response.get("output") or {}).get("message", {}).get("content") or []
     text = "".join(block.get("text", "") for block in blocks).strip()
     if not text:
-        print(f"[Bedrock] 본문이 비어 있음 (stopReason={response.get('stopReason')})")
+        print(f"[Bedrock] 본문이 비어 있음 (stopReason={response.get('stopReason')})", flush=True)
         return None
     return text
 
@@ -280,7 +295,8 @@ async def complete(
             쓰인다 — Bedrock은 BEDROCK_MODEL_ID를 쓴다.
         thinking: 추론 모드 재정의 (EXAONE 전용)
         temperature: 온도 재정의 (구조화 추출은 낮게)
-        purpose: "plan" · "extract"면 설정된 제공자로 보낸다. 없으면 EXAONE.
+        purpose: "answer"(기본) · "plan" · "extract". 용도마다 설정된 제공자로
+            보내고, 자격증명이 없으면 EXAONE으로 돌아간다.
 
     Returns:
         답변 본문. 호출 실패/본문 없음이면 None (호출부가 폴백한다).
@@ -303,7 +319,7 @@ async def complete(
     try:
         result = await llm.ainvoke(messages)
     except Exception as e:  # 게이트웨이 오류·타임아웃·인증 실패 전부
-        print(f"[EXAONE] 호출 실패 ({type(e).__name__}: {str(e)[:200]}) → 시뮬레이션 폴백")
+        print(f"[EXAONE] 호출 실패 ({type(e).__name__}: {str(e)[:200]}) → 시뮬레이션 폴백", flush=True)
         return None
 
     answer = strip_thinking(result.content if isinstance(result.content, str) else "")
@@ -312,7 +328,8 @@ async def complete(
         finish = (result.response_metadata or {}).get("finish_reason")
         print(
             f"[EXAONE] 본문이 비어 있음 (finish_reason={finish}). "
-            f"EXAONE_THINKING_BUDGET({EXAONE_THINKING_BUDGET}) 부족 의심 → 시뮬레이션 폴백"
+            f"EXAONE_THINKING_BUDGET({EXAONE_THINKING_BUDGET}) 부족 의심 → 시뮬레이션 폴백",
+            flush=True,
         )
         return None
 
@@ -354,11 +371,11 @@ async def complete_json(
     try:
         parsed = json.loads(text)
     except (ValueError, TypeError) as e:
-        print(f"[EXAONE] JSON 파싱 실패 ({e}) → 규칙 기반 폴백. 원문: {raw[:160]}")
+        print(f"[EXAONE] JSON 파싱 실패 ({e}) → 규칙 기반 폴백. 원문: {raw[:160]}", flush=True)
         return None
 
     if not isinstance(parsed, dict):
-        print(f"[EXAONE] JSON이 객체가 아님 ({type(parsed).__name__}) → 규칙 기반 폴백")
+        print(f"[EXAONE] JSON이 객체가 아님 ({type(parsed).__name__}) → 규칙 기반 폴백", flush=True)
         return None
 
     return parsed

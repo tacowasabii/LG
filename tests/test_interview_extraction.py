@@ -7,7 +7,7 @@
 
   - 그래프에 있는 인물·장소에만 잇는다 (없는 사람을 만들지 않는다)
   - 비어 있는 자리만 채운다 (있는 값을 덮어쓰지 않는다)
-  - 이렇게 넣은 것은 ai_inferred다 (확인 목록에 올라간다)
+  - 이렇게 넣은 것은 ai_inferred로 남는다 (사람이 적은 것과 구분된다)
 
 LLM 호출은 하지 않는다. 추출(LLM)과 잇기(규칙)를 나눠 두었으므로 잇기만 시험한다.
 
@@ -24,11 +24,11 @@ sys.path.insert(0, str(ROOT_DIR))
 from backend.models.graph_models import (  # noqa: E402
     Confidence,
     MemoryNode,
+    MemoryState,
     RelationType,
     SourceType,
-    VerificationState,
 )
-from backend.services import interview_engine, verification  # noqa: E402
+from backend.services import interview_engine, memories  # noqa: E402
 from backend.services.graph_manager import graph_manager  # noqa: E402
 
 EVENT = "E01"  # 1998 부산 가족여행
@@ -178,13 +178,17 @@ def test_empty_fields_are_filled_and_marked_inferred():
         assert event["location_id"] == place["id"], event["location_id"]
         assert set(result["filled"]) == {"date_start", "location_id"}, result["filled"]
 
-        # 추정이므로 확인 목록에 남는다 (가족이 "맞음"을 눌러야 사실이 된다)
+        # 추정으로 표시된다. 사람이 적은 값과 섞이면 어디까지가 사실인지 읽을 수 없다.
         assert event["confidence"] == Confidence.AI_INFERRED, event["confidence"]
-        state = verification.get_state(EVENT)
-        assert state["state"] in (
-            VerificationState.INFERRED.value,
-            VerificationState.SUPPORTED.value,
-        ), state["state"]
+
+        # 확인 상태(맞음/모름/이견)는 없어졌다. 남은 축은 "기억이 얼마나 쌓였나"이고,
+        # 방금 기억 하나를 남겼으므로 최소한 혼자는 아니어야 한다.
+        state = memories.state_of(EVENT)
+        assert state and state["state"] in (
+            MemoryState.ALONE.value,
+            MemoryState.SHARED.value,
+            MemoryState.VARIED.value,
+        ), state
 
         edges = _edges_between(EVENT, place["id"])
         assert edges and edges[0]["relation"] == RelationType.LOCATED_AT, edges

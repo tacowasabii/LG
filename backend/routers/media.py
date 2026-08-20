@@ -30,6 +30,9 @@ async def upload_media(
     # 두지 않기 위한 선택이다. 사진 업로드에서는 전부 비어 있다.
     duration_sec: Optional[float] = Form(None),
     waveform: Optional[str] = Form(None),
+    # 영상의 첫 장면. 브라우저가 캔버스로 뽑아 보낸다 — 서버에 ffmpeg를 두지
+    # 않기 위한 분업이다 (frontend/src/lib/videoMeta.ts). 없으면 없이 간다.
+    poster: Optional[UploadFile] = File(None),
     transcript: Optional[str] = Form(None),
     # 그 글을 누가 썼는지. ai_stt면 브라우저 음성 인식이 옮기고 사람이 손대지
     # 않은 것이다. 안 보내면 사람이 적은 것으로 본다.
@@ -68,12 +71,14 @@ async def upload_media(
     media_node = analyze_media(str(save_path), file.filename, file.content_type)
     media_node.file_path = f"/media-files/{save_path.name}"
 
-    # 썸네일 생성 (사진인 경우)
-    if media_node.media_type == "photo":
+    # 썸네일 — 사진은 원본에서, 영상은 화면이 보낸 첫 장면에서
+    if media_node.media_type == MediaType.PHOTO:
         thumb_path = MEDIA_DIR / f"thumb_{save_path.name}"
         thumb_result = generate_thumbnail(str(save_path), str(thumb_path))
         if thumb_result:
             media_node.thumbnail_path = f"/media-files/thumb_{save_path.name}"
+    elif media_node.media_type == MediaType.VIDEO and poster is not None:
+        media_node.thumbnail_path = _save_video_poster(save_path.stem, poster)
 
     # 음성으로 온 정보 반영 (녹음은 EXIF가 없으므로 화면이 보낸 값이 유일한 근거다)
     is_audio = media_node.media_type == MediaType.AUDIO
@@ -152,6 +157,7 @@ async def upload_media(
         media_type=media_node.media_type,
         file_path=media_node.file_path,
         thumbnail_path=media_node.thumbnail_path,
+        duration_sec=media_node.duration_sec,
         original_filename=media_node.original_filename,
         exif_date=media_node.exif_date,
         exif_lat=media_node.exif_lat,
@@ -166,6 +172,32 @@ async def upload_media(
             else "업로드 완료. 이 추억의 기록으로 이었습니다."
         ),
     )
+
+
+def _save_video_poster(stem: str, poster: UploadFile) -> Optional[str]:
+    """영상 첫 장면을 썸네일로 저장한다
+
+    화면이 보낸 그림을 그대로 두지 않고 Pillow로 다시 저장한다. 남이 보낸
+    파일이므로 (a) 정말 이미지인지, (b) 크기가 터무니없지 않은지를 여기서
+    가른다. 실패하면 None을 돌려주고 업로드 자체는 성공시킨다 — 썸네일이 없는
+    것은 불편이고, 업로드가 막히는 것은 기록을 잃는 것이다.
+    """
+    raw_path = MEDIA_DIR / f"poster_raw_{stem}"
+    final_name = f"thumb_{stem}.jpg"
+
+    try:
+        with open(raw_path, "wb") as f:
+            shutil.copyfileobj(poster.file, f)
+
+        if generate_thumbnail(str(raw_path), str(MEDIA_DIR / final_name)):
+            return f"/media-files/{final_name}"
+        return None
+    except Exception as e:
+        print(f"[media] 영상 썸네일을 만들지 못했습니다 ({type(e).__name__}: {e})")
+        return None
+    finally:
+        if raw_path.exists():
+            raw_path.unlink()
 
 
 def _parse_waveform(raw: str) -> list[float]:

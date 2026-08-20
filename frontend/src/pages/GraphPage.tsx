@@ -350,6 +350,8 @@ export default function GraphPage() {
                       <video
                         key={media.id}
                         src={mediaUrl(media.file_path)}
+                        poster={mediaUrl(media.thumbnail_path)}
+                        preload="none"
                         className="aspect-square w-full rounded bg-ink-50 object-cover"
                         muted
                         playsInline

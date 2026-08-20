@@ -44,15 +44,24 @@ Body: file (이미지/영상 파일)
   }
 ```
 
-`needs_info: true`이면 EXIF가 없으므로 supplement API로 정보 보충 필요.
+`needs_info: true`이면 EXIF가 없다는 뜻이다. 서버가 날짜를 추측하지 않는다.
+`POST /api/media/supplement`는 **삭제됐다** — 빈칸을 사람이 폼으로 메우는 대신
+`POST /api/memories/draft`가 초안을 쓰고 사용자가 고친다.
 
-### 정보 보충 (EXIF 없는 미디어)
+영상을 올릴 때는 브라우저가 길이(`duration_sec`)와 첫 장면(`poster`, 이미지 파일)을
+함께 보낸다. 서버에 ffmpeg를 두지 않기 위한 분업이다 (`frontend/src/lib/videoMeta.ts`).
+음성은 같은 자리에 `waveform`·`transcript`·`transcript_source`를 보낸다.
+
+### 이 기록에 있는 사람 지목
 
 ```
-POST /api/media/supplement
-Body: { "media_id": "...", "date": "2024-01-01", "event_id": "E01", "description": "..." }
-→ { "message": "...", "linked_event_id": "..." }
+PUT /api/media/{id}/persons
+Body: { "person_ids": ["P01", "P03"] }
+→ { "media_id": "...", "detected_faces": ["P01", "P03"] }
 ```
+
+얼굴 인식은 없다. 이 요청이 `detected_faces`의 유일한 출처이고, 보낸 목록이
+최종 상태가 된다 (빈 배열이면 태그를 모두 뗀다).
 
 ### 미디어 목록
 
@@ -166,30 +175,34 @@ Body: { "session_id": "uuid", "answer": "바닷가에서 모래성 쌓았던 거
 
 ---
 
-## Gaps (Memory Gap 탐지)
+## Memories (추억 · 기억 이어가기)
+
+`GET /api/gaps`와 Memory Gap은 **삭제됐다.** 빠진 것을 목록으로 세워 가족에게
+할 일을 주는 방향을 버렸다 — 앱이 익숙하지 않은 가족이 있으면 그 목록은 영원히
+줄지 않는다. 대신 추억은 만들면 즉시 게시되고, 가족은 원할 때 기억을 더한다.
 
 ```
-GET /api/gaps
-→ GapsResponse {
-    gaps: GapItem[],
-    total: 5
-  }
+POST /api/memories/draft   Body: { "media_ids": [...] }
+  → 초안 (제목·날짜·장소·인물 후보·설명·기존 추억 연결 후보). 확정이 아니다
 
-GapItem {
-  id, event_id, event_title, gap_type, description,
-  suggested_question, target_person, priority
-}
+POST /api/memories         → 추억 만들기 (저장 즉시 게시)
+GET  /api/memories/feed    → 기억 이어가기 목록
+GET  /api/memories/{id}    → 추억 상세
+POST /api/memories/{id}/echo     → 나도 기억나요 (토글)
+POST /api/memories/{id}/memory   → 내 기억 더하기
+POST /api/memories/{id}/media    → 기존 추억에 사진·영상 추가
+POST /api/memories/{id}/story    → 함께 기억한 이야기 생성
 ```
 
-### gap_type 종류
+확인(맞음/모름/이견) 엔드포인트는 없다. 상태는 저장하지 않고 기억에서 파생한다.
 
-| 타입 | 의미 |
+| 상태 | 의미 |
 |------|------|
-| `missing_date` | 날짜 정보 없음 |
-| `missing_place` | 장소 정보 없음 |
-| `missing_person_memory` | 특정 인물의 기억이 없음 |
-| `no_media` | 이벤트에 미디어 없음 |
-| `single_perspective` | 한 사람 시점만 존재 |
+| `alone` | 만든 사람의 기억만 있다 |
+| `shared` | 가족이 기억을 더했다 |
+| `varied` | 조금 다르게 기억하는 내용이 함께 있다 (고칠 오류가 아니다) |
+
+호출 형식 전체는 `docs/SPEC_SUMMARY.md`를 본다.
 
 ---
 

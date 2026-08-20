@@ -27,7 +27,7 @@ inclusion: always
 backend/          FastAPI 앱
   main.py           진입점 (CORS, 라우터 등록, 정적 파일 서빙)
   config.py         환경변수, 경로 상수
-  routers/          API 엔드포인트 (media, graph, chat, interview, gaps, tv)
+  routers/          API 엔드포인트 (media, graph, chat, interview, memories, film, tv 등)
   services/         비즈니스 로직 (graph_manager, chat_engine 등)
   models/           graph_models.py (dataclass), schemas.py (Pydantic)
 

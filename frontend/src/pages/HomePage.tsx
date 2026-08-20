@@ -236,6 +236,8 @@ export default function HomePage() {
                               <video
                                 key={m.id}
                                 src={mediaUrl(m.file_path)}
+                                poster={mediaUrl(m.thumbnail_path)}
+                                preload="none"
                                 className="h-24 w-[132px] rounded bg-ink-50 object-cover"
                                 muted
                                 playsInline

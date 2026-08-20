@@ -73,7 +73,6 @@ Base URL: `http://localhost:8000`
 | Method | Path | 설명 |
 |--------|------|------|
 | POST | `/api/media/upload` | 파일 업로드 (multipart/form-data) |
-| POST | `/api/media/supplement` | EXIF 없는 미디어 추가 정보 제공 |
 | PUT | `/api/media/{id}/persons` | 이 기록에 있는 사람 지목 (보낸 목록이 최종 상태) |
 | GET | `/api/media` | 미디어 목록 (쿼리: ?media_type=photo&person_id=P01) |
 | GET | `/api/media/{id}` | 미디어 상세 |
@@ -158,7 +157,15 @@ Base URL: `http://localhost:8000`
 ```
 Content-Type: multipart/form-data
 Body: file=<binary>
+      person_ids=P01,P03      (선택 · 이 기록에 있는 사람)
+      duration_sec=12.4       (선택 · 영상·음성 길이, 브라우저가 잰다)
+      poster=<binary>         (선택 · 영상 첫 장면, 브라우저가 캔버스로 뽑는다)
+      waveform=[0.2, 0.8]     (선택 · 음성 파형)
+      transcript=...          (선택 · 음성을 옮긴 글)
+      transcript_source=ai_stt (선택 · 그 글을 기계가 옮겼으면)
 ```
+서버에 ffmpeg·오디오 디코더를 두지 않는다. 길이·파형·첫 장면은 브라우저가 재서
+보내고 서버는 파일과 숫자만 받는다.
 Response:
 ```json
 {
@@ -171,16 +178,6 @@ Response:
   "linked_event_id": "E01",
   "needs_info": false,
   "message": "업로드 및 분석 완료"
-}
-```
-
-### POST /api/media/supplement
-```json
-{
-  "media_id": "media_abc123",
-  "date": "2015-07-20",
-  "event_id": "E01",
-  "description": "해운대 해변 사진"
 }
 ```
 

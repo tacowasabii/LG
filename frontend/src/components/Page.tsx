@@ -9,7 +9,6 @@
 
 import { ReactNode } from 'react'
 import { Link } from 'react-router-dom'
-import MockBadge from './MockBadge'
 
 interface PageProps {
   /** 본문 최대 폭(px). 화면 성격에 맞춰 디자인이 정한 값을 그대로 넣는다 */
@@ -31,8 +30,6 @@ interface PageHeaderProps {
   title: string
   /** 이 화면이 무엇을 하는지 한두 문장. 없는 화면(그래프)도 있다 */
   lead?: ReactNode
-  /** 값이 아직 가짜인 화면에 각주를 붙인다 */
-  mock?: boolean | string
   /** 제목 오른쪽 끝에 놓을 동작 (신뢰도 리포트의 "다시 채점" 등) */
   action?: ReactNode
   /** 홈만 한 단계 큰 제목을 쓴다 */
@@ -43,20 +40,12 @@ export function PageHeader({
   eyebrow,
   title,
   lead,
-  mock,
   action,
   large = false,
 }: PageHeaderProps) {
   const head = (
     <div>
-      <p className="t-eyebrow m-0 mb-3">
-        {eyebrow}
-        {mock && (
-          <span className="ml-2.5 align-middle">
-            <MockBadge label={typeof mock === 'string' ? mock : undefined} />
-          </span>
-        )}
-      </p>
+      <p className="t-eyebrow m-0 mb-3">{eyebrow}</p>
       <h2 className={large ? 't-display m-0' : 't-title m-0'}>{title}</h2>
       {lead && <p className="t-lead mt-3 max-w-[52ch]">{lead}</p>}
     </div>

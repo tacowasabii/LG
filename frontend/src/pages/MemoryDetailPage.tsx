@@ -70,6 +70,8 @@ function MemoryBlock({ memory, accent }: { memory: MemoryEntry; accent?: boolean
               <video
                 key={item.id}
                 src={mediaUrl(item.file_path)}
+                poster={mediaUrl(item.thumbnail_path)}
+                preload="none"
                 controls
                 className="h-24 w-[132px] rounded bg-ink-100 object-cover"
               />
@@ -225,6 +227,8 @@ export default function MemoryDetailPage() {
               <video
                 key={item.id}
                 src={mediaUrl(item.file_path)}
+                poster={mediaUrl(item.thumbnail_path)}
+                preload="none"
                 controls
                 className="h-[168px] w-full rounded bg-ink-50 object-cover"
               />

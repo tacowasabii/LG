@@ -208,6 +208,7 @@ python tests/test_permissions.py        # 역할 가드 11개
 python tests/test_interview_extraction.py # 답변에서 인물·장소·시점 추출
 python tests/test_media_person_tags.py  # 기록에 있는 사람 지목 6개
 python tests/test_transcript_source.py  # 전사문 출처·녹음 분류 7개
+python tests/test_video_upload.py       # 영상 길이·첫 장면 썸네일 4개
 
 # 같은 테스트를 Postgres 저장소로도 돌립니다 (구현이 갈리지 않게)
 DATABASE_URL="postgresql://..." python tests/test_memories.py
@@ -346,7 +347,7 @@ JSON 파일은 그대로 남습니다. `DATABASE_URL`을 지우면 다시 파일
 | 도메인 | 엔드포인트 | 설명 |
 |--------|-----------|------|
 | Health | `GET /api/health` | 서버 상태 |
-| Media | `POST /api/media/upload` | 파일 업로드 + 자동 분석 (음성은 길이·파형·화자·사건을 함께 받음) |
+| Media | `POST /api/media/upload` | 파일 업로드 + 자동 분석 (음성은 길이·파형·전사, 영상은 길이·첫 장면을 함께 받음) |
 | | `PUT /api/media/{id}/persons` | 이 기록에 있는 사람 지목 (보낸 목록이 최종 상태) |
 | | `GET /api/media` | 미디어 목록 (`?media_type=audio&person_id=P02`) |
 | Graph | `GET /api/graph` | 전체 노드+엣지 |

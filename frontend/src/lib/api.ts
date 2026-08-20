@@ -2,6 +2,8 @@
  * API 클라이언트 - Backend 통신
  */
 
+import { probeVideo } from './videoMeta';
+
 const BASE_URL = import.meta.env.VITE_API_URL || '/api';
 const STATIC_MODE = import.meta.env.VITE_STATIC_MODE === 'true';
 const MEDIA_BASE = import.meta.env.VITE_API_URL
@@ -147,6 +149,8 @@ export interface MediaUploadResult {
   exif_lng?: number | null;
   detected_faces: string[];
   scene_description?: string | null;
+  /** 영상·음성일 때. 브라우저가 재서 보낸 값이다 */
+  duration_sec?: number | null;
   linked_event_id?: string | null;
   needs_info: boolean;
   message: string;
@@ -162,6 +166,14 @@ export async function uploadMedia(
   if (personIds && personIds.length > 0) formData.append('person_ids', personIds.join(','));
   // 올린 사람이 소유자다 (기획안 08장 Asset 권한)
   if (viewerId) formData.append('owner_id', viewerId);
+
+  // 영상은 길이와 첫 장면을 브라우저가 재서 함께 보낸다. 서버에 ffmpeg를 두지
+  // 않기 위한 분업이고, 못 뽑으면 그냥 없이 올라간다 (lib/videoMeta.ts).
+  if (file.type.startsWith('video/')) {
+    const meta = await probeVideo(file);
+    if (meta.durationSec != null) formData.append('duration_sec', String(meta.durationSec));
+    if (meta.poster) formData.append('poster', meta.poster, 'poster.jpg');
+  }
   const response = await fetch(`${BASE_URL}/media/upload`, {
     method: 'POST',
     headers: viewerId ? { 'X-Viewer-Id': viewerId } : undefined,
