@@ -1263,8 +1263,11 @@ export interface MemoryDraftGroups {
  * `.length`로 읽는데, 하나라도 없으면 묶음을 그리는 중에 예외가 나면서 모으기
  * 화면 전체가 사라진다 — 사용자에게는 "사진을 올렸는데 아무것도 안 뜬다"로
  * 보인다. 없는 것은 없다고 그리는 것이 화면이 죽는 것보다 낫다.
+ *
+ * 저장소에서 되살린 초안(lib/collectDraft.ts)도 같은 길을 지난다 — 오래된
+ * 배포가 써 둔 모양이 올 수 있어 서버 응답과 사정이 같다.
  */
-function normalizeDraft(raw: Partial<MemoryDraft> | null | undefined): MemoryDraft {
+export function normalizeDraft(raw: Partial<MemoryDraft> | null | undefined): MemoryDraft {
   const list = <T,>(value: unknown): T[] => (Array.isArray(value) ? (value as T[]) : []);
   return {
     ...(raw as MemoryDraft),

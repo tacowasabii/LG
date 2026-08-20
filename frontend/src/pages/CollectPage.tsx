@@ -25,7 +25,7 @@
  *      고른다. 자동으로 병합하지 않는다 (기획안 08).
  */
 
-import { useCallback, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { Sparkles } from 'lucide-react'
 import {
@@ -38,6 +38,13 @@ import {
   setMediaPersons,
   uploadMedia,
 } from '../lib/api'
+import {
+  DraftForm,
+  Group,
+  clearCollectDraft,
+  loadCollectDraft,
+  saveCollectDraft,
+} from '../lib/collectDraft'
 import { useCurrentUser } from '../lib/currentUser'
 import { invalidateEvents } from '../lib/useGraphData'
 import { Page, PageHeader } from '../components/Page'
@@ -46,28 +53,6 @@ const MEDIA_TYPE_LABEL: Record<string, string> = {
   photo: '사진',
   video: '영상',
   audio: '음성',
-}
-
-interface DraftForm {
-  title: string
-  date_start: string
-  place_name: string
-  /** 그래프에 있는 장소를 그대로 쓰는 경우. 이름을 고치면 비워진다 */
-  place_id: string | null
-  description: string
-  person_ids: string[]
-}
-
-/** 묶음 하나 — 초안 + 편집 중인 값 + 그 결과 */
-interface Group {
-  draft: MemoryDraft
-  form: DraftForm
-  /** 인물 후보 중 "아니요"로 넘긴 사람 (다시 묻지 않는다) */
-  dismissed: string[]
-  /** 만들어진 추억 (여기까지 오면 이미 가족 공간에 게시된 상태다) */
-  created?: { id: string; title: string }
-  /** 기존 추억에 붙인 경우 */
-  attached?: { id: string; title: string }
 }
 
 function buildForm(draft: MemoryDraft): DraftForm {
@@ -87,22 +72,35 @@ function buildForm(draft: MemoryDraft): DraftForm {
 export default function CollectPage() {
   const { current, members } = useCurrentUser()
 
+  /**
+   * 저장하기 전에 쌓아 둔 것을 되살린다 (lib/collectDraft.ts).
+   * 다른 탭에 갔다 오면 이 화면은 새로 마운트되므로, 초기값을 저장소에서 읽지
+   * 않으면 올린 기록과 고쳐 둔 초안이 매번 사라진다. 한 번만 읽는다.
+   */
+  const [restored] = useState(loadCollectDraft)
+
   const [dragOver, setDragOver] = useState(false)
   const [uploading, setUploading] = useState(false)
-  const [results, setResults] = useState<MediaUploadResult[]>([])
+  const [results, setResults] = useState<MediaUploadResult[]>(restored.results)
   const [error, setError] = useState<string | null>(null)
 
   /** 기록별로 지목된 사람. 얼굴 인식이 없으므로 여기가 detected_faces의 출처다 */
-  const [personTags, setPersonTags] = useState<Record<string, string[]>>({})
+  const [personTags, setPersonTags] = useState<Record<string, string[]>>(restored.personTags)
   const [tagging, setTagging] = useState<string | null>(null)
 
-  const [groups, setGroups] = useState<Group[]>([])
+  const [groups, setGroups] = useState<Group[]>(restored.groups)
   /** AI가 갈랐는가 (합치기/다시 가르기 안내를 정한다) */
-  const [grouped, setGrouped] = useState(false)
+  const [grouped, setGrouped] = useState(restored.grouped)
   /** 지금 전부 하나로 합쳐 놓은 상태인가 */
-  const [merged, setMerged] = useState(false)
+  const [merged, setMerged] = useState(restored.merged)
   const [drafting, setDrafting] = useState(false)
   const [saving, setSaving] = useState<number | null>(null)
+
+  // 바뀔 때마다 곧바로 써 둔다. 사용자가 언제 이 화면을 떠날지 알 수 없어서
+  // (탭 이동·새로고침·뒤로 가기) 떠나는 순간에 맞춰 저장할 수 없다.
+  useEffect(() => {
+    saveCollectDraft({ results, personTags, groups, grouped, merged })
+  }, [results, personTags, groups, grouped, merged])
 
   const patchGroup = (index: number, patch: Partial<Group>) =>
     setGroups((prev) => prev.map((g, i) => (i === index ? { ...g, ...patch } : g)))
@@ -281,6 +279,7 @@ export default function CollectPage() {
     setGroups([])
     setGrouped(false)
     setMerged(false)
+    clearCollectDraft()
   }
 
   const firstTime = results.length === 0
