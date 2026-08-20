@@ -745,16 +745,41 @@ export interface InboxMemory {
   contributor_name?: string | null;
 }
 
+export interface PlaceOption {
+  id: string;
+  name: string;
+}
+
+/** 무엇이 무엇으로 바뀌었는가 */
+export interface FieldChange {
+  field: string;
+  before?: string | null;
+  after?: string | null;
+}
+
+export interface CorrectionRecord {
+  person_id: string;
+  person_name: string;
+  at?: string | null;
+  changes: FieldChange[];
+}
+
 export interface InboxItem {
   event_id: string;
   event_title: string;
   date_start?: string | null;
+  /** 수정 폼을 채울 지금 값 */
+  description?: string;
+  place?: PlaceOption | null;
   state: VerificationState;
   confirmed_by: VerifierRef[];
+  corrected_by: VerifierRef[];
   disputed_by: VerifierRef[];
   unknown_by: VerifierRef[];
   participants: Array<{ id: string; name: string; relation: string }>;
   memories: InboxMemory[];
+  /** 누가 언제 무엇을 고쳤는가 (출처 보존) */
+  corrections: CorrectionRecord[];
 }
 
 export interface VerifyResult {
@@ -762,25 +787,41 @@ export interface VerifyResult {
   verification: {
     state: VerificationState;
     confirmed_by: VerifierRef[];
+    corrected_by: VerifierRef[];
     disputed_by: VerifierRef[];
     unknown_by: VerifierRef[];
   };
   created_memory_id?: string | null;
+  changes: FieldChange[];
   message: string;
 }
 
-export async function getVerificationInbox(): Promise<{ items: InboxItem[]; total: number }> {
+export async function getVerificationInbox(): Promise<{
+  items: InboxItem[];
+  total: number;
+  /** 장소는 새로 적지 않고 그래프에 있는 것을 고른다 */
+  places: PlaceOption[];
+}> {
   return fetchJSON(`${BASE_URL}/graph/verify`);
+}
+
+/** 확인 화면에서 고칠 수 있는 값 (서버가 이 넷만 받는다) */
+export interface EventCorrections {
+  title?: string;
+  date_start?: string | null;
+  description?: string;
+  location_id?: string | null;
 }
 
 export async function verifyEvent(
   eventId: string,
   personId: string,
-  action: 'confirm' | 'unknown' | 'dispute',
+  action: 'confirm' | 'correct' | 'unknown' | 'dispute',
   note?: string,
+  corrections?: EventCorrections,
 ): Promise<VerifyResult> {
   return fetchJSON(`${BASE_URL}/graph/event/${eventId}/verify`, {
     method: 'POST',
-    body: JSON.stringify({ person_id: personId, action, note }),
+    body: JSON.stringify({ person_id: personId, action, note, corrections }),
   });
 }

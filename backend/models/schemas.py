@@ -128,15 +128,20 @@ class EventResponse(BaseModel):
 
 class VerifyRequest(BaseModel):
     person_id: str
-    action: str  # "confirm" | "unknown" | "dispute"
+    action: str  # "confirm" | "correct" | "unknown" | "dispute"
     # 이견일 때 그 사람의 기억. 사실을 덮어쓰지 않고 별도 Memory로 보존된다.
     note: Optional[str] = None
+    # 수정일 때 고칠 값. title · date_start · description · location_id 만 받는다
+    # (확인 화면이 그래프 편집기가 되지 않게).
+    corrections: Optional[dict] = None
 
 
 class VerifyResponse(BaseModel):
     event_id: str
     verification: dict
     created_memory_id: Optional[str] = None
+    # 수정일 때 무엇이 무엇으로 바뀌었는지 [{field, before, after}]
+    changes: list[dict] = []
     message: str
 
 

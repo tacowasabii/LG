@@ -133,7 +133,17 @@ async def verification_inbox():
     충돌 > 미확인 > 다중근거 > 확인완료 순으로 정렬된다.
     """
     items = verification.list_pending()
-    return {"items": items, "total": len(items)}
+    # 수정 화면이 장소를 새로 적는 대신 그래프에 있는 장소를 고르게 한다.
+    # 이름을 받아 만들면 같은 장소가 둘이 되고 지도에 점이 겹친다.
+    places = sorted(
+        (
+            {"id": place["id"], "name": place.get("name", "")}
+            for place in graph_manager.get_places()
+            if place.get("name")
+        ),
+        key=lambda p: p["name"],
+    )
+    return {"items": items, "total": len(items), "places": places}
 
 
 @router.post("/event/{event_id}/verify", response_model=VerifyResponse)
@@ -142,10 +152,10 @@ async def verify_event(
     request: VerifyRequest,
     actor: Optional[dict] = Depends(current_actor),
 ):
-    """가족 확인 기록 (맞음 / 모름 / 이견)
+    """가족 확인 기록 (맞음 / 수정 / 모름 / 이견)
 
-    이견은 사실을 덮어쓰지 않는다. 그 사람의 기억을 별도 Memory로 보존하고
-    사건을 충돌 상태로 표시한다.
+    수정은 값을 덮어쓰고 누가 무엇을 바꿨는지 남긴다. 이견은 사실을 덮어쓰지
+    않는다 — 그 사람의 기억을 별도 Memory로 보존하고 사건을 충돌 상태로 표시한다.
     """
     permissions.require_writer(actor)
 
@@ -159,15 +169,30 @@ async def verify_event(
             status_code=400,
             detail="이견을 남길 때는 어떻게 기억하는지 note에 적어주세요. 사실을 지우지 않고 함께 보존합니다.",
         )
+    if request.action == VerifyAction.CORRECT and not request.corrections:
+        raise HTTPException(
+            status_code=400,
+            detail="무엇을 어떻게 고칠지 corrections에 담아주세요.",
+        )
 
-    result = verification.record(
-        event_id, request.person_id, request.action, request.note
-    )
+    try:
+        result = verification.record(
+            event_id,
+            request.person_id,
+            request.action,
+            request.note,
+            corrections=request.corrections,
+        )
+    except ValueError as e:
+        # 없는 장소·빈 수정·모르는 필드. 화면이 이유를 그대로 보여준다.
+        raise HTTPException(status_code=400, detail=str(e))
+
     if result is None:
         raise HTTPException(status_code=404, detail="이벤트 또는 인물을 찾을 수 없습니다.")
 
     messages = {
         VerifyAction.CONFIRM: "확인해주셔서 감사합니다. 확인자와 시점이 기록되었어요.",
+        VerifyAction.CORRECT: "고친 값을 저장했어요. 누가 언제 무엇을 바꿨는지 함께 남았습니다.",
         VerifyAction.UNKNOWN: "모른다고 기록했어요. 다른 가족에게 물어볼게요.",
         VerifyAction.DISPUTE: "다른 기억을 함께 보존했어요. 기존 기록은 지우지 않았습니다.",
     }
@@ -176,6 +201,7 @@ async def verify_event(
         event_id=event_id,
         verification=result["state"],
         created_memory_id=result["created_memory_id"],
+        changes=result.get("changes") or [],
         message=messages[VerifyAction(request.action)],
     )
 
