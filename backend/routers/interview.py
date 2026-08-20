@@ -47,6 +47,7 @@ async def interview_answer(
         next_question=result["next_question"],
         is_complete=result["is_complete"],
         updated_nodes=result["updated_nodes"],
+        extracted=result.get("extracted"),
         message=result["message"],
     )
 

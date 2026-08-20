@@ -392,11 +392,24 @@ export interface InterviewStartResult {
   context?: { target_type?: string; target_id?: string; target_title?: string } | null;
 }
 
+/** 답변에서 뽑아 그래프에 이은 것 (기획안 02장 "답변에서 사건·인물·시점 추출") */
+export interface ExtractedFromAnswer {
+  /** 그래프에 있는 인물로 맞춰진 것 */
+  persons: Array<{ id: string; name: string; term: string }>;
+  place?: { id: string; name: string; term: string } | null;
+  date?: string | null;
+  /** 비어 있어서 이 답변으로 채운 사건 필드 */
+  filled: string[];
+  /** 답변에 나왔지만 그래프에 없어서 잇지 않은 표현 */
+  unmatched: string[];
+}
+
 export interface InterviewAnswerResult {
   session_id: string;
   next_question?: string | null;
   is_complete: boolean;
   updated_nodes: string[];
+  extracted?: ExtractedFromAnswer | null;
   message: string;
 }
 

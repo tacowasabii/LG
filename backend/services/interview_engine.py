@@ -1,10 +1,24 @@
-"""AI Memory Interview Engine - 기억의 빈 곳을 질문하며 새로운 기록 수집"""
+"""AI Memory Interview Engine - 기억의 빈 곳을 질문하며 새로운 기록 수집
+
+기획안의 마지막 단계(STEP 06 "이어가기")가 여기서 닫힌다. 답변을 문장으로만
+쌓으면 그래프는 자라지 않는다. 그래서 답변에서 인물·장소·시점을 뽑아
+사건에 잇는다 (기획안 02장 Memory Interview: "답변에서 사건·인물·시점 추출").
+
+다만 AI가 가족사를 새로 쓰지는 않는다. 지키는 선은 셋이다.
+  1. 없는 사람을 만들지 않는다. 그래프에 이미 있는 인물·장소에만 잇는다 —
+     "큰엄마"가 누구인지는 가족만 안다.
+  2. 있는 값을 덮어쓰지 않는다. 비어 있는 자리(날짜 없음·장소 없음)만 채운다.
+  3. 이렇게 넣은 것은 추정이다. ai_inferred로 표시해 확인 목록에 올린다.
+     가족이 "맞음"을 누르는 순간에만 사실이 된다.
+"""
 
 from __future__ import annotations
 
+import re
 import uuid
 from typing import Optional
 
+from backend.config import EXAONE_PLANNER_MODEL
 from backend.services import llm_client
 from backend.models.graph_models import (
     MemoryNode, Edge, RelationType, SourceType, Confidence, NodeType,
@@ -113,11 +127,14 @@ async def process_answer(
     # 답변 저장
     session["answers"].append(answer)
 
-    # 답변에서 정보 추출 → Memory 노드 생성
+    # 답변에서 정보 추출 → Memory 노드 생성 + 사건에 잇기
     updated_nodes = await _process_answer_to_graph(
         session, answer, speaker_id=speaker_id, audio_media_id=audio_media_id
     )
     session["updated_nodes"].extend(updated_nodes)
+    # 방금 답변에서 무엇을 알아냈는지. 화면이 그대로 보여 준다 — 그래프가
+    # 조용히 자라면 사용자는 자기 말이 어디로 갔는지 알 수 없다.
+    extracted = (session.get("extracted") or [{}])[-1]
 
     # 종료 조건 확인
     is_complete = session["question_count"] >= session["max_questions"]
@@ -134,6 +151,13 @@ async def process_answer(
         "next_question": next_question,
         "is_complete": is_complete,
         "updated_nodes": updated_nodes,
+        "extracted": {
+            "persons": extracted.get("persons") or [],
+            "place": extracted.get("place"),
+            "date": extracted.get("date"),
+            "filled": extracted.get("filled") or [],
+            "unmatched": extracted.get("unmatched") or [],
+        },
         "message": "감사합니다! 소중한 기억이 기록되었어요." if is_complete else "",
     }
 
@@ -287,4 +311,226 @@ async def _process_answer_to_graph(
             ))
             updated_nodes.append(audio_media_id)
 
+    # 답변에서 인물·장소·시점을 뽑아 사건에 잇는다 (그래프가 자라는 자리)
+    extracted = await extract_and_link(answer, target, contributor_id, memory.id)
+    updated_nodes.extend(extracted["updated_nodes"])
+    session.setdefault("extracted", []).append(extracted)
+
     return updated_nodes
+
+
+# --- 답변에서 구조 뽑기 -------------------------------------------------------
+
+EXTRACT_SYSTEM = """너는 가족 인터뷰 답변에서 사실 후보만 뽑는 추출기야.
+답변에 실제로 나온 표현만 JSON으로 출력해. 설명이나 인사는 하지 마.
+
+출력 형식:
+{
+  "persons": ["답변에 나온 사람의 이름 또는 호칭"],
+  "places": ["지명 또는 장소 이름"],
+  "date": "YYYY-MM-DD 또는 YYYY-MM 또는 YYYY, 없으면 null"
+}
+
+규칙:
+1. 답변에 등장한 표현만 넣어. 추측해서 채우지 마.
+2. 조사(은/는/이/가/의/에서/와/과)는 떼고 넣어. "엄마가" -> "엄마"
+3. 여러 사람을 뭉뚱그린 표현은 넣지 마. "우리 가족", "다들", "모두" -> 넣지 않는다.
+4. 말하는 사람 자신을 가리키는 표현(나, 내가, 저는)은 넣지 마.
+5. 장소는 고유한 이름만. "거기", "그곳", "집" 같은 지시어는 넣지 마.
+6. 날짜는 답변에 연도나 날짜가 실제로 있을 때만. "그때", "옛날"은 null.
+7. JSON만 출력해."""
+
+# "1998년 8월", "1998-08-13", "98년" 같은 표현에서 연도를 건져낸다
+_YEAR = re.compile(r"(19|20)\d{2}")
+
+
+def _clean_terms(value) -> list[str]:
+    """LLM이 준 값을 문자열 목록으로 정리한다 (형식 이탈 방어)"""
+    if isinstance(value, str):
+        value = [value]
+    if not isinstance(value, list):
+        return []
+    terms = []
+    for item in value:
+        text = str(item).strip()
+        if text and text not in terms:
+            terms.append(text)
+    return terms
+
+
+def _normalize_date(raw) -> Optional[str]:
+    """YYYY / YYYY-MM / YYYY-MM-DD 만 통과시킨다
+
+    사건의 date_start는 화면과 정렬이 ISO 문자열로 다루므로, 형식이 어긋나면
+    타임라인이 엉킨다. 확신할 수 없으면 넣지 않는다.
+    """
+    if not isinstance(raw, str):
+        return None
+    text = raw.strip()
+    if re.fullmatch(r"\d{4}", text):
+        return text + "-01-01"
+    if re.fullmatch(r"\d{4}-\d{2}", text):
+        return text + "-01"
+    if re.fullmatch(r"\d{4}-\d{2}-\d{2}", text):
+        return text
+    return None
+
+
+def _resolve_person(term: str) -> Optional[str]:
+    """호칭이나 이름을 그래프의 인물에 맞춘다 (없으면 None)
+
+    새 인물을 만들지 않는다. "큰엄마"가 누구인지는 가족만 알고, AI가 정하면
+    잘못된 귀속이 그래프에 박힌다 (기획안 08장 Identity Safety).
+    """
+    persons = graph_manager.get_persons()
+    for person in persons:
+        if term == person.get("name") or term == person.get("relation"):
+            return person["id"]
+    for person in persons:
+        name = person.get("name") or ""
+        relation = person.get("relation") or ""
+        if (name and (term in name or name in term)) or (relation and term == relation):
+            return person["id"]
+    return None
+
+
+def _resolve_place(term: str) -> Optional[str]:
+    """지명을 그래프의 장소에 맞춘다 (없으면 None)"""
+    places = graph_manager.get_places()
+    for place in places:
+        if term == place.get("name"):
+            return place["id"]
+    for place in places:
+        name = place.get("name") or ""
+        if name and (term in name or name in term):
+            return place["id"]
+    return None
+
+
+def _empty_extraction() -> dict:
+    return {
+        "persons": [],
+        "place": None,
+        "date": None,
+        "unmatched": [],
+        "updated_nodes": [],
+        "filled": [],
+    }
+
+
+async def extract_and_link(
+    answer: str,
+    target: Optional[dict],
+    contributor_id: Optional[str],
+    memory_id: str,
+) -> dict:
+    """답변에서 인물·장소·시점을 뽑아 사건에 잇는다"""
+    if not llm_client.is_enabled():
+        # 키가 없으면 추출하지 않는다. 규칙 기반으로 흉내내면 잘못된 연결이
+        # 그래프에 남고, 그게 화면에서는 사실처럼 보인다.
+        return _empty_extraction()
+
+    raw = await llm_client.complete_json(
+        [
+            {"role": "system", "content": EXTRACT_SYSTEM},
+            {"role": "user", "content": answer},
+        ],
+        max_tokens=256,
+        model=EXAONE_PLANNER_MODEL,
+    )
+    if not raw:
+        return _empty_extraction()
+
+    return link_extracted(raw, target, contributor_id, memory_id)
+
+
+def link_extracted(
+    raw: dict,
+    target: Optional[dict],
+    contributor_id: Optional[str],
+    memory_id: str,
+) -> dict:
+    """뽑아낸 표현을 그래프에 잇는다 (LLM과 분리해 둔다 — 규칙을 시험할 수 있게)
+
+    Returns:
+        {"persons": [{id, name, term}], "place": {...}|None, "date": "..."|None,
+         "unmatched": ["그래프에 없는 표현"], "updated_nodes": [...],
+         "filled": ["date_start", "location_id"]}
+    """
+    result = _empty_extraction()
+
+    event = target if (target or {}).get("node_type") == NodeType.EVENT else None
+    event_id = event["id"] if event else None
+    # 사건은 그동안 바뀌었을 수 있다 (세션이 들고 있는 것은 시작 시점의 값)
+    current = graph_manager.get_node(event_id) if event_id else None
+
+    # --- 인물: 있는 사람에게만 잇는다 ---
+    for term in _clean_terms(raw.get("persons")):
+        person_id = _resolve_person(term)
+        if not person_id:
+            result["unmatched"].append(term)
+            continue
+        person = graph_manager.get_node(person_id) or {}
+        entry = {"id": person_id, "name": person.get("name", person_id), "term": term}
+        if entry not in result["persons"]:
+            result["persons"].append(entry)
+
+        # 말한 사람 자신은 이미 REMEMBERS로 이어져 있다
+        if event_id and person_id != contributor_id:
+            graph_manager.add_edge(Edge(
+                source=person_id,
+                target=event_id,
+                relation=RelationType.PARTICIPATED_IN,
+                # 추정임을 엣지에 남긴다. 확인 화면이 이걸 보고 물어볼 수 있다.
+                properties={
+                    "role": "참여자",
+                    "confidence": Confidence.AI_INFERRED,
+                    "source": SourceType.INTERVIEW,
+                    "from_memory": memory_id,
+                },
+            ))
+            if person_id not in result["updated_nodes"]:
+                result["updated_nodes"].append(person_id)
+
+    # --- 장소: 비어 있을 때만 채운다 ---
+    for term in _clean_terms(raw.get("places")):
+        place_id = _resolve_place(term)
+        if not place_id:
+            result["unmatched"].append(term)
+            continue
+        place = graph_manager.get_node(place_id) or {}
+        result["place"] = {"id": place_id, "name": place.get("name", place_id), "term": term}
+
+        if current and not current.get("location_id"):
+            graph_manager.update_node(event_id, {
+                "location_id": place_id,
+                "confidence": Confidence.AI_INFERRED,
+            })
+            graph_manager.add_edge(Edge(
+                source=event_id,
+                target=place_id,
+                relation=RelationType.LOCATED_AT,
+                properties={
+                    "confidence": Confidence.AI_INFERRED,
+                    "source": SourceType.INTERVIEW,
+                },
+            ))
+            result["filled"].append("location_id")
+            if event_id not in result["updated_nodes"]:
+                result["updated_nodes"].append(event_id)
+        break  # 사건의 대표 장소는 하나다
+
+    # --- 시점: 비어 있을 때만 채운다 ---
+    date = _normalize_date(raw.get("date"))
+    if date:
+        result["date"] = date
+        if current and not current.get("date_start"):
+            graph_manager.update_node(event_id, {
+                "date_start": date,
+                "confidence": Confidence.AI_INFERRED,
+            })
+            result["filled"].append("date_start")
+            if event_id not in result["updated_nodes"]:
+                result["updated_nodes"].append(event_id)
+
+    return result

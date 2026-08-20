@@ -1,7 +1,9 @@
 import { useEffect, useRef, useState } from 'react'
+import { Link } from 'react-router-dom'
 import {
   startInterview,
   submitInterviewAnswer,
+  ExtractedFromAnswer,
   uploadVoice,
   InterviewStartResult,
   InterviewAnswerResult,
@@ -39,6 +41,8 @@ interface QA {
   /** 음성으로 답했는지 — 실기능에서는 저장된 오디오 id가 들어간다 */
   by_voice?: boolean
   speaker_name?: string
+  /** 이 답변에서 그래프에 반영된 것 (없으면 표시하지 않는다) */
+  extracted?: ExtractedFromAnswer | null
 }
 
 type InputMode = 'text' | 'voice'
@@ -182,6 +186,22 @@ export default function InterviewPage() {
         audioMediaId,
       )
       setUpdatedCount((prev) => prev + result.updated_nodes.length)
+
+      // 방금 답변에서 무엇이 그래프에 붙었는지 그 답변 아래에 남긴다.
+      // 조용히 자라면 말한 사람은 자기 말이 어디로 갔는지 알 수 없다.
+      if (result.extracted) {
+        const learned = result.extracted
+        setQaHistory((prev) => {
+          const next = [...prev]
+          for (let i = next.length - 1; i >= 0; i -= 1) {
+            if (next[i].answer !== undefined) {
+              next[i] = { ...next[i], extracted: learned }
+              break
+            }
+          }
+          return next
+        })
+      }
 
       // 기억·음성이 늘었으니 다른 화면이 다시 받아야 한다
       invalidateEvents()
@@ -336,6 +356,9 @@ export default function InterviewPage() {
                     </p>
                   </div>
                 )}
+
+                {/* 이 답변에서 그래프에 붙은 것. 추정이므로 확인 화면으로 넘어간다 */}
+                {qa.extracted && <Learned learned={qa.extracted} />}
               </div>
             ))}
           </div>
@@ -498,5 +521,51 @@ export default function InterviewPage() {
         </>
       )}
     </Page>
+  )
+}
+
+
+/**
+ * 답변 하나에서 그래프에 반영된 것
+ *
+ * 추정으로 넣었다는 사실을 숨기지 않는다. 여기 붙은 인물·장소·날짜는 확인
+ * 화면에서 가족이 "맞음"을 누를 때 사실이 된다 (기획안 STEP 04).
+ * 그래프에 없어서 잇지 못한 표현도 함께 밝힌다 — 없는 사람을 만들지 않는다.
+ */
+function Learned({ learned }: { learned: ExtractedFromAnswer }) {
+  const linked = [
+    ...learned.persons.map((p) => p.name),
+    learned.place?.name,
+    learned.date,
+  ].filter(Boolean) as string[]
+
+  if (linked.length === 0 && learned.unmatched.length === 0) return null
+
+  return (
+    <div className="ml-[42px] mt-2.5">
+      {linked.length > 0 && (
+        <p className="t-caption m-0">
+          이 답변에서 알아낸 것 · {linked.join(' · ')}
+          {learned.filled.length > 0 && (
+            <span style={{ color: 'var(--accent-ink)' }}>
+              {' '}
+              — 비어 있던{' '}
+              {learned.filled
+                .map((field) => (field === 'date_start' ? '날짜' : '장소'))
+                .join('·')}
+              를 채웠습니다 (추정)
+            </span>
+          )}
+        </p>
+      )}
+      {learned.unmatched.length > 0 && (
+        <p className="t-caption m-0 mt-1 text-ink-300">
+          {learned.unmatched.join(' · ')} 은 아직 가족 공간에 없어 잇지 않았습니다.
+        </p>
+      )}
+      <Link to="/verify" className="t-caption text-accent-ink">
+        확인 요청에서 검토하기 →
+      </Link>
+    </div>
   )
 }

@@ -232,10 +232,27 @@ class InterviewAnswerRequest(BaseModel):
     audio_media_id: Optional[str] = None
 
 
+class ExtractedFromAnswer(BaseModel):
+    """답변에서 뽑아 그래프에 이은 것 (기획안 02장 "답변에서 사건·인물·시점 추출")
+
+    화면이 그대로 보여 준다. 그래프가 조용히 자라면 말한 사람은 자기 말이
+    어디로 갔는지 알 수 없다.
+    """
+    # 그래프에 있는 인물로 맞춰진 것 [{id, name, term}]
+    persons: list[dict] = []
+    place: Optional[dict] = None
+    date: Optional[str] = None
+    # 비어 있어서 이 답변으로 채운 사건 필드 (date_start · location_id)
+    filled: list[str] = []
+    # 답변에 나왔지만 그래프에 없어서 잇지 않은 표현. 없는 사람을 만들지 않는다.
+    unmatched: list[str] = []
+
+
 class InterviewAnswerResponse(BaseModel):
     session_id: str
     next_question: Optional[str] = None
     is_complete: bool = False
+    extracted: Optional[ExtractedFromAnswer] = None
     updated_nodes: list[str] = []  # 업데이트된 노드 ID
     message: str = ""
 
