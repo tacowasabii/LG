@@ -7,6 +7,7 @@ Memory Graph를 구성하고 미디어 파일을 서빙 가능하게 연결합�
 import argparse
 import sys
 import json
+import re
 import shutil
 from pathlib import Path
 
@@ -269,6 +270,52 @@ def _store_label() -> str:
     return "Postgres (DATABASE_URL)" if DATABASE_URL else str(GRAPH_FILE)
 
 
+# 시드가 만든 인물의 id (P01~P99). 가족이 화면에서 추가한 인물은
+# person_<hex8> 꼴이라서(graph_models._gen_id) 이 패턴에 걸리지 않는다.
+_SEED_PERSON_ID = re.compile(r"^P\d{2}$")
+
+
+def _prune_removed_seed_persons() -> int:
+    """시드에서 빠진 인물을 이미 만들어진 그래프에서도 지운다
+
+    --if-empty로 시드를 건너뛰는 배포에서는 persons.json을 고쳐도 옛 인물이
+    저장소에 그대로 남는다. 관계 범위를 가족으로 좁힌 뒤에도 배포 화면에 친구·
+    연인이 계속 보인 것이 이 경우였다.
+
+    시드에서 온 인물은 시드가 정본이므로 여기서 맞춘다. 가족이 화면에서 추가한
+    인물은 id 모양이 달라 손대지 않는다 — 그쪽은 사람이 넣은 것이고 시드가
+    정할 일이 아니다.
+    """
+    persons_file = METADATA_DIR / "persons.json"
+    if not persons_file.exists():
+        return 0
+
+    keep = {p["person_id"] for p in json.loads(persons_file.read_text(encoding="utf-8"))}
+    stale = [
+        person["id"]
+        for person in graph_manager.get_persons()
+        if _SEED_PERSON_ID.match(person.get("id") or "") and person["id"] not in keep
+    ]
+    if not stale:
+        return 0
+
+    # delete_node는 두 저장소 모두 이어진 엣지를 함께 지운다
+    for person_id in stale:
+        graph_manager.delete_node(person_id)
+
+    # 노드를 지워도 다른 노드의 필드에 박힌 id는 남는다. 등장 인물은 공개 범위
+    # 판정이 읽으므로(visibility.ConsentIndex) 여기서 함께 걷어낸다.
+    dropped = set(stale)
+    for media in graph_manager.get_media_nodes():
+        faces = media.get("detected_faces") or []
+        remaining = [face for face in faces if face not in dropped]
+        if len(remaining) != len(faces):
+            graph_manager.update_node(media["id"], {"detected_faces": remaining})
+
+    print(f"[seed] 시드에서 빠진 인물을 지웠습니다: {', '.join(stale)}")
+    return len(stale)
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description="metadata에서 Memory Graph를 만든다")
     parser.add_argument(
@@ -284,6 +331,9 @@ def main() -> int:
     # 매 부팅 재시드 -> TRUNCATE가 된다 (실제로 그 상태였다).
     if args.if_empty and graph_manager.get_all_nodes():
         print(f"[seed] 이미 데이터가 있습니다. 건너뜁니다: {_store_label()}")
+        # 건너뛰더라도 시드에서 빠진 인물은 맞춘다. 시드 파일만 고치고 배포하면
+        # 이미 만들어진 저장소에는 옛 인물이 남기 때문이다.
+        _prune_removed_seed_persons()
         return 0
 
     seed()
