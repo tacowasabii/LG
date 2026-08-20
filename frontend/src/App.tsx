@@ -1,9 +1,9 @@
-import { Routes, Route } from 'react-router-dom'
+import { Routes, Route, Navigate } from 'react-router-dom'
 import AppLayout from './layouts/AppLayout'
 import TVLayout from './layouts/TVLayout'
 import { CurrentUserProvider } from './lib/currentUser'
 import HomePage from './pages/HomePage'
-import UploadPage from './pages/UploadPage'
+import CollectPage from './pages/CollectPage'
 import GraphPage from './pages/GraphPage'
 import ChatPage from './pages/ChatPage'
 import InterviewPage from './pages/InterviewPage'
@@ -12,7 +12,6 @@ import VerifyPage from './pages/VerifyPage'
 import TVViewPage from './pages/TVViewPage'
 import FamilyPage from './pages/FamilyPage'
 import JoinPage from './pages/JoinPage'
-import OnboardingPage from './pages/OnboardingPage'
 import MapPage from './pages/MapPage'
 import FilmPage from './pages/FilmPage'
 import SpacePage from './pages/SpacePage'
@@ -33,8 +32,11 @@ function App() {
         {/* All other pages use the app layout */}
         <Route path="/" element={<AppLayout />}>
           <Route index element={<HomePage />} />
-          <Route path="onboarding" element={<OnboardingPage />} />
-          <Route path="upload" element={<UploadPage />} />
+          {/* 모으기 하나로 합쳤다 (올리기 · 채우기 · 첫 질문).
+              예전 두 주소는 문서·초대 화면 링크가 살아 있게 리다이렉트한다. */}
+          <Route path="collect" element={<CollectPage />} />
+          <Route path="onboarding" element={<Navigate to="/collect" replace />} />
+          <Route path="upload" element={<Navigate to="/collect" replace />} />
           <Route path="map" element={<MapPage />} />
           <Route path="graph" element={<GraphPage />} />
           <Route path="chat" element={<ChatPage />} />

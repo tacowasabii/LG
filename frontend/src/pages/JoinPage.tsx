@@ -126,11 +126,11 @@ export default function JoinPage() {
           }
         />
         <div className="mt-8 flex flex-wrap gap-3">
-          <button onClick={() => navigate('/onboarding')} className="btn-primary">
-            첫 기억 남기기
+          <button onClick={() => navigate('/collect')} className="btn-primary">
+            기록 올리고 첫 질문에 답하기
           </button>
-          <button onClick={() => navigate('/upload')} className="btn-quiet">
-            사진 먼저 올리기
+          <button onClick={() => navigate('/interview')} className="btn-quiet">
+            AI 인터뷰로 바로 가기
           </button>
         </div>
       </Page>

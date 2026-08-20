@@ -116,7 +116,7 @@ export default function HomePage() {
 
       {/* 처음 오는 사람을 위한 길 — 기획안 리스크 "데이터가 처음엔 없음"에 대한 답 */}
       <Link
-        to="/onboarding"
+        to="/collect"
         className="banner-accent mt-10 flex items-center gap-4 rounded-lg px-6 py-5
                    no-underline transition-colors duration-150 ease-out hover:no-underline"
       >

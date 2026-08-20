@@ -189,7 +189,7 @@ Base URL: `http://localhost:8000/api`
 src/
 ├── pages/
 │   ├── HomePage.tsx          # Timeline + 최근 업로드
-│   ├── UploadPage.tsx        # Drag & drop 업로드
+│   ├── CollectPage.tsx       # 모으기 — 업로드 + 보충 + 첫 질문
 │   ├── GraphPage.tsx         # 인터랙티브 Graph 시각화
 │   ├── ChatPage.tsx          # 채팅 UI (메시지 + 미디어 카드)
 │   ├── InterviewPage.tsx     # 질문-답변 플로우

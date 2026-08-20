@@ -11,7 +11,6 @@ import {
   Mic,
   ShieldCheck,
   Share2,
-  Sparkles,
   Tv,
   Upload,
   Users,
@@ -42,8 +41,7 @@ const navGroups = [
   {
     title: '모으기',
     items: [
-      { to: '/onboarding', icon: Sparkles, label: '시작하기' },
-      { to: '/upload', icon: Upload, label: '업로드' },
+      { to: '/collect', icon: Upload, label: '모으기' },
       { to: '/interview', icon: Mic, label: 'AI 인터뷰' },
     ],
   },

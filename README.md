@@ -69,9 +69,9 @@ prompthon-2026/
 │   │   ├── App.tsx          # 라우팅 설정
 │   │   ├── lib/api.ts       # API 클라이언트 (정적/동적 모드 분기)
 │   │   ├── layouts/         # AppLayout (사이드바), TVLayout (풀스크린)
-│   │   └── pages/           # 8개 페이지
+│   │   └── pages/           # 화면들
 │   │       ├── HomePage.tsx       # 타임라인 + 통계 + 미디어 갤러리
-│   │       ├── UploadPage.tsx     # 드래그&드롭 업로드 + EXIF 없는 파일 정보 입력
+│   │       ├── CollectPage.tsx    # 모으기 — 업로드 + EXIF 보충 + 첫 질문 (시작하기 흡수)
 │   │       ├── GraphPage.tsx      # react-force-graph-2d 시각화
 │   │       ├── ChatPage.tsx       # 채팅 UI + 소스 뱃지
 │   │       ├── InterviewPage.tsx  # AI 인터뷰 Q&A 플로우
