@@ -329,7 +329,7 @@ JSON 파일은 그대로 남습니다. `DATABASE_URL`을 지우면 다시 파일
 | | `GET /api/graph/events` | 사건 목록 + 장소 좌표·참여자·썸네일·확인 상태 |
 | | `GET /api/graph/event/{id}` | 이벤트 상세 |
 | | `GET /api/graph/verify` | 확인 요청 목록 |
-| | `POST /api/graph/event/{id}/verify` | 맞음·모름·이견 기록 |
+| | `POST /api/graph/event/{id}/verify` | 맞음·수정·모름·이견 기록 (수정은 `corrections`) |
 | | `GET /api/graph/persons` | 인물 목록 |
 | | `POST /api/graph/person` | 인물 추가 |
 | Chat | `POST /api/chat` | 자연어 질의 → 답변 |
@@ -343,6 +343,8 @@ JSON 파일은 그대로 남습니다. `DATABASE_URL`을 지우면 다시 파일
 | Family | `GET /api/family` | 가족 공간 · 구성원 · 역할 · 초대 |
 | | `PUT /api/family/member/{id}` | 역할 변경 · 비공개 요청 |
 | | `POST /api/family/invite` | 초대 링크 발급 (72시간) |
+| | `GET /api/family/invite/{code}` | 코드가 아직 쓸 수 있는지 |
+| | `POST /api/family/join` | 초대 코드로 참여 (코드는 한 번 쓰면 소진) |
 | | `PUT /api/family/media/{id}/visibility` | 기록별 공개 범위 |
 | | `GET /api/family/media/{id}/cascade` | 삭제 영향 미리보기 |
 | Export | `GET /api/export/manifest` | 내보낼 항목과 실제 용량 |
