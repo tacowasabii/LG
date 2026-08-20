@@ -8,10 +8,29 @@ BASE_DIR = Path(__file__).resolve().parent.parent
 # CWD와 무관하게 프로젝트 루트의 .env를 읽는다
 load_dotenv(BASE_DIR / ".env")
 
+# 저장소에 함께 들어오는 읽기 전용 자산 (metadata, photos, video, goldset)
 DATA_DIR = BASE_DIR / "data"
-MEDIA_DIR = DATA_DIR / "media"
-GRAPH_FILE = DATA_DIR / "graph.json"
+METADATA_DIR = DATA_DIR / "metadata"
+PHOTOS_DIR = DATA_DIR / "photos"
+VIDEO_DIR = DATA_DIR / "video"
+PROFILES_DIR = DATA_DIR / "profiles"
+GOLDSET_FILE = DATA_DIR / "goldset.json"
 SAMPLE_DIR = DATA_DIR / "sample"
+
+# 실행 중에 쌓이는 상태. 배포에서는 볼륨을 여기에 마운트한다.
+#
+#   STATE_DIR=/app/var  +  /app/var 볼륨
+#
+# 읽기 전용 자산(data/)과 나눠 두지 않으면, data/ 위에 볼륨을 마운트하는 순간
+# 시드 원본(metadata·photos)까지 가려져 첫 부팅에서 빈 그래프가 된다.
+# 기본값은 data/ 라서 로컬 개발은 지금까지와 똑같이 동작한다.
+STATE_DIR = Path(os.getenv("STATE_DIR", str(DATA_DIR)))
+
+MEDIA_DIR = STATE_DIR / "media"
+GRAPH_FILE = STATE_DIR / "graph.json"
+EXPORT_DIR = STATE_DIR / "exports"
+SPACE_FILE = STATE_DIR / "family_space.json"
+TRUST_REPORT_FILE = STATE_DIR / "trust_report.json"
 
 # Ensure directories exist
 MEDIA_DIR.mkdir(parents=True, exist_ok=True)
@@ -51,6 +70,15 @@ CHAT_QUERY_PLANNING = os.getenv("CHAT_QUERY_PLANNING", "true").lower() == "true"
 # Server
 HOST = os.getenv("HOST", "0.0.0.0")
 PORT = int(os.getenv("PORT", "8000"))
+
+# --- 앱 주소 ---
+# 초대 링크에 쓰는 프론트 주소. 백엔드와 프론트가 다른 도메인에 올라가므로
+# 서버는 자기 주소로 초대 링크를 만들 수 없다. 비워 두면 서버는 경로만 내려주고
+# 화면이 자기 origin을 붙인다 (브라우저 안에서는 그게 항상 맞다).
+#
+#   APP_BASE_URL="https://my-homestory.vercel.app"
+APP_BASE_URL = os.getenv("APP_BASE_URL", "").rstrip("/")
+
 
 # --- CORS ---
 # 배포된 프론트의 주소를 허용한다. 쉼표로 여러 개.

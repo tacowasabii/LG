@@ -13,6 +13,8 @@ from backend.models.schemas import (
     FamilySpaceResponse,
     InviteRequest,
     InviteResponse,
+    JoinRequest,
+    JoinResponse,
     MemberUpdateRequest,
     VisibilityRequest,
 )
@@ -78,6 +80,53 @@ async def create_invite(
 
     invite = family.create_invite(person_id=request.person_id)
     return InviteResponse(**invite)
+
+
+@router.get("/invite/{code}")
+async def check_invite(code: str):
+    """초대 코드가 아직 쓸 수 있는지 (참여 화면이 먼저 물어본다)
+
+    누가 지목된 초대인지 알려 준다. 이름을 다시 입력하게 하면, 이미 그래프에
+    있는 사람이 중복으로 생긴다.
+    """
+    invite = family.find_invite(code)
+    if not invite:
+        raise HTTPException(
+            status_code=404,
+            detail="쓸 수 없는 초대 코드입니다. 만료됐거나 이미 사용된 코드입니다.",
+        )
+
+    person = graph_manager.get_node(invite.get("person_id") or "")
+    return {
+        "code": invite["code"],
+        "expires_at": invite["expires_at"],
+        "person_id": invite.get("person_id"),
+        "person_name": person.get("name") if person else None,
+        "space_name": family.get_space()["space_name"],
+    }
+
+
+@router.post("/join", response_model=JoinResponse)
+async def join_space(request: JoinRequest):
+    """초대 코드로 참여한다
+
+    역할 가드를 걸지 않는다. 들어오려는 사람은 아직 이 공간의 구성원이 아니고,
+    관문은 초대 코드 자체다. 코드는 한 번 쓰면 소진된다.
+    """
+    try:
+        result = family.join(
+            request.code,
+            person_id=request.person_id,
+            name=request.name,
+            relation=request.relation,
+        )
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+    if not result.get("member"):
+        raise HTTPException(status_code=404, detail="참여한 사람을 찾을 수 없습니다.")
+
+    return JoinResponse(space_name=result["space_name"], member=result["member"])
 
 
 @router.put("/media/{media_id}/visibility")

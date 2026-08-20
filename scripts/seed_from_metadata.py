@@ -12,16 +12,19 @@ from pathlib import Path
 ROOT_DIR = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT_DIR))
 
-from backend.config import DATA_DIR, MEDIA_DIR, GRAPH_FILE
+from backend.config import (
+    GRAPH_FILE,
+    MEDIA_DIR,
+    METADATA_DIR,
+    PHOTOS_DIR,
+    VIDEO_DIR,
+)
 from backend.models.graph_models import (
     PersonNode, EventNode, PlaceNode, MediaNode, MemoryNode,
     Edge, RelationType, RelationCategory, Confidence, SourceType, MediaType,
 )
 from backend.services.graph_manager import GraphManager
 
-METADATA_DIR = DATA_DIR / "metadata"
-PHOTOS_DIR = DATA_DIR / "photos"
-VIDEO_DIR = DATA_DIR / "video"
 
 ROLE_KR = {
     "father": "아빠",

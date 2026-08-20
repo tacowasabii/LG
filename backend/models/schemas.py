@@ -273,7 +273,10 @@ class FamilyMemberItem(BaseModel):
 
 class InviteItem(BaseModel):
     code: str
-    link: str
+    # 서버가 앱 주소(APP_BASE_URL)를 알 때만 채운다. 비어 있으면 화면이
+    # 자기 origin에 join_path를 붙인다.
+    link: str = ""
+    join_path: str = ""
     person_id: Optional[str] = None
     created_at: str
     expires_at: str
@@ -309,11 +312,28 @@ class InviteRequest(BaseModel):
 
 class InviteResponse(BaseModel):
     code: str
-    link: str
+    link: str = ""
+    join_path: str = ""
     person_id: Optional[str] = None
     created_at: str
     expires_at: str
     expires_in_hours: int = 72
+    used_at: Optional[str] = None
+    used_by: Optional[str] = None
+
+
+class JoinRequest(BaseModel):
+    code: str
+    # 이미 그래프에 있는 사람으로 들어오는 경우
+    person_id: Optional[str] = None
+    # 새로 들어오는 경우
+    name: Optional[str] = None
+    relation: Optional[str] = None
+
+
+class JoinResponse(BaseModel):
+    space_name: str
+    member: FamilyMemberItem
 
 
 class VisibilityRequest(BaseModel):

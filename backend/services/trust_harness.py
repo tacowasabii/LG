@@ -26,15 +26,17 @@ from datetime import datetime
 from pathlib import Path
 from typing import Optional
 
-from backend.config import DATA_DIR, GRAPH_FILE, MEDIA_DIR
+from backend.config import (
+    GOLDSET_FILE,
+    GRAPH_FILE,
+    MEDIA_DIR,
+    METADATA_DIR,
+    TRUST_REPORT_FILE as REPORT_FILE,
+)
 from backend.models.graph_models import MediaType, NodeType, RelationType
 from backend.services import film_composer, llm_client
 from backend.services.chat_engine import process_chat
 from backend.services.graph_manager import graph_manager
-
-GOLDSET_FILE = DATA_DIR / "goldset.json"
-REPORT_FILE = DATA_DIR / "trust_report.json"
-METADATA_DIR = DATA_DIR / "metadata"
 
 
 # --- 정답표 -----------------------------------------------------------------

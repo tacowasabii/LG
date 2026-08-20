@@ -11,6 +11,7 @@ import GapsPage from './pages/GapsPage'
 import VerifyPage from './pages/VerifyPage'
 import TVViewPage from './pages/TVViewPage'
 import FamilyPage from './pages/FamilyPage'
+import JoinPage from './pages/JoinPage'
 import OnboardingPage from './pages/OnboardingPage'
 import MapPage from './pages/MapPage'
 import FilmPage from './pages/FilmPage'
@@ -43,6 +44,8 @@ function App() {
           <Route path="verify" element={<VerifyPage />} />
           <Route path="family" element={<FamilyPage />} />
           <Route path="space" element={<SpacePage />} />
+          {/* 초대 링크가 도착하는 자리 (backend/services/family.py join) */}
+          <Route path="join/:code" element={<JoinPage />} />
           <Route path="privacy" element={<PrivacyPage />} />
           <Route path="export" element={<ExportPage />} />
           <Route path="trust" element={<TrustPage />} />

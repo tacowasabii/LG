@@ -24,12 +24,10 @@ from datetime import datetime
 from pathlib import Path
 from typing import Optional
 
-from backend.config import DATA_DIR, GRAPH_FILE, MEDIA_DIR
+from backend.config import EXPORT_DIR, GRAPH_FILE, MEDIA_DIR
 from backend.models.graph_models import MediaType, NodeType
 from backend.services import visibility
 from backend.services.graph_manager import graph_manager
-
-EXPORT_DIR = DATA_DIR / "exports"
 
 # 아카이브에 담을 수 있는 항목
 ITEM_ORIGINALS = "originals"

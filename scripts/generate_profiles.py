@@ -13,14 +13,11 @@ from PIL import Image
 ROOT_DIR = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT_DIR))
 
+from backend.config import MEDIA_DIR, METADATA_DIR, PHOTOS_DIR, PROFILES_DIR
 from backend.services.graph_manager import graph_manager
 
-DATA_DIR = ROOT_DIR / "data"
-PHOTOS_DIR = DATA_DIR / "photos"
-METADATA_DIR = DATA_DIR / "metadata"
-PROFILES_DIR = DATA_DIR / "profiles"
-MEDIA_DIR = DATA_DIR / "media"
-
+# 프로필 크롭은 원본(data/photos)에서 만들어 상태 디렉터리(MEDIA_DIR)로 넣는다.
+# MEDIA_DIR은 배포에서 볼륨을 향한다 (backend/config.py의 STATE_DIR).
 PROFILES_DIR.mkdir(parents=True, exist_ok=True)
 MEDIA_DIR.mkdir(parents=True, exist_ok=True)
 

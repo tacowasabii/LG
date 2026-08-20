@@ -469,11 +469,22 @@ export interface FamilyMember {
 
 export interface FamilyInvite {
   code: string;
+  /** 서버가 앱 주소(APP_BASE_URL)를 알 때만 채워진다 */
   link: string;
+  /** 항상 온다. 화면이 자기 origin에 붙여 쓴다 */
+  join_path: string;
   person_id?: string | null;
   created_at: string;
   expires_at: string;
   expires_in_hours: number;
+}
+
+export interface InviteCheck {
+  code: string;
+  expires_at: string;
+  person_id?: string | null;
+  person_name?: string | null;
+  space_name: string;
 }
 
 export interface FamilySpace {
@@ -515,6 +526,32 @@ export async function createInvite(personId?: string): Promise<FamilyInvite> {
   return fetchJSON(`${BASE_URL}/family/invite`, {
     method: 'POST',
     body: JSON.stringify({ person_id: personId }),
+  });
+}
+
+/** 초대에서 실제로 열리는 주소. 서버가 앱 주소를 모르면 지금 보는 origin을 쓴다 */
+export function inviteLink(invite: FamilyInvite): string {
+  return invite.link || window.location.origin + (invite.join_path || '/join/' + invite.code);
+}
+
+/** 코드가 아직 쓸 수 있는지 (참여 화면이 먼저 확인한다) */
+export async function checkInvite(code: string): Promise<InviteCheck> {
+  return fetchJSON(`${BASE_URL}/family/invite/${encodeURIComponent(code)}`);
+}
+
+/**
+ * 초대 코드로 참여한다. 코드는 한 번 쓰면 소진된다.
+ *
+ * 지목된 초대면 person_id 없이 코드만 보내면 되고, 일반 초대면 기존 구성원을
+ * 고르거나(person_id) 이름을 적어(name) 새로 들어온다.
+ */
+export async function joinFamily(
+  code: string,
+  who: { person_id?: string; name?: string; relation?: string },
+): Promise<{ space_name: string; member: FamilyMember }> {
+  return fetchJSON(`${BASE_URL}/family/join`, {
+    method: 'POST',
+    body: JSON.stringify({ code, ...who }),
   });
 }
 

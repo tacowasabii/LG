@@ -25,6 +25,7 @@ import {
   FamilySpace,
   createInvite,
   getFamilySpace,
+  inviteLink,
   mediaUrl,
   updateMember,
 } from '../lib/api'
@@ -102,7 +103,7 @@ export default function SpacePage() {
   const copy = async () => {
     if (!invite) return
     try {
-      await navigator.clipboard.writeText(invite.link)
+      await navigator.clipboard.writeText(inviteLink(invite))
       setCopied(true)
       window.setTimeout(() => setCopied(false), 1600)
     } catch {
@@ -148,7 +149,7 @@ export default function SpacePage() {
               <div className="flex min-w-0 flex-wrap gap-2">
                 <input
                   readOnly
-                  value={invite.link}
+                  value={inviteLink(invite)}
                   className="field field-sm min-w-0 flex-[1_1_180px] bg-ink-50 text-ink-500"
                 />
                 <button onClick={copy} className="btn-quiet px-4 py-0 text-[13px]">

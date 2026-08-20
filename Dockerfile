@@ -16,15 +16,18 @@ COPY backend/ ./backend/
 COPY data/ ./data/
 COPY scripts/ ./scripts/
 
-# 시드 데이터 생성 (graph.json이 없으면)
-RUN python scripts/seed_from_metadata.py
+# 시드는 빌드가 아니라 시작할 때 만든다 (scripts/docker_start.sh 주석 참고).
+# 볼륨을 STATE_DIR에 마운트하면 빌드 때 만든 파일이 가려지기 때문이다.
+COPY scripts/docker_start.sh ./scripts/docker_start.sh
+RUN chmod +x scripts/docker_start.sh
 
-# 프로필 생성
-RUN pip install --no-cache-dir pillow && python scripts/generate_profiles.py
+# 상태(그래프·업로드·내보내기)는 여기에 쌓인다. 볼륨을 이 경로에 마운트한다.
+# 읽기 전용 자산(data/metadata, data/photos)은 이미지에 그대로 남는다.
+ENV STATE_DIR=/app/var
+RUN mkdir -p /app/var
 
 # 포트 설정
 ENV PORT=8000
 EXPOSE 8000
 
-# 실행 — Railway는 PORT를 주입한다. 고정하면 라우팅이 어긋날 수 있다.
-CMD ["sh", "-c", "uvicorn backend.main:app --host 0.0.0.0 --port ${PORT:-8000}"]
+CMD ["./scripts/docker_start.sh"]
