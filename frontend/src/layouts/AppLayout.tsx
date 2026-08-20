@@ -10,6 +10,7 @@ import {
   MapPin,
   MessageCircle,
   Mic,
+  Share2,
   Tv,
   Upload,
   Users,
@@ -30,9 +31,12 @@ import { useCurrentUser } from '../lib/currentUser'
  * 강조색 뱃지로 달았다. 둘 다 없앴다. 남의 기억을 확인해 줄 의무가 사라졌고,
  * 밀린 건수를 뱃지로 세우면 그 순간 이 앱은 다시 할 일 목록이 된다.
  *
- * 그래프(/graph)는 목록에서 뺐다. 기억을 찾는 길로는 사진첩·타임라인·인물이
- * 앞서고, 노드와 엣지를 보는 화면은 가족이 쓸 자리가 아니다. 주소와 기능은
- * 그대로 살아 있다 — 시연과 점검에서 직접 열어 쓴다 (App.tsx의 /graph).
+ * 그래프(/graph)는 한동안 목록에서 빠져 있었다. 노드와 엣지를 그대로 뿌리는
+ * 화면이 가족이 쓸 자리가 아니라고 봤기 때문이다. 다시 넣은 것은 그 화면이
+ * 가족의 낱말로 다시 만들어졌기 때문이다 — 얼굴과 이름을 그리고, 관계를
+ * "함께한 추억"처럼 적고, 수가 많은 사진·기억은 접고 시작한다 (GraphPage.tsx).
+ * 자리는 "기억" 묶음의 끝이다. 사진첩·타임라인·인물로 찾는 길이 먼저고, 이
+ * 화면은 "이것과 이어진 게 또 뭐가 있지"에 답한다.
  */
 const navGroups = [
   {
@@ -42,6 +46,7 @@ const navGroups = [
       { to: '/album', icon: Images, label: '사진첩' },
       { to: '/map', icon: MapPin, label: '타임라인 · 지도' },
       { to: '/family', icon: Users, label: '인물' },
+      { to: '/graph', icon: Share2, label: '연결된 기억' },
     ],
   },
   {

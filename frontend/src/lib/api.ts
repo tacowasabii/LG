@@ -494,6 +494,12 @@ export interface GraphNode {
   thumbnail_path?: string;
   original_filename?: string;
   exif_date?: string;
+  /** 인물의 프로필 사진 (그래프가 점 대신 얼굴을 그리는 데 쓴다) */
+  thumbnail_url?: string;
+  /** confirmed · ai_inferred · user_unverified (backend/models/graph_models.py) */
+  confidence?: string;
+  /** 기억을 남긴 사람 */
+  contributor_id?: string;
   [key: string]: unknown;
 }
 
