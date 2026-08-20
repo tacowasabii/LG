@@ -15,7 +15,7 @@ from backend.models.graph_models import (
     NodeType, MediaType, RelationType, Edge, Confidence, SourceType,
 )
 from backend.services.media_analyzer import analyze_media, generate_thumbnail
-from backend.services.event_resolver import set_media_persons
+from backend.services.event_resolver import autotag_media_persons, set_media_persons
 from backend.services.graph_manager import graph_manager
 from backend.services import album, permissions, visibility
 from backend.services.permissions import current_actor
@@ -122,10 +122,18 @@ async def upload_media(
     # Graph에 추가
     graph_manager.add_media(media_node)
 
-    # 찍힌 사람 연결 (Media -> Person). 화면이 고른 사람만 붙는다 — 추측하지 않는다.
+    # 찍힌 사람 연결 (Media -> Person)
     if person_ids:
-        # 응답에도 반영한다. 화면은 이 값으로 "누구를 붙였는지"를 되읽는다.
+        # 화면이 지목한 사람이 있으면 그것이 사실이다. 인식을 돌리지 않는다.
         media_node.detected_faces = set_media_persons(media_node.id, person_ids.split(","))
+        media_node.faces_source = SourceType.USER_INPUT
+    else:
+        # 아무것도 안 왔으면 얼굴로 알아본다 (services/faces.py). 자격증명이 없거나
+        # 등록된 얼굴이 없으면 빈 목록이고, 그때는 화면에서 직접 지목한다.
+        recognized = autotag_media_persons(media_node.id)
+        if recognized:
+            media_node.detected_faces = recognized
+            media_node.faces_source = SourceType.AI_VISION
 
     # 말하는 사람 연결 (Media -> Person). 사진에 찍힌 것과 구분되는 관계다.
     if media_node.speaker_id:
@@ -170,6 +178,7 @@ async def upload_media(
         detected_faces=media_node.detected_faces,
         scene_description=media_node.scene_description,
         scene_source=media_node.scene_source,
+        faces_source=media_node.faces_source,
         linked_event_id=linked_event_id,
         needs_info=needs_info,
         message=(
@@ -375,6 +384,7 @@ async def get_media_detail(
         detected_faces=node.get("detected_faces", []),
         scene_description=node.get("scene_description"),
         scene_source=node.get("scene_source"),
+        faces_source=node.get("faces_source"),
         confidence=node.get("confidence", "user_unverified"),
         linked_events=[{"id": e["id"], "title": e.get("title", "")} for e in linked_events],
         linked_persons=[{"id": p["id"], "name": p.get("name", "")} for p in linked_persons],

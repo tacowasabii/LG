@@ -193,6 +193,10 @@ class MediaNode:
     #   ai_vision  : 모델이 사진을 보고 썼다
     #   user_input : 사람이 적었다
     scene_source: Optional[str] = None
+    # detected_faces를 누가 정했는지. 화면이 "AI가 알아봤다"고 밝힐 수 있게 한다.
+    #   ai_vision  : 얼굴 인식이 채웠다 (추정 — 사람이 끌 수 있다)
+    #   user_input : 사람이 지목했다
+    faces_source: Optional[str] = None
     confidence: str = Confidence.USER_UNVERIFIED
     source: str = SourceType.EXIF
     # --- 음성/영상 ---

@@ -164,6 +164,8 @@ export interface MediaUploadResult {
   exif_lat?: number | null;
   exif_lng?: number | null;
   detected_faces: string[];
+  /** detected_faces를 누가 정했는지: ai_vision(얼굴 인식) | user_input(사람이 지목) */
+  faces_source?: string | null;
   scene_description?: string | null;
   /** 영상·음성일 때. 브라우저가 재서 보낸 값이다 */
   duration_sec?: number | null;

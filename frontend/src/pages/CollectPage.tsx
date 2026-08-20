@@ -406,8 +406,17 @@ export default function CollectPage() {
               {result.media_type !== 'audio' && members.length > 0 && (
                 <div className="ml-[92px] mt-4">
                   <p className="t-caption m-0">
-                    이 {MEDIA_TYPE_LABEL[result.media_type] || '기록'}에 누가 있나요? 지목한
-                    사람만 그래프에 이어집니다.
+                    {result.faces_source === 'ai_vision' ? (
+                      <>
+                        <strong>AI가 얼굴로 알아본 사람</strong>입니다. 틀렸으면 눌러서
+                        끄고, 빠진 사람은 눌러서 더하세요 — 고친 결과가 사실로 남습니다.
+                      </>
+                    ) : (
+                      <>
+                        이 {MEDIA_TYPE_LABEL[result.media_type] || '기록'}에 누가 있나요?
+                        지목한 사람만 그래프에 이어집니다.
+                      </>
+                    )}
                   </p>
                   <div className="mt-2 flex flex-wrap gap-1.5">
                     {members.map((m) => {

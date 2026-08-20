@@ -36,7 +36,7 @@ from datetime import datetime
 from typing import Optional
 
 from backend.models.graph_models import MediaType, NodeType
-from backend.services import llm_client, vision
+from backend.services import event_resolver, llm_client, vision
 from backend.services.graph_manager import graph_manager
 
 
@@ -427,6 +427,14 @@ async def draft(media_ids: list[str], author_id: Optional[str] = None) -> dict:
     #
     # 상한을 준다. 아래에서 실제로 쓰는 설명은 세 개(scenes[:3])이고, 사용자는
     # 이 함수가 끝나기를 기다리고 있다.
+    # 얼굴로 먼저 알아본다. 설명이 "아빠와 딸이…"가 되려면 누가 있는지가
+    # 먼저 정해져야 한다 (services/faces.py -> vision._named_prompt).
+    for node in media_nodes:
+        if not node.get("detected_faces"):
+            found = event_resolver.autotag_media_persons(node["id"])
+            if found:
+                node["detected_faces"] = found
+
     await vision.describe_missing(media_nodes, limit=vision.DRAFT_LIMIT)
 
     dates = sorted(

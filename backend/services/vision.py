@@ -39,7 +39,7 @@ from typing import Optional
 from PIL import Image
 
 from backend.config import MEDIA_DIR
-from backend.models.graph_models import MediaType, SourceType
+from backend.models.graph_models import MediaType, NodeType, SourceType
 from backend.services import llm_client
 from backend.services.graph_manager import graph_manager
 
@@ -60,14 +60,42 @@ CONCURRENCY = 4
 # 아니라 따로 돌린다 — scripts/describe_photos.py.
 DRAFT_LIMIT = 3
 
+BASE_RULES = """- 보이는 것만 적어라. 계절·감정·사연·장소 이름을 추측하지 마라.
+- 글자가 찍혀 있으면 그대로 옮겨도 된다 (간판, 현수막 등).
+- 설명만 답하라. "이 사진은"으로 시작하지 말고 머리말도 붙이지 마라."""
+
 PROMPT = """이 사진에 무엇이 담겼는지 한국어 한두 문장으로 적어라.
 
 지킬 것:
 - 사람이 누구인지 말하지 마라. 이름도, 가족 관계도 추측하지 마라.
   사람이 있으면 "두 사람", "아이 한 명"처럼 수와 행동만 적는다.
-- 보이는 것만 적어라. 계절·감정·사연·장소 이름을 추측하지 마라.
-- 글자가 찍혀 있으면 그대로 옮겨도 된다 (간판, 현수막 등).
-- 설명만 답하라. "이 사진은"으로 시작하지 말고 머리말도 붙이지 마라."""
+""" + BASE_RULES
+
+
+def _named_prompt(people: list[str]) -> str:
+    """이 사진에 누가 있는지 아는 경우의 프롬프트
+
+    얼굴 인식이 알아낸 사람(services/faces.py)이나 사람이 지목한 사람을 넣는다.
+    모델이 얼굴을 보고 누구인지 판정하는 것이 아니라, **이미 확인된 이름을**
+    문장에 쓰게 하는 것이다 — 그래서 "두 사람이"가 아니라 "아빠와 딸이"가 된다.
+
+    여기서도 새 사람을 만들지 못하게 막는다. 준 목록에 없는 이름을 쓰면
+    그래프에 없는 가족이 설명에 등장한다.
+    """
+    listed = " · ".join(people)
+    return f"""이 사진에 무엇이 담겼는지 한국어 한두 문장으로 적어라.
+
+이 사진에 있는 사람은 다음과 같다고 이미 확인되었다:
+{listed}
+
+지킬 것:
+- 위 목록의 호칭을 그대로 써서 누가 무엇을 하고 있는지 적어라.
+  예: "아빠와 딸이 해변에서 물놀이를 하고 있다."
+- **목록에 없는 사람을 만들지 마라.** 사진에 사람이 더 보이면 "다른 사람들"처럼
+  뭉뚱그리고 이름을 붙이지 마라.
+- 목록에 있는 사람이 사진에서 안 보이면 억지로 넣지 마라.
+- 누가 누구인지 새로 판정하지 마라. 위 목록이 사실이다.
+""" + BASE_RULES
 
 
 def _load_for_model(file_path: str) -> Optional[tuple[bytes, str]]:
@@ -97,6 +125,23 @@ def _load_for_model(file_path: str) -> Optional[tuple[bytes, str]]:
         return None
 
 
+def _known_people(node: dict) -> list[str]:
+    """이 사진에 있다고 확인된 사람들의 호칭 (없으면 빈 목록)
+
+    얼굴 인식이 채웠거나 사람이 지목한 detected_faces를 읽는다. 관계를 함께
+    적는다 — "김하늘"보다 "딸 김하늘"이 문장에 쓰기 쉽다.
+    """
+    labels = []
+    for person_id in node.get("detected_faces") or []:
+        person = graph_manager.get_node(person_id)
+        if not person or person.get("node_type") != NodeType.PERSON:
+            continue
+        name = person.get("name") or ""
+        relation = person.get("relation") or ""
+        labels.append(f"{relation} {name}".strip() if relation else name)
+    return [l for l in labels if l]
+
+
 async def _describe_one(node: dict) -> bool:
     """사진 한 장의 설명을 채운다. 채웠으면 True"""
     loaded = _load_for_model(node.get("file_path", ""))
@@ -104,7 +149,9 @@ async def _describe_one(node: dict) -> bool:
         return False
 
     image_bytes, fmt = loaded
-    text = await llm_client.describe_image(image_bytes, fmt, PROMPT)
+    people = _known_people(node)
+    prompt = _named_prompt(people) if people else PROMPT
+    text = await llm_client.describe_image(image_bytes, fmt, prompt)
     if not text:
         return False
 

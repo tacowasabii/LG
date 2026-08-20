@@ -18,7 +18,7 @@ import math
 from typing import Optional
 
 from backend.models.graph_models import (
-    PlaceNode, Edge, RelationType, SourceType, NodeType,
+    PlaceNode, Edge, MediaType, RelationType, SourceType, NodeType,
 )
 from backend.services.graph_manager import graph_manager
 
@@ -141,9 +141,47 @@ def set_media_persons(media_id: str, person_ids: list[str]) -> list[str]:
             _unlink_media_from_person(media_id, person_id)
 
     if set(current) != set(wanted):
-        graph_manager.update_node(media_id, {"detected_faces": wanted})
+        graph_manager.update_node(media_id, {
+            "detected_faces": wanted,
+            # 사람이 손을 댄 순간부터 이 목록은 추정이 아니다
+            "faces_source": SourceType.USER_INPUT.value,
+        })
 
     return wanted
+
+
+def autotag_media_persons(media_id: str) -> list[str]:
+    """얼굴 인식으로 이 기록에 있는 사람을 채운다 (services/faces.py)
+
+    사람이 이미 지목한 것이 있으면 손대지 않는다. 자동 인식은 추정이고, 사람이
+    누른 것을 추정으로 덮으면 지목의 뜻이 없어진다. 비어 있을 때만 채운다.
+
+    자격증명이 없거나 등록된 얼굴이 없으면 조용히 지나간다 — 그때도 화면에서
+    직접 지목하는 길은 그대로 동작한다.
+
+    Returns: 자동으로 붙은 person_id 목록
+    """
+    from backend.services import faces
+
+    if not faces.enabled():
+        return []
+
+    media = graph_manager.get_node(media_id)
+    if not media or media.get("node_type") != NodeType.MEDIA:
+        return []
+    if media.get("media_type") != MediaType.PHOTO:
+        return []
+    if media.get("detected_faces"):
+        return []  # 사람이 이미 정했다
+
+    found = [r["person_id"] for r in faces.recognized_person_ids(media)]
+    if not found:
+        return []
+
+    set_media_persons(media_id, found)
+    # 자동으로 붙인 것은 추정이다. 사람이 지목한 것과 구분되어야 한다.
+    graph_manager.update_node(media_id, {"faces_source": SourceType.AI_VISION.value})
+    return found
 
 
 def _unlink_media_from_person(media_id: str, person_id: str) -> None:
