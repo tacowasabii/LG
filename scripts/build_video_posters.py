@@ -14,13 +14,20 @@
 않는다는 선택은 그대로다. 이 스크립트는 손으로 한 번 돌리는 빌드 도구다
 (scripts/build_motion_covers.py와 같은 자리).
 
-    필요한 것: ffmpeg · ffprobe (PATH)
+    필요한 것: ffmpeg · ffprobe (PATH). --install-only에는 필요 없다.
     쓰는 법:   python scripts/build_video_posters.py
                python scripts/build_video_posters.py --assets-only
+               python scripts/build_video_posters.py --install-only
 
 기본값은 자산을 만들고, 이미 시드된 그래프의 영상 노드에도 그 값을 채운다.
 채우는 것은 비어 있는 thumbnail_path·duration_sec 뿐이다 — 다시 시드하면
 사용자가 올린 기록까지 함께 지워지므로, 시드 없이 고칠 길을 둔다.
+
+--install-only는 만들지 않고 이미 커밋된 것을 설치만 한다 (scripts/boot.py).
+배포에서 필요한 모드다. Railway는 저장소가 비었을 때만 시드하므로
+(docker_start.sh --if-empty), 이미 돌고 있는 배포에는 시드가 다시 오지 않는다 —
+빈 칸을 채우고 볼륨에 없는 썸네일을 넣어 주는 것은 매 부팅에 해야 한다. 자산이
+이미지에 함께 들어오므로 이 모드는 ffmpeg를 쓰지 않는다.
 """
 
 from __future__ import annotations
@@ -99,6 +106,41 @@ def extract_poster(src: Path, dest: Path, at: float) -> bool:
     return dest.exists() and dest.stat().st_size > 0
 
 
+def read_manifest() -> dict:
+    """만들어 둔 목록을 읽는다. 없으면 빈 목록"""
+    try:
+        data = json.loads((VIDEO_DIR / MANIFEST_NAME).read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return {}
+    return data if isinstance(data, dict) else {}
+
+
+def install(manifest: dict) -> None:
+    """만들지 않고 설치만 한다 (부팅 경로)
+
+    아무 것도 하지 않아도 조용히 성공한다. 썸네일은 편의고, 여기서 예외를
+    올리면 배포가 헬스체크 전에 죽는다 — 영상 한 칸이 비는 것보다 나쁘다.
+    """
+    if not manifest:
+        print("[posters] 만들어 둔 영상 썸네일이 없습니다. 넘어갑니다.")
+        return
+
+    # 예외 종류를 좁히지 않는다. 여기서 무엇이 터지든 배포가 죽는 것보다는
+    # 영상 칸이 비는 것이 낫다. 무엇이 터졌는지는 로그에 남는다.
+    try:
+        copied = copy_to_media(manifest)
+        if copied:
+            print(f"[posters] 서빙 자리로 {copied}개 복사")
+
+        patched = apply_to_graph(manifest)
+        if patched:
+            print(f"[posters] 영상 노드 {patched}개에 썸네일을 채웠습니다")
+        else:
+            print("[posters] 채울 영상 노드가 없습니다 (이미 있거나 영상이 없음)")
+    except Exception as error:
+        print(f"[posters] 설치하지 못했습니다 ({type(error).__name__}: {error})")
+
+
 def build(video_dir: Path) -> dict:
     """data/video의 영상마다 thumb_*.jpg를 만들고 목록을 돌려준다"""
     if not video_dir.exists():
@@ -163,6 +205,11 @@ def copy_to_media(manifest: dict) -> int:
     for info in manifest.values():
         src = VIDEO_DIR / info["thumb"]
         dest = MEDIA_DIR / info["thumb"]
+        # 목록에 있지만 파일이 없을 수 있다 (커밋에서 빠진 경우). 그건 썸네일
+        # 하나가 없는 것이고, 여기서 부팅을 멈출 이유는 아니다.
+        if not src.exists():
+            print(f"  ! {info['thumb']}이 없다 — 목록에는 있는데 파일이 빠졌다")
+            continue
         if not dest.exists() or src.stat().st_mtime > dest.stat().st_mtime:
             shutil.copy2(str(src), str(dest))
             copied += 1
@@ -176,7 +223,16 @@ def main() -> None:
         action="store_true",
         help="자산만 만들고 도는 그래프는 건드리지 않는다 (시드를 새로 돌릴 때)",
     )
+    parser.add_argument(
+        "--install-only",
+        action="store_true",
+        help="만들지 않고 이미 커밋된 것을 설치만 한다 (부팅 경로, ffmpeg 불필요)",
+    )
     args = parser.parse_args()
+
+    if args.install_only:
+        install(read_manifest())
+        return
 
     require_tools()
 
