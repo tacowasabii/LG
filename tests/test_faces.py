@@ -282,6 +282,81 @@ def test_detail_endpoint_serves_face_boxes():
     print(f"  상세 응답 OK (얼굴 {len(body['face_boxes'])}개 · 이름 {len(named)}개)")
 
 
+def test_assign_face_syncs_the_photo_person_list():
+    """얼굴 하나에 이름을 붙이면 사진 전체 인물 목록도 함께 맞춰진다
+
+    상자에만 남기면 인물별 조회와 공개 범위 판정이 그것을 못 읽는다 —
+    그쪽은 detected_faces를 본다.
+    """
+    _require_seeded_graph()
+    node = graph_manager.get_node(PHOTO)
+    boxes_before = [dict(b) for b in (node.get("face_boxes") or [])]
+    if not boxes_before:
+        print("  저장된 얼굴 위치가 없음 — 건너뜀")
+        return
+
+    people_before = list(node.get("detected_faces") or [])
+    source_before = node.get("faces_source")
+    target = "P05"  # 시드에서 이 사진에 없는 사람
+    try:
+        boxes = faces.assign_face(PHOTO, 0, target)
+        assert boxes is not None, "지정이 실패했다"
+        assert boxes[0]["person_id"] == target, boxes[0]
+        # 사람이 정한 것이므로 닮은 정도는 근거가 아니다
+        assert boxes[0]["similarity"] == 0.0, boxes[0]
+
+        named = [b["person_id"] for b in boxes if b.get("person_id")]
+        event_resolver.set_media_persons(PHOTO, named)
+        assert target in (graph_manager.get_node(PHOTO).get("detected_faces") or [])
+
+        # 이름 떼기
+        boxes = faces.assign_face(PHOTO, 0, None)
+        assert boxes[0]["person_id"] is None, boxes[0]
+        assert boxes[0]["reason"], "뗀 이유가 없다"
+        print("  얼굴 지정·떼기와 인물 목록 동기화 OK")
+    finally:
+        graph_manager.update_node(PHOTO, {
+            "face_boxes": boxes_before,
+            "faces_source": source_before,
+        })
+        event_resolver.set_media_persons(PHOTO, people_before)
+
+
+def test_assign_face_moves_a_person_off_another_face():
+    """같은 사람을 두 얼굴에 붙이지 않는다
+
+    한 사진에 같은 사람이 두 번 있을 수 없다. 옮기면 이전 얼굴에서 뗀다.
+    """
+    _require_seeded_graph()
+    node = graph_manager.get_node(PHOTO)
+    boxes_before = [dict(b) for b in (node.get("face_boxes") or [])]
+    if len(boxes_before) < 2:
+        print("  얼굴이 둘 미만 — 건너뜀")
+        return
+
+    people_before = list(node.get("detected_faces") or [])
+    try:
+        faces.assign_face(PHOTO, 0, "P01")
+        boxes = faces.assign_face(PHOTO, 1, "P01")
+        assert boxes is not None
+        holders = [i for i, b in enumerate(boxes) if b.get("person_id") == "P01"]
+        assert holders == [1], f"P01이 여러 얼굴에 붙었다: {holders}"
+        assert boxes[0]["reason"], "떼어낸 이유가 없다"
+        print("  같은 사람이 두 얼굴에 붙지 않음 OK")
+    finally:
+        graph_manager.update_node(PHOTO, {"face_boxes": boxes_before})
+        event_resolver.set_media_persons(PHOTO, people_before)
+
+
+def test_assign_face_rejects_bad_input():
+    """없는 얼굴·없는 사람은 거절한다 (화면이 보낸 값이므로 여기서 막는다)"""
+    _require_seeded_graph()
+    assert faces.assign_face(PHOTO, 999, "P01") is None, "없는 얼굴 번호가 통과했다"
+    assert faces.assign_face(PHOTO, 0, "없는사람") is None, "없는 사람이 통과했다"
+    assert faces.assign_face("없는사진", 0, "P01") is None, "없는 사진이 통과했다"
+    print("  잘못된 입력 거절 OK")
+
+
 TESTS = [
     test_age_filter_rejects_unborn,
     test_age_filter_rejects_wrong_generation,
@@ -296,6 +371,9 @@ TESTS = [
     test_face_boxes_are_ratio_coordinates,
     test_unknown_faces_are_kept_with_a_reason,
     test_detail_endpoint_serves_face_boxes,
+    test_assign_face_syncs_the_photo_person_list,
+    test_assign_face_moves_a_person_off_another_face,
+    test_assign_face_rejects_bad_input,
 ]
 
 

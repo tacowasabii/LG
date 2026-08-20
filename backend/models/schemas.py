@@ -52,10 +52,24 @@ class MediaUploadResponse(BaseModel):
 class MediaPersonTagRequest(BaseModel):
     """이 기록에 있는 사람을 지목한다 (보낸 목록이 최종 상태가 된다)
 
-    얼굴 인식이 없으므로 사람이 직접 지목하는 것이 detected_faces의 유일한
-    출처다. 빈 목록을 보내면 태그를 모두 떼는 뜻이다.
+    사진 전체에 붙이는 목록이다. 빈 목록을 보내면 태그를 모두 떼는 뜻이다.
+    어느 얼굴이 누구인지까지 정하려면 아래 FaceAssignRequest를 쓴다.
     """
     person_ids: list[str] = []
+
+
+class FaceAssignRequest(BaseModel):
+    """얼굴 하나가 누구인지 정한다 (사진 상세에서 상자를 눌렀을 때)
+
+    사진 전체 목록(MediaPersonTagRequest)과 나눠 둔 이유: 목록만으로는 어느
+    얼굴이 누구인지가 남지 않는다. 그러면 상세 화면이 이름을 얼굴 위에 얹을 수
+    없고, 얼굴 인식이 틀렸을 때 어느 상자를 고쳐야 하는지도 알 수 없다.
+
+    person_id를 비우면 그 얼굴의 이름을 뗀다.
+    """
+    # 몇 번째 얼굴인가 (face_boxes 배열의 인덱스)
+    face_index: int
+    person_id: Optional[str] = None
 
 
 class MediaBulkDeleteRequest(BaseModel):

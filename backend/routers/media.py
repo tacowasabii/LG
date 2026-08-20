@@ -8,7 +8,7 @@ from pathlib import Path
 
 from backend.config import MEDIA_DIR
 from backend.models.schemas import (
-    AlbumResponse, FaceBox, MediaBulkDeleteRequest, MediaBulkDeleteResponse,
+    AlbumResponse, FaceAssignRequest, FaceBox, MediaBulkDeleteRequest, MediaBulkDeleteResponse,
     MediaUploadResponse, MediaListItem, MediaDetail, MediaPersonTagRequest,
 )
 from backend.models.graph_models import (
@@ -462,6 +462,46 @@ async def detect_media_faces(
     faces.identify_and_store(media_id)
     fresh = graph_manager.get_node(media_id)
     return {"media_id": media_id, "face_boxes": _face_boxes(fresh)}
+
+
+@router.put("/{media_id}/faces")
+async def assign_media_face(
+    media_id: str,
+    request: FaceAssignRequest,
+    actor: Optional[dict] = Depends(current_actor),
+):
+    """얼굴 하나가 누구인지 정한다 (상세 화면에서 상자를 눌렀을 때)
+
+    얼굴별 지정과 사진 전체 인물 목록을 함께 맞춘다. 상자에만 남기면 인물별
+    조회와 공개 범위 판정이 그것을 못 읽는다 (그쪽은 detected_faces를 본다).
+
+    사람이 정한 것이므로 faces_source는 user_input이 된다 — 화면이 "AI가
+    알아봄"이라고 계속 적으면 거짓이 된다.
+    """
+    permissions.require_writer(actor)
+
+    node = graph_manager.get_node(media_id)
+    if not node or node.get("node_type") != NodeType.MEDIA:
+        raise HTTPException(status_code=404, detail="미디어를 찾을 수 없습니다.")
+    if not visibility.can_view(node, actor["id"] if actor else None):
+        raise HTTPException(status_code=404, detail="미디어를 찾을 수 없습니다.")
+
+    from backend.services import faces
+
+    boxes = faces.assign_face(media_id, request.face_index, request.person_id)
+    if boxes is None:
+        raise HTTPException(status_code=400, detail="그런 얼굴이 없습니다.")
+
+    # 상자에 남은 사람들로 사진 전체 목록을 맞춘다
+    named = [b["person_id"] for b in boxes if b.get("person_id")]
+    set_media_persons(media_id, named)
+
+    fresh = graph_manager.get_node(media_id)
+    return {
+        "media_id": media_id,
+        "face_boxes": _face_boxes(fresh),
+        "detected_faces": fresh.get("detected_faces") or [],
+    }
 
 
 @router.put("/{media_id}/persons")

@@ -639,6 +639,46 @@ def identify_and_store(media_id: str) -> list[dict]:
     return stored
 
 
+def assign_face(media_id: str, face_index: int, person_id: Optional[str]) -> Optional[list[dict]]:
+    """얼굴 하나가 누구인지 사람이 정한다
+
+    사진 전체 목록(set_media_persons)과 나눠 둔 이유: 목록만으로는 어느 얼굴이
+    누구인지가 남지 않아서, 상세 화면이 이름을 얼굴 위에 얹을 수 없고 인식이
+    틀렸을 때 어느 상자를 고쳐야 하는지도 알 수 없다.
+
+    한 사람이 한 사진에서 두 얼굴에 붙지 않게, 다른 얼굴에 있던 같은 사람은
+    떼어낸다. 사람이 정한 것이므로 similarity는 비우고 reason도 지운다 —
+    닮은 정도는 기계가 매긴 값이고 여기서는 근거가 아니다.
+
+    Returns: 바뀐 뒤의 얼굴 목록. 사진이나 인덱스가 잘못되면 None.
+    """
+    media = graph_manager.get_node(media_id)
+    if not media or media.get("node_type") != NodeType.MEDIA:
+        return None
+
+    boxes = [dict(b) for b in (media.get("face_boxes") or [])]
+    if face_index < 0 or face_index >= len(boxes):
+        return None
+
+    if person_id:
+        person = graph_manager.get_node(person_id)
+        if not person or person.get("node_type") != NodeType.PERSON:
+            return None
+        # 같은 사람이 다른 얼굴에 붙어 있으면 뗀다
+        for i, box in enumerate(boxes):
+            if i != face_index and box.get("person_id") == person_id:
+                box["person_id"] = None
+                box["similarity"] = 0.0
+                box["reason"] = "같은 사람을 다른 얼굴로 옮겼습니다"
+
+    boxes[face_index]["person_id"] = person_id
+    boxes[face_index]["similarity"] = 0.0
+    boxes[face_index]["reason"] = "" if person_id else "이름을 떼었습니다"
+
+    graph_manager.update_node(media_id, {"face_boxes": boxes})
+    return boxes
+
+
 def stored_boxes(media: dict) -> list[dict]:
     """저장해 둔 얼굴 위치 (없으면 빈 목록 — 다시 찾지 않는다)
 

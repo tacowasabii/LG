@@ -16,7 +16,7 @@
  * 요청해(onNeedMore) 페이지 경계에서 멈추지 않게 한다.
  */
 
-import { ReactNode, useEffect, useRef, useState } from 'react'
+import { ReactNode, useCallback, useEffect, useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
 import {
   ChevronLeft,
@@ -38,6 +38,7 @@ import {
   addMediaToMemory,
   deleteMedia,
   getDeleteCascade,
+  assignMediaFace,
   detectMediaFaces,
   getMediaDetail,
   mediaUrl,
@@ -60,30 +61,45 @@ const VISIBILITY_LABEL: Record<string, string> = {
  * "누구인가요?"를 얹는다. 모르는 얼굴을 아예 안 그리면 사용자는 AI가 그 얼굴을
  * 못 봤다고 생각한다 — 찾았지만 가리지 못했다는 것과 다른 이야기다.
  */
-function FaceMarker({ face }: { face: FaceBox }) {
+function FaceMarker({
+  face,
+  members,
+  onAssign,
+  busy,
+}: {
+  face: FaceBox
+  members: LightboxMember[]
+  /** 이 얼굴을 이 사람으로 정한다. null이면 이름을 뗀다 */
+  onAssign: (personId: string | null) => void
+  busy: boolean
+}) {
+  const [open, setOpen] = useState(false)
   const known = Boolean(face.person_id)
-  const label = known
-    ? [face.relation, face.name].filter(Boolean).join(' ')
-    : '누구인가요?'
+  const label = known ? [face.relation, face.name].filter(Boolean).join(' ') : '누구인가요?'
 
   return (
     <div
-      className="pointer-events-none absolute"
+      className="absolute"
       style={{
         left: face.left * 100 + '%',
         top: face.top * 100 + '%',
         width: face.width * 100 + '%',
         height: face.height * 100 + '%',
-        border: known
-          ? '2px solid var(--accent)'
-          : '2px dashed rgba(250,250,247,0.6)',
+        border: known ? '2px solid var(--accent)' : '2px dashed rgba(250,250,247,0.6)',
         borderRadius: 4,
         boxShadow: '0 0 0 1px rgba(14,13,11,0.35)',
+        background: open ? 'rgba(250,250,247,0.12)' : 'transparent',
       }}
       title={known ? `닮은 정도 ${face.similarity.toFixed(0)}%` : face.reason}
     >
-      <span
-        className="absolute whitespace-nowrap rounded px-1.5 py-0.5 text-[11px] font-medium"
+      {/* 이름표를 누르면 그 얼굴이 누구인지 고른다. 얼굴 하나씩 정할 수 있어야
+          "이 사진에 누가 있나요?" 알약보다 정확하다 — 알약은 사진 전체에
+          붙이는 것이라 어느 얼굴이 누구인지 남지 않는다. */}
+      <button
+        onClick={() => setOpen((v) => !v)}
+        disabled={busy}
+        className="absolute cursor-pointer whitespace-nowrap rounded border-0 px-1.5 py-0.5
+                   text-[11px] font-medium disabled:opacity-50"
         style={{
           left: -2,
           top: '100%',
@@ -93,18 +109,71 @@ function FaceMarker({ face }: { face: FaceBox }) {
         }}
       >
         {label}
-      </span>
+      </button>
+
+      {open && (
+        <div
+          className="absolute z-20 flex max-w-[220px] flex-wrap gap-1 rounded p-2"
+          style={{
+            left: -2,
+            top: '100%',
+            marginTop: 28,
+            background: 'rgba(14,13,11,0.92)',
+            border: '1px solid rgba(255,255,255,0.18)',
+          }}
+        >
+          {members.map((m) => (
+            <button
+              key={m.id}
+              onClick={() => {
+                onAssign(m.id)
+                setOpen(false)
+              }}
+              disabled={busy}
+              className="cursor-pointer rounded border-0 px-2 py-1 text-[11px] disabled:opacity-50"
+              style={
+                m.id === face.person_id
+                  ? { background: 'var(--accent)', color: 'var(--accent-fg)' }
+                  : { background: 'rgba(255,255,255,0.12)', color: 'var(--paper)' }
+              }
+            >
+              {m.name}
+            </button>
+          ))}
+          {known && (
+            <button
+              onClick={() => {
+                onAssign(null)
+                setOpen(false)
+              }}
+              disabled={busy}
+              className="cursor-pointer rounded border-0 px-2 py-1 text-[11px] disabled:opacity-50"
+              style={{ background: 'rgba(255,255,255,0.06)', color: 'rgba(250,250,247,0.7)' }}
+            >
+              이름 떼기
+            </button>
+          )}
+        </div>
+      )}
     </div>
   )
 }
 
+
+/** 이 화면이 쓰는 구성원 정보. 사진첩이 넘겨 주는 최소 모양이다 */
+export interface LightboxMember {
+  id: string
+  name: string
+  relation?: string | null
+  thumbnail_url?: string | null
+}
 
 interface MediaLightboxProps {
   items: AlbumMediaItem[]
   index: number
   /** 조건에 맞는 전체 개수. "12 / 38"의 뒤 숫자 */
   total: number
-  members: Array<{ id: string; name: string; relation?: string }>
+  members: LightboxMember[]
   /** 추억에 연결할 때 고를 목록 */
   events: EventListItem[]
   onIndexChange: (index: number) => void
@@ -135,17 +204,85 @@ export default function MediaLightbox({
   const [showFaces, setShowFaces] = useState(true)
   const [detecting, setDetecting] = useState(false)
   const imgRef = useRef<HTMLImageElement | null>(null)
-  /** 사진이 로드되면 상자를 다시 그린다 (크기가 그때 정해진다) */
-  const [, setImgReady] = useState(0)
+  /** 사진이 화면에 그려진 사각형 (부모 기준). 얼굴 상자를 여기에 맞춰 얹는다 */
+  const [imgRect, setImgRect] = useState<{
+    left: number
+    top: number
+    width: number
+    height: number
+  } | null>(null)
+  const [faceError, setFaceError] = useState<string | null>(null)
   const faceBoxes = detail?.face_boxes ?? []
+
+  /**
+   * 그려진 사진의 자리를 잰다.
+   *
+   * max-w/max-h로 줄어든 실제 크기는 로드가 끝나야 정해지고, 창 크기가 바뀌면
+   * 또 달라진다. offsetParent가 부모(relative)라서 offset 값을 그대로 쓴다.
+   */
+  const measureImage = useCallback(() => {
+    const img = imgRef.current
+    if (!img) return
+    setImgRect({
+      left: img.offsetLeft,
+      top: img.offsetTop,
+      width: img.offsetWidth,
+      height: img.offsetHeight,
+    })
+  }, [])
+
+  // 창 크기가 바뀌면 사진도 줄어든다. 상자가 따라가지 않으면 어긋난 자리에 남는다.
+  useEffect(() => {
+    window.addEventListener('resize', measureImage)
+    return () => window.removeEventListener('resize', measureImage)
+  }, [measureImage])
+
+  // 사진을 넘기면 크기가 달라진다 (onLoad가 오기 전까지는 이전 사진 기준이다)
+  useEffect(() => {
+    setImgRect(null)
+    setFaceError(null)
+  }, [item.id])
+
+  /** 얼굴 하나가 누구인지 정한다 (상자의 이름표를 눌러 고른 결과) */
+  const assignFace = async (faceIndex: number, personId: string | null) => {
+    setFaceError(null)
+    setDetecting(true)
+    try {
+      const res = await assignMediaFace(item.id, faceIndex, personId)
+      setDetail((prev) =>
+        prev ? { ...prev, face_boxes: res.face_boxes, faces_source: 'user_input' } : prev,
+      )
+      // 사진첩 목록의 인물도 함께 맞춘다 (서버가 detected_faces를 정리해 준다)
+      onItemUpdate(item.id, {
+        people: res.detected_faces.map((id) => {
+          const found = members.find((m) => m.id === id)
+          return {
+            id,
+            name: found?.name || '',
+            relation: found?.relation ?? null,
+            thumbnail_url: found?.thumbnail_url ?? null,
+          }
+        }),
+      })
+    } catch (e) {
+      console.error(e)
+      setFaceError(readDetail(e, '얼굴에 이름을 붙이지 못했습니다.'))
+    } finally {
+      setDetecting(false)
+    }
+  }
 
   /** 얼굴을 다시 찾는다. 등록이 늘어난 뒤에 누르는 버튼이다 (유료 호출) */
   const redetect = async () => {
     if (detecting) return
     setDetecting(true)
+    setFaceError(null)
     try {
       const res = await detectMediaFaces(item.id)
       setDetail((prev) => (prev ? { ...prev, face_boxes: res.face_boxes } : prev))
+      if (res.face_boxes.length === 0) {
+        setFaceError('이 사진에서 얼굴을 찾지 못했습니다.')
+      }
       // 이름이 붙은 얼굴을 인물 목록에도 반영한다 (서버가 이미 맞춰 두었다)
       const named = res.face_boxes.filter((f) => f.person_id)
       if (named.length > 0) {
@@ -159,7 +296,11 @@ export default function MediaLightbox({
         })
       }
     } catch (e) {
+      // 조용히 삼키면 버튼이 반짝하고 아무 일도 안 하는 것처럼 보인다.
+      // 서버는 "얼굴 인식이 꺼져 있습니다 (AWS 자격증명이 없습니다)" 처럼
+      // 화면이 지어낼 수 없는 이유를 준다.
       console.error(e)
+      setFaceError(readDetail(e, '얼굴을 찾지 못했습니다. 잠시 뒤 다시 시도해 주세요.'))
     } finally {
       setDetecting(false)
     }
@@ -371,22 +512,42 @@ export default function MediaLightbox({
               className="max-h-full max-w-full"
             />
           ) : (
-            /* 얼굴 상자를 사진 위에 정확히 얹으려면 실제로 그려진 영역을 알아야
-               한다. object-contain은 여백을 남기므로 <img>를 감싼 상자 크기가
-               아니라 그림 크기를 재야 한다 — 그래서 wrapper를 사진에 딱 맞춘다. */
-            <div className="relative inline-block max-h-full max-w-full">
+            /* 얼굴 상자는 그림이 실제로 그려진 자리 위에 얹는다.
+               <img>를 div로 감싸면 안 된다 — 높이가 auto인 부모에 대한 퍼센트
+               최대높이는 무시되어서 max-h-full이 죽고, 사진이 원본 크기로 커져
+               상자가 화면 밖으로 밀린다. 그래서 감싸지 않고 그려진 사각형을
+               재서(imgRect) 그 위에 겹치는 층을 따로 둔다. */
+            <>
               <img
                 key={item.id}
                 ref={imgRef}
                 src={mediaUrl(item.file_path)}
                 alt={item.original_filename}
-                onLoad={() => setImgReady((n) => n + 1)}
-                className="block max-h-full max-w-full object-contain"
+                onLoad={measureImage}
+                className="max-h-full max-w-full object-contain"
               />
-              {showFaces && faceBoxes.map((face, i) => (
-                <FaceMarker key={i} face={face} />
-              ))}
-            </div>
+              {showFaces && imgRect && faceBoxes.length > 0 && (
+                <div
+                  className="absolute"
+                  style={{
+                    left: imgRect.left,
+                    top: imgRect.top,
+                    width: imgRect.width,
+                    height: imgRect.height,
+                  }}
+                >
+                  {faceBoxes.map((face, i) => (
+                    <FaceMarker
+                      key={i}
+                      face={face}
+                      members={members}
+                      busy={detecting}
+                      onAssign={(personId) => assignFace(i, personId)}
+                    />
+                  ))}
+                </div>
+              )}
+            </>
           )}
 
           {hasPrev && (
@@ -533,6 +694,14 @@ export default function MediaLightbox({
                     ? '얼굴 다시 찾기'
                     : '얼굴 찾기'}
               </button>
+            )}
+
+            {/* 실패하면 이유를 그대로 밝힌다. 조용히 삼키면 버튼이 반짝하고
+                아무 일도 안 하는 것처럼 보인다 (실제로 그랬다). */}
+            {faceError && (
+              <span className="self-center text-[12px]" style={{ color: 'var(--critical-ink)' }}>
+                {faceError}
+              </span>
             )}
             <Link
               to="/privacy"

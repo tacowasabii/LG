@@ -444,6 +444,24 @@ export async function deleteMedia(id: string): Promise<void> {
  * 화면을 여는 것만으로는 돌지 않는다 — Rekognition 호출이 사진당 여러 번이라
  * 열기만 하는 사람도 비용을 만든다. 얼굴 등록이 늘어난 뒤에 다시 눌러 본다.
  */
+/**
+ * 얼굴 하나가 누구인지 정한다 (상세 화면에서 상자를 눌렀을 때).
+ *
+ * 사진 전체 목록(setMediaPersons)과 나눠 둔 이유: 목록만으로는 어느 얼굴이
+ * 누구인지가 남지 않아서, 이름을 얼굴 위에 얹을 수 없고 인식이 틀렸을 때 어느
+ * 상자를 고쳐야 하는지도 알 수 없다. personId를 null로 보내면 이름을 뗀다.
+ */
+export async function assignMediaFace(
+  mediaId: string,
+  faceIndex: number,
+  personId: string | null,
+): Promise<{ media_id: string; face_boxes: FaceBox[]; detected_faces: string[] }> {
+  return fetchJSON(`${BASE_URL}/media/${mediaId}/faces`, {
+    method: 'PUT',
+    body: JSON.stringify({ face_index: faceIndex, person_id: personId }),
+  });
+}
+
 export async function detectMediaFaces(
   mediaId: string,
 ): Promise<{ media_id: string; face_boxes: FaceBox[] }> {
