@@ -177,7 +177,9 @@ def autotag_media_persons(media_id: str) -> list[str]:
     if media.get("detected_faces"):
         return []  # 사람이 이미 정했다
 
-    found = [r["person_id"] for r in faces.recognized_person_ids(media)]
+    # 위치까지 저장한다 — 상세 화면이 사진 위에 이름을 얹는 근거다
+    boxes = faces.identify_and_store(media_id)
+    found = [b["person_id"] for b in boxes if b.get("person_id")]
     if not found:
         return []
 

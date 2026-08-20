@@ -110,6 +110,29 @@ class MediaListItem(BaseModel):
     source: Optional[str] = None
 
 
+class FaceBox(BaseModel):
+    """사진에서 찾은 얼굴 하나 (상세 화면이 사진 위에 얹는다)
+
+    좌표는 0~1 비율이다. 화면이 표시하는 크기가 원본과 달라도 그대로 쓴다.
+
+    person_id가 없는 얼굴도 내려보낸다. "누군지 모르는 얼굴이 여기 있다"는 것도
+    화면이 보여줘야 하는 정보다 — 조용히 빼면 사용자는 AI가 그 얼굴을 못 봤다고
+    생각하고, 왜 이름이 안 붙었는지 알 수 없다.
+    """
+    left: float
+    top: float
+    width: float
+    height: float
+    person_id: Optional[str] = None
+    name: Optional[str] = None
+    relation: Optional[str] = None
+    # 닮은 정도 (0~100). 사람이 지목한 얼굴에는 없다.
+    similarity: float = 0.0
+    # 이름을 붙이지 못한 이유. 화면이 그대로 밝힌다
+    # ("두 사람이 비슷해 가릴 수 없습니다" 등)
+    reason: str = ""
+
+
 class MediaDetail(BaseModel):
     id: str
     media_type: str
@@ -125,6 +148,9 @@ class MediaDetail(BaseModel):
     scene_description: Optional[str] = None
     scene_source: Optional[str] = None
     faces_source: Optional[str] = None
+    # 사진에서 찾은 얼굴의 위치와 이름. 비어 있으면 아직 찾지 않은 것이다
+    # (POST /api/media/{id}/faces/detect 로 찾는다).
+    face_boxes: list[FaceBox] = []
     confidence: str = "user_unverified"
     linked_events: list[dict] = []
     linked_persons: list[dict] = []

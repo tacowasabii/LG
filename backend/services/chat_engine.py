@@ -425,12 +425,20 @@ def _extract_sources(search_results: list[dict]) -> list[SourceItem]:
     # 인물 먼저 (상한과 무관하게 전부). 기억을 남긴 사람도 함께 담는다 —
     # 컨텍스트가 "[기억] 박서연: ..." 처럼 기여자 이름을 함께 주기 때문에,
     # 답변이 그 이름을 부르는데 근거에 없으면 확인할 방법이 없다.
+    #
+    # 사진에 찍힌 사람(detected_faces)도 담는다. 장면 설명이 얼굴 인식 결과로
+    # 이름을 부르기 때문이다 — "아빠 김민수가 카메라로 …". 그 이름이 컨텍스트에
+    # 들어오는데 근거에 없으면 읽는 사람이 확인할 방법이 없다.
+    # (담지 않았을 때 Trust Harness의 Attribution Safety가 100 -> 33.3으로
+    #  떨어졌다. 근거는 그래프의 DEPICTS 엣지라 지어낸 이름이 아니다.)
     person_ids = []
     for node in search_results:
         if node.get("node_type") == "person":
             person_ids.append(node.get("id", ""))
         elif node.get("node_type") == "memory" and node.get("contributor_id"):
             person_ids.append(node["contributor_id"])
+        elif node.get("node_type") == "media":
+            person_ids.extend(node.get("detected_faces") or [])
 
     for person_id in person_ids:
         if not person_id or person_id in seen_ids:

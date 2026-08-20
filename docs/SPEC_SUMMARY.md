@@ -74,6 +74,7 @@ Base URL: `http://localhost:8000`
 |--------|------|------|
 | POST | `/api/media/upload` | 파일 업로드 (multipart/form-data) |
 | PUT | `/api/media/{id}/persons` | 이 기록에 있는 사람 지목 (보낸 목록이 최종 상태) |
+| POST | `/api/media/{id}/faces/detect` | 얼굴을 다시 찾는다 (사람이 눌렀을 때만 — 유료 호출) |
 | GET | `/api/media` | 미디어 목록 (쿼리: ?media_type=photo&person_id=P01) |
 | GET | `/api/media/{id}` | 미디어 상세 |
 | DELETE | `/api/media/{id}` | 미디어 삭제 |

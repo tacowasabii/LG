@@ -33,10 +33,12 @@ import {
   AlbumMediaItem,
   CascadePreview,
   EventListItem,
+  FaceBox,
   MediaDetail,
   addMediaToMemory,
   deleteMedia,
   getDeleteCascade,
+  detectMediaFaces,
   getMediaDetail,
   mediaUrl,
   readDetail,
@@ -50,6 +52,52 @@ const VISIBILITY_LABEL: Record<string, string> = {
   partial: '일부에게만',
   private: '나만 보기',
 }
+
+/**
+ * 사진 위에 얼굴 한 자리를 표시한다.
+ *
+ * 이름이 붙은 얼굴은 강조색 테두리에 이름표를, 못 붙인 얼굴은 옅은 점선에
+ * "누구인가요?"를 얹는다. 모르는 얼굴을 아예 안 그리면 사용자는 AI가 그 얼굴을
+ * 못 봤다고 생각한다 — 찾았지만 가리지 못했다는 것과 다른 이야기다.
+ */
+function FaceMarker({ face }: { face: FaceBox }) {
+  const known = Boolean(face.person_id)
+  const label = known
+    ? [face.relation, face.name].filter(Boolean).join(' ')
+    : '누구인가요?'
+
+  return (
+    <div
+      className="pointer-events-none absolute"
+      style={{
+        left: face.left * 100 + '%',
+        top: face.top * 100 + '%',
+        width: face.width * 100 + '%',
+        height: face.height * 100 + '%',
+        border: known
+          ? '2px solid var(--accent)'
+          : '2px dashed rgba(250,250,247,0.6)',
+        borderRadius: 4,
+        boxShadow: '0 0 0 1px rgba(14,13,11,0.35)',
+      }}
+      title={known ? `닮은 정도 ${face.similarity.toFixed(0)}%` : face.reason}
+    >
+      <span
+        className="absolute whitespace-nowrap rounded px-1.5 py-0.5 text-[11px] font-medium"
+        style={{
+          left: -2,
+          top: '100%',
+          marginTop: 4,
+          background: known ? 'var(--accent)' : 'rgba(14,13,11,0.72)',
+          color: known ? 'var(--accent-fg)' : 'var(--paper)',
+        }}
+      >
+        {label}
+      </span>
+    </div>
+  )
+}
+
 
 interface MediaLightboxProps {
   items: AlbumMediaItem[]
@@ -83,6 +131,39 @@ export default function MediaLightbox({
 }: MediaLightboxProps) {
   const item = items[index]
   const [detail, setDetail] = useState<MediaDetail | null>(null)
+  /** 얼굴 자리를 사진 위에 표시할까 (기본은 켠다 — 누가 누구인지가 이 화면의 질문이다) */
+  const [showFaces, setShowFaces] = useState(true)
+  const [detecting, setDetecting] = useState(false)
+  const imgRef = useRef<HTMLImageElement | null>(null)
+  /** 사진이 로드되면 상자를 다시 그린다 (크기가 그때 정해진다) */
+  const [, setImgReady] = useState(0)
+  const faceBoxes = detail?.face_boxes ?? []
+
+  /** 얼굴을 다시 찾는다. 등록이 늘어난 뒤에 누르는 버튼이다 (유료 호출) */
+  const redetect = async () => {
+    if (detecting) return
+    setDetecting(true)
+    try {
+      const res = await detectMediaFaces(item.id)
+      setDetail((prev) => (prev ? { ...prev, face_boxes: res.face_boxes } : prev))
+      // 이름이 붙은 얼굴을 인물 목록에도 반영한다 (서버가 이미 맞춰 두었다)
+      const named = res.face_boxes.filter((f) => f.person_id)
+      if (named.length > 0) {
+        onItemUpdate(item.id, {
+          people: named.map((f) => ({
+            id: f.person_id as string,
+            name: f.name || '',
+            relation: f.relation ?? null,
+            thumbnail_url: null,
+          })),
+        })
+      }
+    } catch (e) {
+      console.error(e)
+    } finally {
+      setDetecting(false)
+    }
+  }
   const [pane, setPane] = useState<'none' | 'people' | 'event' | 'more' | 'delete'>('none')
   const [cascade, setCascade] = useState<CascadePreview | null>(null)
   const [saving, setSaving] = useState(false)
@@ -290,12 +371,22 @@ export default function MediaLightbox({
               className="max-h-full max-w-full"
             />
           ) : (
-            <img
-              key={item.id}
-              src={mediaUrl(item.file_path)}
-              alt={item.original_filename}
-              className="max-h-full max-w-full object-contain"
-            />
+            /* 얼굴 상자를 사진 위에 정확히 얹으려면 실제로 그려진 영역을 알아야
+               한다. object-contain은 여백을 남기므로 <img>를 감싼 상자 크기가
+               아니라 그림 크기를 재야 한다 — 그래서 wrapper를 사진에 딱 맞춘다. */
+            <div className="relative inline-block max-h-full max-w-full">
+              <img
+                key={item.id}
+                ref={imgRef}
+                src={mediaUrl(item.file_path)}
+                alt={item.original_filename}
+                onLoad={() => setImgReady((n) => n + 1)}
+                className="block max-h-full max-w-full object-contain"
+              />
+              {showFaces && faceBoxes.map((face, i) => (
+                <FaceMarker key={i} face={face} />
+              ))}
+            </div>
           )}
 
           {hasPrev && (
@@ -356,7 +447,17 @@ export default function MediaLightbox({
               {item.people.length > 0
                 ? item.people.map((p) => p.name).join(' · ')
                 : '지목된 사람이 없습니다'}
+              {detail?.faces_source === 'ai_vision' && (
+                <span className="ml-1.5 text-white/40">· AI가 얼굴로 알아봄</span>
+              )}
             </Row>
+            {faceBoxes.length > 0 && (
+              <Row label="찾은 얼굴">
+                {faceBoxes.filter((f) => f.person_id).length}명 확인 ·{' '}
+                {faceBoxes.filter((f) => !f.person_id).length}명 미상
+                <span className="ml-1.5 text-white/40">(사진 위에 표시됩니다)</span>
+              </Row>
+            )}
             <Row label="공개 범위">
               {VISIBILITY_LABEL[item.visibility] ?? item.visibility}
             </Row>
@@ -403,6 +504,36 @@ export default function MediaLightbox({
               <Users size={12} strokeWidth={2} />
               사진 속 인물 수정
             </button>
+
+            {item.media_type === 'photo' && faceBoxes.length > 0 && (
+              <button
+                onClick={() => setShowFaces((v) => !v)}
+                className="flex cursor-pointer items-center gap-1 rounded border border-white/20
+                           bg-transparent px-3.5 py-[7px] text-[12px] text-white/75
+                           transition-colors duration-150 ease-out hover:bg-white/10"
+              >
+                {showFaces ? '얼굴 표시 끄기' : '얼굴 표시 켜기'}
+              </button>
+            )}
+
+            {/* 유료 호출이라 여는 것만으로는 돌지 않는다. 얼굴 등록이 늘어난
+                뒤에 다시 눌러 보라는 뜻의 버튼이다. */}
+            {item.media_type === 'photo' && (
+              <button
+                onClick={redetect}
+                disabled={detecting}
+                className="flex cursor-pointer items-center gap-1 rounded border border-white/20
+                           bg-transparent px-3.5 py-[7px] text-[12px] text-white/75
+                           transition-colors duration-150 ease-out hover:bg-white/10
+                           disabled:opacity-50"
+              >
+                {detecting
+                  ? '얼굴을 찾고 있습니다…'
+                  : faceBoxes.length > 0
+                    ? '얼굴 다시 찾기'
+                    : '얼굴 찾기'}
+              </button>
+            )}
             <Link
               to="/privacy"
               className="flex items-center gap-1 rounded border border-white/20 px-3.5 py-[7px]
@@ -537,7 +668,8 @@ export default function MediaLightbox({
           {pane === 'people' && (
             <div className="mt-4 pt-4" style={{ borderTop: '1px solid rgba(255,255,255,0.12)' }}>
               <p className="m-0 mb-2 text-[12px] text-white/60">
-                이 사진에 있는 사람을 고릅니다. 얼굴 인식이 없으므로 고른 사람만 붙습니다.
+                이 사진에 있는 사람을 고릅니다. AI가 알아본 것이 있으면 미리 켜져
+                있고, 여기서 고친 결과가 사실로 남습니다.
               </p>
               <div className="flex flex-wrap gap-1.5">
                 {members.map((m) => {

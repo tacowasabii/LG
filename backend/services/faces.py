@@ -570,3 +570,47 @@ def recognized_person_ids(media: dict) -> list[dict]:
         for r in identify(media)
         if r["person_id"]
     ]
+
+
+def _to_stored(result: dict) -> dict:
+    """identify 결과를 저장 모양으로 (Rekognition의 대문자 키를 걷는다)"""
+    box = result.get("box") or {}
+    return {
+        "box": {
+            "left": round(float(box.get("Left", 0)), 5),
+            "top": round(float(box.get("Top", 0)), 5),
+            "width": round(float(box.get("Width", 0)), 5),
+            "height": round(float(box.get("Height", 0)), 5),
+        },
+        "person_id": result.get("person_id"),
+        "similarity": result.get("similarity") or 0.0,
+        "reason": result.get("reason") or "",
+    }
+
+
+def identify_and_store(media_id: str) -> list[dict]:
+    """얼굴을 찾아 위치까지 그래프에 저장한다
+
+    상세 화면이 사진 위에 이름을 얹으려면 위치가 필요하다. 여는 순간마다 다시
+    부르면 사진 한 장에 호출이 여러 번 나가고 느리다 — 한 번 찾은 것을 들고 있는다.
+
+    Returns: 저장된 얼굴 목록 (person_id가 None인 것도 포함 — "누군지 모르는
+        얼굴이 여기 있다"도 화면이 보여줘야 하는 정보다)
+    """
+    media = graph_manager.get_node(media_id)
+    if not media or media.get("node_type") != NodeType.MEDIA:
+        return []
+
+    stored = [_to_stored(r) for r in identify(media)]
+    graph_manager.update_node(media_id, {"face_boxes": stored})
+    media["face_boxes"] = stored
+    return stored
+
+
+def stored_boxes(media: dict) -> list[dict]:
+    """저장해 둔 얼굴 위치 (없으면 빈 목록 — 다시 찾지 않는다)
+
+    화면이 여는 것만으로 유료 호출이 일어나지 않게 한다. 찾는 것은 업로드와
+    초안을 만들 때, 그리고 사람이 직접 다시 찾기를 눌렀을 때만이다.
+    """
+    return list(media.get("face_boxes") or [])

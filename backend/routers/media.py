@@ -8,8 +8,8 @@ from pathlib import Path
 
 from backend.config import MEDIA_DIR
 from backend.models.schemas import (
-    AlbumResponse, MediaBulkDeleteRequest, MediaBulkDeleteResponse, MediaUploadResponse,
-    MediaListItem, MediaDetail, MediaPersonTagRequest,
+    AlbumResponse, FaceBox, MediaBulkDeleteRequest, MediaBulkDeleteResponse,
+    MediaUploadResponse, MediaListItem, MediaDetail, MediaPersonTagRequest,
 )
 from backend.models.graph_models import (
     NodeType, MediaType, RelationType, Edge, Confidence, SourceType,
@@ -392,10 +392,76 @@ async def get_media_detail(
         scene_description=node.get("scene_description"),
         scene_source=node.get("scene_source"),
         faces_source=node.get("faces_source"),
+        face_boxes=_face_boxes(node),
         confidence=node.get("confidence", "user_unverified"),
         linked_events=[{"id": e["id"], "title": e.get("title", "")} for e in linked_events],
         linked_persons=[{"id": p["id"], "name": p.get("name", "")} for p in linked_persons],
     )
+
+
+def _face_boxes(node: dict) -> list[FaceBox]:
+    """저장해 둔 얼굴 위치에 이름을 붙여 내려보낸다
+
+    여는 것만으로 유료 호출이 일어나지 않게 저장된 것만 읽는다
+    (faces.stored_boxes). 찾는 것은 업로드·초안·다시 찾기에서만 한다.
+    """
+    from backend.services import faces
+
+    out: list[FaceBox] = []
+    for item in faces.stored_boxes(node):
+        box = item.get("box") or {}
+        person_id = item.get("person_id")
+        person = graph_manager.get_node(person_id) if person_id else None
+        if person and person.get("node_type") != NodeType.PERSON:
+            person = None
+        out.append(FaceBox(
+            left=box.get("left", 0.0),
+            top=box.get("top", 0.0),
+            width=box.get("width", 0.0),
+            height=box.get("height", 0.0),
+            person_id=person_id if person else None,
+            name=(person or {}).get("name"),
+            relation=(person or {}).get("relation"),
+            similarity=item.get("similarity") or 0.0,
+            reason=item.get("reason") or "",
+        ))
+    return out
+
+
+@router.post("/{media_id}/faces/detect")
+async def detect_media_faces(
+    media_id: str,
+    actor: Optional[dict] = Depends(current_actor),
+):
+    """이 사진에서 얼굴을 다시 찾는다 (사람이 눌렀을 때만)
+
+    돈이 드는 호출이라 화면을 여는 것만으로 돌지 않는다. 얼굴 등록이 늘어난
+    뒤에 다시 눌러 보라는 뜻으로 화면에 버튼을 둔다.
+
+    사람이 지목한 인물 목록(detected_faces)은 건드리지 않는다. 여기서 채우는
+    것은 위치와 "이 얼굴이 누구로 보이는가"까지다.
+    """
+    permissions.require_writer(actor)
+
+    node = graph_manager.get_node(media_id)
+    if not node or node.get("node_type") != NodeType.MEDIA:
+        raise HTTPException(status_code=404, detail="미디어를 찾을 수 없습니다.")
+    if not visibility.can_view(node, actor["id"] if actor else None):
+        raise HTTPException(status_code=404, detail="미디어를 찾을 수 없습니다.")
+
+    from backend.services import faces
+
+    if not faces.enabled():
+        raise HTTPException(
+            status_code=400,
+            detail="얼굴 인식이 꺼져 있습니다 (AWS 자격증명이 없습니다).",
+        )
+    if node.get("media_type") != MediaType.PHOTO:
+        raise HTTPException(status_code=400, detail="사진에서만 얼굴을 찾습니다.")
+
+    faces.identify_and_store(media_id)
+    fresh = graph_manager.get_node(media_id)
+    return {"media_id": media_id, "face_boxes": _face_boxes(fresh)}
 
 
 @router.put("/{media_id}/persons")

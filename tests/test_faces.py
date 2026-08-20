@@ -203,6 +203,85 @@ def test_recognized_faces_are_marked_as_inference():
         graph_manager.update_node(PHOTO, {"faces_source": before_source})
 
 
+def test_stored_boxes_do_not_call_the_service():
+    """저장된 위치만 읽는다 (여는 것만으로 유료 호출이 나가지 않게)
+
+    상세 화면은 사진을 열 때마다 이 함수를 지난다. 여기서 찾으면 훑어보기만
+    하는 사람도 사진마다 Rekognition 호출을 만든다.
+    """
+    _require_seeded_graph()
+    node = {"face_boxes": [{"box": {"left": 0.1}, "person_id": "P01"}]}
+    assert faces.stored_boxes(node) == node["face_boxes"]
+    assert faces.stored_boxes({}) == []
+    print("  저장된 것만 읽음 OK")
+
+
+def test_face_boxes_are_ratio_coordinates():
+    """좌표가 0~1 비율이다 (화면 크기와 무관하게 얹을 수 있게)
+
+    픽셀로 저장하면 원본 크기를 함께 들고 있어야 하고, 썸네일 위에 얹을 때
+    다시 환산해야 한다. 비율이면 그냥 %로 쓴다.
+    """
+    _require_seeded_graph()
+    stored = [
+        b for n in graph_manager.get_media_nodes()
+        for b in (n.get("face_boxes") or [])
+    ]
+    if not stored:
+        print("  저장된 얼굴 위치가 없음 — 건너뜀")
+        return
+    for box in stored:
+        b = box.get("box") or {}
+        for key in ("left", "top", "width", "height"):
+            value = b.get(key)
+            assert value is not None, box
+            assert 0.0 <= float(value) <= 1.0, (key, value)
+    print(f"  비율 좌표 OK ({len(stored)}개 확인)")
+
+
+def test_unknown_faces_are_kept_with_a_reason():
+    """이름을 못 붙인 얼굴도 남긴다 (이유와 함께)
+
+    조용히 빼면 사용자는 AI가 그 얼굴을 못 봤다고 생각한다. 찾았지만 가리지
+    못했다는 것과 다른 이야기다.
+    """
+    _require_seeded_graph()
+    unknown = [
+        b for n in graph_manager.get_media_nodes()
+        for b in (n.get("face_boxes") or [])
+        if not b.get("person_id")
+    ]
+    if not unknown:
+        print("  이름을 못 붙인 얼굴이 없음 — 건너뜀")
+        return
+    without_reason = [b for b in unknown if not (b.get("reason") or "").strip()]
+    assert not without_reason, f"이유 없이 비운 얼굴 {len(without_reason)}개"
+    print(f"  미상 얼굴에 이유가 있음 OK ({len(unknown)}개)")
+
+
+def test_detail_endpoint_serves_face_boxes():
+    """상세 응답에 얼굴 위치와 이름이 실려 나간다
+
+    스키마에서 빠뜨리면 서버는 저장하는데 화면은 못 받는다.
+    """
+    from fastapi.testclient import TestClient
+
+    from backend.main import app
+
+    _require_seeded_graph()
+    with TestClient(app) as client:
+        response = client.get(f"/api/media/{PHOTO}")
+        assert response.status_code == 200, response.text
+        body = response.json()
+
+    assert "face_boxes" in body, list(body)
+    for face in body["face_boxes"]:
+        for key in ("left", "top", "width", "height", "person_id", "name", "reason"):
+            assert key in face, (key, face)
+    named = [f for f in body["face_boxes"] if f.get("person_id")]
+    print(f"  상세 응답 OK (얼굴 {len(body['face_boxes'])}개 · 이름 {len(named)}개)")
+
+
 TESTS = [
     test_age_filter_rejects_unborn,
     test_age_filter_rejects_wrong_generation,
@@ -213,6 +292,10 @@ TESTS = [
     test_autotag_skips_non_photos,
     test_identify_is_quiet_without_enrollment,
     test_recognized_faces_are_marked_as_inference,
+    test_stored_boxes_do_not_call_the_service,
+    test_face_boxes_are_ratio_coordinates,
+    test_unknown_faces_are_kept_with_a_reason,
+    test_detail_endpoint_serves_face_boxes,
 ]
 
 

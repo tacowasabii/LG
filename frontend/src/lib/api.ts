@@ -266,6 +266,29 @@ export interface AlbumResponse {
  * 사진첩은 상세를 열 때 이걸 부른다 — 목록 60건에 카메라 정보까지 실으면
  * 훑어보기만 하는 사람도 쓰지 않을 값을 매번 받는다.
  */
+/**
+ * 사진에서 찾은 얼굴 하나. 상세 화면이 사진 위에 이 자리를 표시한다.
+ *
+ * 좌표는 0~1 비율이라 화면에 표시하는 크기가 원본과 달라도 그대로 쓴다.
+ *
+ * person_id가 없는 얼굴도 온다 — "누군지 모르는 얼굴이 여기 있다"도 보여줘야
+ * 하는 정보다. 조용히 빼면 사용자는 AI가 그 얼굴을 못 봤다고 생각하고, 왜 이름이
+ * 안 붙었는지 알 수 없다. reason에 이유가 담겨 온다.
+ */
+export interface FaceBox {
+  left: number;
+  top: number;
+  width: number;
+  height: number;
+  person_id?: string | null;
+  name?: string | null;
+  relation?: string | null;
+  /** 닮은 정도 (0~100) */
+  similarity: number;
+  /** 이름을 붙이지 못한 이유 */
+  reason: string;
+}
+
 export interface MediaDetail {
   id: string;
   media_type: string;
@@ -281,6 +304,10 @@ export interface MediaDetail {
   scene_description?: string | null;
   /** 그 설명을 누가 썼는지: ai_vision(모델이 사진을 보고 씀) | user_input */
   scene_source?: string | null;
+  /** detected_faces를 누가 정했는지: ai_vision | user_input */
+  faces_source?: string | null;
+  /** 사진에서 찾은 얼굴의 위치와 이름. 비어 있으면 아직 찾지 않은 것이다 */
+  face_boxes: FaceBox[];
   confidence: string;
   linked_events: Array<{ id: string; title: string }>;
   linked_persons: Array<{ id: string; name: string }>;
@@ -411,6 +438,18 @@ export async function deleteMedia(id: string): Promise<void> {
  * 그대로 보내면 서버가 DEPICTS 엣지를 맞춘다 — 더하기만 있으면 잘못 지목한
  * 사람을 뗄 수 없다.
  */
+/**
+ * 이 사진에서 얼굴을 다시 찾는다 (사람이 눌렀을 때만).
+ *
+ * 화면을 여는 것만으로는 돌지 않는다 — Rekognition 호출이 사진당 여러 번이라
+ * 열기만 하는 사람도 비용을 만든다. 얼굴 등록이 늘어난 뒤에 다시 눌러 본다.
+ */
+export async function detectMediaFaces(
+  mediaId: string,
+): Promise<{ media_id: string; face_boxes: FaceBox[] }> {
+  return fetchJSON(`${BASE_URL}/media/${mediaId}/faces/detect`, { method: 'POST' });
+}
+
 export async function setMediaPersons(
   mediaId: string,
   personIds: string[],

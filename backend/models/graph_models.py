@@ -197,6 +197,15 @@ class MediaNode:
     #   ai_vision  : 얼굴 인식이 채웠다 (추정 — 사람이 끌 수 있다)
     #   user_input : 사람이 지목했다
     faces_source: Optional[str] = None
+    # 사진에서 찾은 얼굴의 위치와 그 얼굴이 누구인지.
+    # 상세 화면이 사진 위에 이름을 얹는 근거다 (services/faces.identify).
+    # 비율 좌표라 원본 크기가 바뀌어도 그대로 쓴다.
+    #   [{"box": {"left":.., "top":.., "width":.., "height":..},
+    #     "person_id": "P01" | None, "similarity": 100.0, "reason": ""}]
+    #
+    # 저장하는 이유: Rekognition 호출이 사진당 여러 번이라 상세를 열 때마다
+    # 다시 부르면 느리고 비싸다. 한 번 찾은 것을 들고 있는다.
+    face_boxes: list = field(default_factory=list)
     confidence: str = Confidence.USER_UNVERIFIED
     source: str = SourceType.EXIF
     # --- 음성/영상 ---

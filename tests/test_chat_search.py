@@ -162,6 +162,31 @@ def test_exact_field_match_outranks_substring():
     assert _score_node(mother, terms) > _score_node(father, terms)
 
 
+# 장면 설명 검색을 확인할 때 쓰는 낱말. 테스트가 직접 심는다.
+#
+# 예전에는 시드 설명에 있던 "광안리"로 찾았다. 그런데
+# scripts/describe_photos.py 가 설명을 모델이 쓴 문장으로 갈아 끼우면서 그 낱말이
+# 사라져 두 테스트가 깨졌다 — 모델은 장소 이름을 추측하지 않도록 되어 있어서
+# 앞으로도 안 나온다. 모델이 쓴 문장에 테스트를 걸면 다시 돌릴 때마다 깨진다.
+PROBE_WORD = "테스트용장면낱말"
+
+
+def _probe_photo() -> str:
+    photos = [
+        node for node in graph_manager.get_media_nodes()
+        if node.get("media_type") == "photo"
+    ]
+    assert photos, "시드에 사진이 없다"
+    return photos[0]["id"]
+
+
+def _plant_scene(media_id: str):
+    """그 사진의 장면 설명을 잠시 바꾼다. 원래 값을 돌려준다"""
+    before = graph_manager.get_node(media_id).get("scene_description")
+    graph_manager.update_node(media_id, {"scene_description": f"{PROBE_WORD} 이 있는 장면"})
+    return before
+
+
 def test_photos_are_reachable_by_scene_description():
     """사진이 장면 설명으로 검색된다
 
@@ -170,11 +195,19 @@ def test_photos_are_reachable_by_scene_description():
     """
     _require_seeded_graph()
     assert "scene_description" in graph_manager.SEARCH_FIELDS
-    hits = [n for n in graph_manager.search_nodes("광안리") if n.get("node_type") == "media"]
-    assert hits, "'광안리'로 사진을 하나도 못 찾음"
-    # 점수 테이블에도 있어야 순위에 반영된다 (없으면 0점으로 뒤로 밀린다)
-    photo = hits[0]
-    assert _score_node(photo, _query_terms("광안리")) > 0, "장면 설명 매칭이 점수 0점"
+
+    media_id = _probe_photo()
+    before = _plant_scene(media_id)
+    try:
+        hits = [
+            node for node in graph_manager.search_nodes(PROBE_WORD)
+            if node.get("node_type") == "media"
+        ]
+        assert hits, f"{PROBE_WORD} 로 사진을 하나도 못 찾음"
+        # 점수 테이블에도 있어야 순위에 반영된다 (없으면 0점으로 뒤로 밀린다)
+        assert _score_node(hits[0], _query_terms(PROBE_WORD)) > 0, "장면 설명 매칭이 점수 0점"
+    finally:
+        graph_manager.update_node(media_id, {"scene_description": before})
 
 
 def test_media_context_includes_scene_description():
@@ -184,13 +217,20 @@ def test_media_context_includes_scene_description():
     답해야 해서 근거가 있는데도 추측하게 된다.
     """
     _require_seeded_graph()
-    context = _format_search_results(_search_graph("광안리"))
-    media_lines = [line for line in context.split("\n") if "[미디어]" in line]
-    assert media_lines, f"미디어 줄이 없음:\n{context}"
-    assert any("장면:" in line for line in media_lines), f"장면 설명이 없음: {media_lines[0]}"
-    assert any("광안리" in line for line in media_lines), (
-        f"매칭된 근거(광안리)가 컨텍스트에 안 보임: {media_lines[0]}"
-    )
+    media_id = _probe_photo()
+    before = _plant_scene(media_id)
+    try:
+        context = _format_search_results(_search_graph(PROBE_WORD))
+        media_lines = [line for line in context.split("\n") if "[미디어]" in line]
+        assert media_lines, f"미디어 줄이 없음:\n{context}"
+        assert any("장면:" in line for line in media_lines), (
+            f"장면 설명이 없음: {media_lines[0]}"
+        )
+        assert any(PROBE_WORD in line for line in media_lines), (
+            f"매칭된 근거가 컨텍스트에 안 보임: {media_lines[0]}"
+        )
+    finally:
+        graph_manager.update_node(media_id, {"scene_description": before})
 
 
 def test_badge_window_is_not_wasted_on_unciteable_nodes():
