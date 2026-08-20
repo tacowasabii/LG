@@ -50,13 +50,6 @@ import RichText from '../components/RichText'
 const LENGTHS: FilmLength[] = [30, 45, 60]
 const AUDIENCES: Audience[] = ['child', 'adult', 'elder']
 
-/**
- * 서버가 고른 움직임을 CSS 클래스로 옮긴다.
- *
- * 무엇을 걸지 화면이 정하지 않는다. 예전에는 여기서 장면 순서로 골랐는데
- * 서버가 라벨을 붙이는 순서와 달라서, 화면에 적힌 효과와 실제로 걸린 효과가
- * 네 경우 모두 어긋나 있었다 (backend/services/film_composer.py CAMERA_MOTIONS).
- */
 /** 초를 "1분 20초"처럼 읽는 말로. 0이면 "곧" */
 function formatWait(seconds: number): string {
   const whole = Math.max(0, Math.round(seconds))
@@ -67,6 +60,13 @@ function formatWait(seconds: number): string {
   return rest ? `${minutes}분 ${rest}초` : `${minutes}분`
 }
 
+/**
+ * 서버가 고른 움직임을 CSS 클래스로 옮긴다.
+ *
+ * 무엇을 걸지 화면이 정하지 않는다. 예전에는 여기서 장면 순서로 골랐는데
+ * 서버가 라벨을 붙이는 순서와 달라서, 화면에 적힌 효과와 실제로 걸린 효과가
+ * 네 경우 모두 어긋나 있었다 (backend/services/film_composer.py CAMERA_MOTIONS).
+ */
 const MOTION_CLASS: Record<string, string> = {
   'zoom-in': 'motion-zoom-in',
   'pan-left': 'motion-pan-left',
