@@ -33,6 +33,7 @@ Memory Film의 자막은 그대로 "1998년 8월 · 해운대"였고, 내레이�
 
 from __future__ import annotations
 
+import re
 from typing import Optional
 
 from backend.config import EXAONE_PLANNER_MODEL
@@ -198,18 +199,28 @@ def resolve_person(term: str) -> Optional[str]:
     return None
 
 
+def _has_final(word: str) -> bool:
+    """마지막 글자에 받침이 있는가 (한글이 아니면 없는 것으로 본다)"""
+    if not word:
+        return False
+    last = word[-1]
+    if "가" <= last <= "힣":
+        return bool((ord(last) - 0xAC00) % 28)
+    return False
+
+
 def _subject_particle(name: str) -> str:
     """이름 뒤에 붙는 주격 조사 (받침이 있으면 "이", 없으면 "가")
 
     "김하늘가 물장구치던"으로 읽히지 않게 한다. 문장을 만드는 곳이 세 군데라
     (자막·내레이션·프롬프트) 한 자리에서 정한다.
     """
-    if not name:
-        return "가"
-    last = name[-1]
-    if "가" <= last <= "힣":
-        return "이" if (ord(last) - 0xAC00) % 28 else "가"
-    return "가"
+    return "이" if _has_final(name) else "가"
+
+
+def _object_particle(word: str) -> str:
+    """목적격 조사 ("…순간을 기억합니다" / "…부산 바다를 기억합니다")"""
+    return "을" if _has_final(word) else "를"
 
 
 # --- 뽑아내기 ----------------------------------------------------------------
@@ -498,21 +509,18 @@ def _moment(context: dict) -> str:
     names = _subject_names(context)
     action = context.get("action")
 
-    parts = []
-    if scene:
-        parts.append(f"{scene}에서")
-
     if action and action[-1] in "던는한은":
-        if names:
-            parts.append(f"{names}{_subject_particle(names)} {action} 순간")
-        else:
-            parts.append(f"{action} 순간")
+        core = f"{names}{_subject_particle(names)} {action} 순간" if names else f"{action} 순간"
     elif action:
-        parts.append(f"{names}의 {action}" if names else action)
+        core = f"{names}의 {action}" if names else action
     elif names:
-        parts.append(f"{names}{_subject_particle(names)} 있던 순간")
+        core = f"{names}{_subject_particle(names)} 있던 순간"
+    else:
+        # 장소만 남으면 그 자리 자체가 기억의 대상이다. "부산 바다에서"로 끝내면
+        # 뒤에 조사가 붙어 "부산 바다에서를 기억합니다"가 된다.
+        return scene or ""
 
-    return " ".join(parts)
+    return f"{scene}에서 {core}" if scene else core
 
 
 def narration_line(context: dict) -> str:
@@ -527,33 +535,81 @@ def narration_line(context: dict) -> str:
     if not moment:
         highlight = context.get("highlight")
         return f"{who}의 기억: {highlight}" if highlight else ""
-    return f"{who}는 {moment}을 기억합니다."
+    return f"{who}는 {moment}{_object_particle(moment)} 기억합니다."
 
 
 def prompt_line(context: dict) -> str:
     """내레이션·이야기 프롬프트에 넣는 한 줄 (모델이 읽는다)
 
-    사진에서 확인되지 않았다는 사실을 같은 줄에 적는다. 따로 적으면 모델이
-    맥락만 읽고 넘어간다.
+    대괄호 표시를 붙이지 않는다. 처음에는 줄 끝에 "[사진에서 확인되지 않음]"을
+    적었는데, 모델이 그것을 답에 그대로 옮겨 적어서 "함께 기억한 이야기" 본문에
+    그 말이 나왔다. 프롬프트에만 쓰려던 표시가 화면에 나가면 근거를 밝힌 것이
+    아니라 기계 부품이 보이는 것이다 (interview_engine이 같은 일을 겪었고, 거기서
+    배운 것은 "베끼지 마라"를 프롬프트에 더 적어도 막히지 않는다는 것이다).
+
+    그래서 줄 자체를 안전한 문장으로 준다. 주어가 기억한 사람이라 모델이 그대로
+    베껴도 사진에 없는 행동을 사진의 내용으로 말하지 않는다.
+
+    사진에서 확인됐는지는 넘기지 않는다. 사진에 무엇이 있는지는 사진 설명이 따로
+    프롬프트에 들어가 있고(장면 설명) 그쪽이 더 정확한 출처다 — 맥락이 할 일은
+    "누가 무엇을 기억하는가"까지다.
     """
     speaker = _person(context.get("speaker_id")) or {}
     who = speaker.get("name") or "가족"
     relation = speaker.get("relation")
     label = f"{who}({relation})" if relation else who
 
-    bits = []
-    if context.get("scene"):
-        bits.append(f"장소={context['scene']}")
-    names = _subject_names(context)
-    if names:
-        bits.append(f"대상={names}")
-    if context.get("action"):
-        bits.append(f"행동={context['action']}")
-    if context.get("highlight"):
-        bits.append(f"초점={context['highlight']}")
+    moment = _moment(context)
+    highlight = context.get("highlight")
 
-    tail = "[사진에서 확인됨]" if shows_action(context) else "[사진에서 확인되지 않음]"
-    return f"- {label}의 기억: " + " · ".join(bits) + " " + tail
+    if moment:
+        line = f"- {label}: {moment}{_object_particle(moment)} 기억한다"
+    elif highlight:
+        line = f"- {label}: 기억을 남겼다"
+    else:
+        return ""
+
+    if highlight:
+        line += f" — {highlight}"
+    return line
+
+
+# 프롬프트에만 쓰는 제목·표시. 모델이 이것을 답에 그대로 옮겨 적는 일이 있어서
+# (실제로 이야기 본문에 "[사진에서 확인되지 않음]"이 나왔다) 나가는 자리에서
+# 걷어낸다. 표시를 없애는 것과 걷어내는 것을 함께 한다 — 프롬프트에서 뺐다고
+# 끝이 아니고, 남은 제목([사건] · [기억 맥락])도 같은 방식으로 새어 나온다.
+_BRACKET_MARK = re.compile(
+    r"\[\s*(?:"
+    r"사진에서\s*확인[^\]]*"
+    r"|다르게\s*기억[^\]]*"
+    r"|기억\s*맥락"
+    r"|기록"
+    r"|사건"
+    r"|가족이\s*남긴\s*기억"
+    r"|연결된\s*사진의\s*장면\s*설명"
+    r")\s*\]"
+)
+# 대괄호를 소괄호로 바꿔 적어 오는 경우. 소괄호는 정상 문장에도 쓰이므로
+# 프롬프트에서 온 것이 분명한 문구만 본다.
+_PAREN_MARK = re.compile(r"\(\s*사진에서\s*확인[^)]*\)")
+
+
+def strip_prompt_marks(text: Optional[str]) -> str:
+    """만들어진 글에서 프롬프트 표시를 걷어낸다
+
+    모델이 준 것을 화면에 내리는 자리에서 부른다 (Film·TV 내레이션, 함께 기억한
+    이야기). 글을 고쳐 쓰지는 않는다 — 여기서 하는 일은 프롬프트에서 새어 나온
+    표시를 떼고 그 자리에 남은 공백·구두점을 정리하는 것까지다.
+    """
+    if not text:
+        return text or ""
+
+    cleaned = _PAREN_MARK.sub("", _BRACKET_MARK.sub("", text))
+    # 표시를 뗀 자리에 공백이 겹치거나 구두점이 떨어져 남는다 ("…기억합니다 .")
+    cleaned = re.sub(r"[ \t]{2,}", " ", cleaned)
+    cleaned = re.sub(r"[ \t]+([.,!?…])", r"\1", cleaned)
+    cleaned = re.sub(r"\n{3,}", "\n\n", cleaned)
+    return "\n".join(line.rstrip() for line in cleaned.split("\n")).strip()
 
 
 def view(context: Optional[dict], visible_media_ids: Optional[set] = None) -> Optional[dict]:

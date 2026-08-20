@@ -31,7 +31,13 @@ from pathlib import Path
 ROOT_DIR = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT_DIR))
 
-from backend.services import film_composer, memories, memory_context, tv_curator  # noqa: E402
+from backend.services import (  # noqa: E402
+    film_composer,
+    llm_client,
+    memories,
+    memory_context,
+    tv_curator,
+)
 from backend.services.graph_manager import graph_manager  # noqa: E402
 
 EVENT = "E01"  # 1998 부산 가족여행 (사진 3장 + 영상 1개 + 음성 1개)
@@ -342,16 +348,108 @@ def test_an_action_absent_from_the_photo_is_not_stated_as_fact():
     assert line.startswith("엄마는"), line
     assert line.endswith("기억합니다."), line
 
+    # 프롬프트에 넘기는 줄도 "누가 무엇을 기억한다"까지다. 사진에서 확인됐는지는
+    # 넘기지 않는다 — 사진에 무엇이 있는지는 사진 설명이 따로 들어가 있다.
     prompt = memory_context.prompt_line(context)
-    assert "[사진에서 확인되지 않음]" in prompt, prompt
+    assert "기억한다" in prompt, prompt
+    assert "확인" not in prompt, prompt
 
-    # 사진에서 확인됐을 때만 그렇게 적는다
+    # 확인 여부는 화면 문구에서만 갈린다 (사람이 읽는 자리)
     confirmed = {**context, "media_basis": memory_context.BASIS_SCENE}
     assert "사진 설명에서 확인됨" in memory_context.source_note(confirmed)
-    assert "[사진에서 확인됨]" in memory_context.prompt_line(confirmed)
     # 확인된 경우에도 주어는 기억한 사람이다
     assert memory_context.narration_line(confirmed).startswith("엄마는")
     print("  단정하지 않음 OK")
+
+
+def test_prompt_lines_carry_no_display_marks():
+    """프롬프트 줄에 화면으로 새어 나갈 표시를 붙이지 않는다
+
+    처음에는 줄 끝에 "[사진에서 확인되지 않음]"을 적었다. 모델이 그것을 그대로
+    옮겨 적어서 "함께 기억한 이야기" 본문에 그 말이 나왔다 — 프롬프트에만 쓰려던
+    표시가 화면에 나가면 근거가 아니라 기계 부품이 보이는 것이다.
+    """
+    context = memory_context.normalize(MODEL_OUTPUT, ANSWER, SPEAKER)
+    line = memory_context.prompt_line(context)
+
+    assert line, "프롬프트 줄이 비었다"
+    assert "[" not in line and "]" not in line, line
+    assert "확인" not in line, line
+    # 그대로 베껴도 안전한 문장이어야 한다 (주어가 기억한 사람이다)
+    assert "기억한다" in line, line
+    assert "부산 바다" in line and "물장구치던" in line, line
+
+    # 사진에서 확인된 맥락도 같은 모양이다 — 확인 여부는 프롬프트로 넘기지 않는다
+    confirmed = {**context, "media_basis": memory_context.BASIS_SCENE}
+    assert "확인" not in memory_context.prompt_line(confirmed)
+    print("  프롬프트 줄 OK:", line)
+
+
+def test_prompt_marks_are_stripped_from_generated_text():
+    """모델이 표시를 베껴 오면 나가는 자리에서 떼어낸다"""
+    leaked = (
+        "엄마는 부산 바다에서 김하늘이 물장구치던 순간을 기억합니다. "
+        "[사진에서 확인되지 않음] 아빠는 그날 파도가 높았다고 기억합니다.\n"
+        "[기억 맥락] 가족은 그 여행을 오래 이야기했습니다 (사진에서 확인되지 않음).\n"
+        "[다르게 기억함] 누구도 정답으로 정하지 않았습니다."
+    )
+    cleaned = memory_context.strip_prompt_marks(leaked)
+
+    for mark in ("[", "]", "사진에서 확인되지 않음", "기억 맥락", "다르게 기억함"):
+        assert mark not in cleaned, cleaned
+    # 문장은 그대로 남는다 (걷어내는 것까지가 이 함수의 몫이다)
+    assert "물장구치던 순간을 기억합니다." in cleaned, cleaned
+    assert "파도가 높았다고 기억합니다." in cleaned, cleaned
+    assert "  " not in cleaned, cleaned
+    # 표시가 없는 글은 손대지 않는다
+    plain = "엄마는 부산 바다를 기억합니다."
+    assert memory_context.strip_prompt_marks(plain) == plain
+    print("  표시 제거 OK")
+
+
+def test_story_drops_marks_the_model_copied():
+    """함께 기억한 이야기에 프롬프트 표시가 남지 않는다 (저장되는 값까지)"""
+    _add_memory_with_context()
+
+    kept = {
+        key: graph_manager.get_node(EVENT).get(key)
+        for key in ("together_story", "together_story_at", "together_story_basis")
+    }
+    enabled, complete = llm_client.is_enabled, llm_client.complete
+
+    async def fake_complete(*args, **kwargs):
+        return (
+            "가족은 그 여행을 이렇게 기억합니다. [사진에서 확인되지 않음] "
+            "엄마는 하늘이가 물장구치던 순간을 가장 좋아했습니다."
+        )
+
+    llm_client.is_enabled = lambda *a, **k: True
+    llm_client.complete = fake_complete
+    try:
+        result = asyncio.run(memories.compose_together_story(EVENT, SPEAKER))
+    finally:
+        llm_client.is_enabled, llm_client.complete = enabled, complete
+
+    assert result, "이야기를 만들지 못했다"
+    try:
+        assert "[사진에서 확인되지 않음]" not in result["story"], result["story"]
+        stored = graph_manager.get_node(EVENT).get("together_story") or ""
+        assert "[" not in stored, stored
+        assert "물장구치던 순간을 가장 좋아했습니다." in stored, stored
+        print("  이야기 표시 제거 OK")
+    finally:
+        graph_manager.update_node(EVENT, kept)
+
+
+def test_scene_only_context_reads_as_a_sentence():
+    """장소만 남은 맥락도 조사가 어긋나지 않는다"""
+    context = memory_context.normalize(
+        {"subjects": [], "scene": "부산 바다", "action": None}, ANSWER, SPEAKER
+    )
+    assert context and context["scene"] == "부산 바다", context
+    line = memory_context.narration_line(context)
+    assert line == "엄마는 부산 바다를 기억합니다.", line
+    print("  장소만 있는 맥락 OK:", line)
 
 
 def test_context_disappears_with_the_memory():
@@ -377,6 +475,10 @@ TESTS = [
     test_tv_slides_carry_a_short_caption_and_its_source,
     test_photos_are_linked_only_when_there_is_a_reason,
     test_an_action_absent_from_the_photo_is_not_stated_as_fact,
+    test_prompt_lines_carry_no_display_marks,
+    test_prompt_marks_are_stripped_from_generated_text,
+    test_story_drops_marks_the_model_copied,
+    test_scene_only_context_reads_as_a_sentence,
     test_context_disappears_with_the_memory,
 ]
 

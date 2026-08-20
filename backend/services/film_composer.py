@@ -509,9 +509,10 @@ async def _narration(
             "content": (
                 "가족 기억 영상의 내레이션을 쓴다. 아래 [기록]에 있는 사실만 쓴다.\n"
                 "기록에 없는 감정·장면·대화를 만들어내지 마라. 2~3문장.\n"
-                "[기억 맥락]은 가족이 기억하는 관점이다. [사진에서 확인되지 않음]이"
-                " 붙은 것은 사진에 그 장면이 있다고 쓰지 말고, '엄마는 하늘이가"
-                " 물장구치던 순간을 기억합니다'처럼 기억의 출처만 밝혀라.\n"
+                "가족의 기억은 그 사람의 관점이다. 사진에 그 장면이 있다고 쓰지 말고,"
+                " '엄마는 하늘이가 물장구치던 순간을 기억합니다'처럼 기억의 주인을"
+                " 밝혀라.\n"
+                "대괄호로 묶은 제목은 자료를 나누는 표시다. 본문에 옮겨 적지 마라.\n"
                 + AUDIENCE_TONE.get(audience, AUDIENCE_TONE["adult"])
             ),
         },
@@ -519,14 +520,16 @@ async def _narration(
             "role": "user",
             "content": "[기록]\n"
             + "\n".join(facts)
-            + (f"\n\n[기억 맥락]\n{context_lines}" if context_lines else ""),
+            + (f"\n\n[가족이 기억하는 것]\n{context_lines}" if context_lines else ""),
         },
     ]
 
     narration = await llm_client.complete(messages, max_tokens=300)
     if not narration:
         return _plain_narration(event, memories, persons, place, contexts)
-    return narration.strip()
+    # 프롬프트 제목을 베껴 오면 떼어낸다. 프롬프트에 "옮기지 마라"를 적어도
+    # 막히지 않는다 (interview_engine._clean_question과 같은 판단이다).
+    return memory_context.strip_prompt_marks(narration)
 
 
 def _plain_narration(

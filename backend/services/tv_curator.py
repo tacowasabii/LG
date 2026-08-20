@@ -405,23 +405,26 @@ async def _generate_narration(query: str, slides: list[dict]) -> str:
             "role": "system",
             "content": (
                 "추억 사진 슬라이드쇼의 따뜻한 내레이션을 작성해. 2~3문장으로 짧게.\n"
-                "[기억 맥락]은 가족이 기억하는 관점이다. [사진에서 확인되지 않음]이"
-                " 붙은 것은 사진에 그 장면이 있다고 쓰지 말고, '하늘이가 물장구치던"
-                " 순간을 엄마는 가장 좋아했어요'처럼 기억의 주인을 밝혀서 써.\n"
+                "가족의 기억은 그 사람의 관점이다. 사진에 그 장면이 있다고 쓰지 말고,"
+                " '하늘이가 물장구치던 순간을 엄마는 가장 좋아했어요'처럼 기억의"
+                " 주인을 밝혀서 써.\n"
+                "대괄호로 묶은 제목은 자료를 나누는 표시다. 본문에 옮겨 적지 마.\n"
                 "주어진 것에 없는 사실을 만들지 마."
             ),
         },
         {
             "role": "user",
             "content": f"주제: {query}\n사진들: {', '.join(slide_summary)}"
-            + (f"\n\n[기억 맥락]\n{context_lines}" if context_lines else ""),
+            + (f"\n\n[가족이 기억하는 것]\n{context_lines}" if context_lines else ""),
         },
     ]
 
     narration = await llm_client.complete(messages, max_tokens=256)
     if narration is None:
         return _simulate_narration(query, slide_summary, contexts)
-    return narration
+    # 프롬프트 제목을 베껴 오면 떼어낸다 (Film과 같은 함수를 쓴다 — 두 화면에서
+    # 다르게 걸러지면 거실에만 새어 나온다)
+    return memory_context.strip_prompt_marks(narration)
 
 
 def _simulate_narration(

@@ -947,9 +947,11 @@ async def compose_together_story(event_id: str, viewer_id: Optional[str] = None)
     ai_used = False
 
     if llm_client.is_enabled():
+        # 대괄호로 표시하지 않는다. 모델이 그것을 본문에 그대로 옮겨 적는다
+        # (기억 맥락에서 "[사진에서 확인되지 않음]"이 실제로 이야기에 나왔다).
         lines = "\n".join(
             f"- {e['name']}({e['relation']}): {e['text']}"
-            + ("  [다르게 기억함]" if e["differs"] else "")
+            + (" — 다르게 기억한다고 밝혔다" if e["differs"] else "")
             for e in entries
         )
         story = await llm_client.complete(
@@ -964,9 +966,10 @@ async def compose_together_story(event_id: str, viewer_id: Optional[str] = None)
                         "3. 서로 다르게 기억하는 부분은 '누구는 ~로, 누구는 ~로 기억한다'처럼"
                         " 양쪽을 모두 남겨.\n"
                         "4. 주어진 기억에 없는 사실을 만들지 마.\n"
-                        "5. [기억 맥락]은 가족의 기억에서 뽑은 것이다. 사진에서 확인되지"
-                        " 않은 것은 사진의 내용으로 쓰지 말고 '누구는 ~를 기억한다'로 써.\n"
-                        "6. 3~5문장, 담담한 한국어 서술로. 제목이나 머리말 없이 본문만."
+                        "5. 가족이 기억하는 것은 그 사람의 관점이다. 사진에 그 장면이"
+                        " 있다고 쓰지 말고 '누구는 ~를 기억한다'로 써.\n"
+                        "6. 대괄호로 묶은 제목은 자료를 나누는 표시다. 본문에 옮겨 적지 마.\n"
+                        "7. 3~5문장, 담담한 한국어 서술로. 제목이나 머리말 없이 본문만."
                     ),
                 },
                 {
@@ -976,7 +979,7 @@ async def compose_together_story(event_id: str, viewer_id: Optional[str] = None)
                         + "\n".join(facts)
                         + "\n\n[가족이 남긴 기억]\n"
                         + lines
-                        + (f"\n\n[기억 맥락]\n{context_lines}" if context_lines else "")
+                        + (f"\n\n[가족이 기억하는 것]\n{context_lines}" if context_lines else "")
                         + (f"\n\n[연결된 사진의 장면 설명]\n{scene_lines}" if scene_lines else "")
                     ),
                 },
@@ -989,7 +992,10 @@ async def compose_together_story(event_id: str, viewer_id: Optional[str] = None)
     if not story:
         story = _story_fallback(title, entries)
 
-    story = (story or "").strip()
+    # 프롬프트 제목을 베껴 오면 떼어낸다. "[사진에서 확인되지 않음]"이 이야기
+    # 본문에 나온 적이 있다 — 프롬프트에 "옮기지 마라"를 적어도 막히지 않는다
+    # (interview_engine._clean_question과 같은 판단이다).
+    story = memory_context.strip_prompt_marks(story)
     if not story:
         return None
 
