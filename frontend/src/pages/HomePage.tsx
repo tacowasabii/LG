@@ -109,6 +109,28 @@ export default function HomePage() {
         lead="사진과 이야기로 연결된 사람들의 시간. 한 사람이 만든 추억에 가족이 기억을 더하면서 쌓입니다."
       />
 
+      {/*
+        처음 오는 사람을 위한 길 — 기획안 리스크 "데이터가 처음엔 없음"에 대한 답.
+        숫자판보다 위에 둔다. 기록이 없는 사람에게 0이 넷 늘어선 표를 먼저
+        보여 주면 들어갈 문이 그 아래로 밀린다.
+
+        장수는 적지 않는다. 모으기는 몇 장이든 받고(CollectPage), 숫자를 적어
+        두면 그것이 조건처럼 읽힌다.
+      */}
+      <Link
+        to="/collect"
+        className="banner-accent mt-10 flex items-center gap-4 rounded-lg px-6 py-5
+                   no-underline transition-colors duration-150 ease-out hover:no-underline"
+      >
+        <span className="flex-1">
+          <span className="block text-[15px] font-semibold text-ink-900">처음이신가요?</span>
+          <span className="t-body-sm mt-1 block text-ink-400">
+            사진을 올리면 AI가 첫 추억의 초안을 씁니다. 확인하면 바로 가족 기록이 됩니다.
+          </span>
+        </span>
+        <span className="text-xl text-accent-ink">→</span>
+      </Link>
+
       <div className="mt-12">
         <StatRow
           cells={[
@@ -122,21 +144,6 @@ export default function HomePage() {
           ]}
         />
       </div>
-
-      {/* 처음 오는 사람을 위한 길 — 기획안 리스크 "데이터가 처음엔 없음"에 대한 답 */}
-      <Link
-        to="/collect"
-        className="banner-accent mt-10 flex items-center gap-4 rounded-lg px-6 py-5
-                   no-underline transition-colors duration-150 ease-out hover:no-underline"
-      >
-        <span className="flex-1">
-          <span className="block text-[15px] font-semibold text-ink-900">처음이신가요?</span>
-          <span className="t-body-sm mt-1 block text-ink-400">
-            사진 3장을 올리면 AI가 첫 추억의 초안을 씁니다. 확인하면 바로 가족 기록이 됩니다.
-          </span>
-        </span>
-        <span className="text-xl text-accent-ink">→</span>
-      </Link>
 
       {/* 기억이 쌓인 모습 — 확인 여부가 아니라 "가족이 얼마나 함께 기억하는가" */}
       <section className="mt-14">
