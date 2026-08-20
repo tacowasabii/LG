@@ -190,7 +190,8 @@ export default function InterviewPage() {
   const handleStart = async () => {
     setLoading(true)
     try {
-      const result = await startInterview('auto')
+      // 답하는 사람을 시작할 때 알려 준다 — 질문이 이 사람을 향해야 한다
+      const result = await startInterview('auto', undefined, current?.id)
       setSessionId(result.session_id)
       setContext(result.context)
       setCurrentQuestion(result.question)

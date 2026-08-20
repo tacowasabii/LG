@@ -288,6 +288,7 @@ python tests/test_film.py               # Memory Film 9개
 python tests/test_family_visibility.py  # 가족 공간·초대 참여·공개 범위 18개
 python tests/test_permissions.py        # 역할 가드 11개
 python tests/test_interview_extraction.py # 답변에서 인물·장소·시점 추출
+python tests/test_interview_questions.py  # 인터뷰 대상·없는 호칭·질문 반복 13개
 python tests/test_media_person_tags.py  # 기록에 있는 사람 지목 6개
 python tests/test_album.py              # 사진첩 목록·필터·커서·공개 범위 17개
 python tests/test_transcript_source.py  # 전사문 출처·녹음 분류 7개
@@ -441,7 +442,7 @@ JSON 파일은 그대로 남습니다. `DATABASE_URL`을 지우면 다시 파일
 | | `GET /api/graph/persons` | 인물 목록 |
 | | `POST /api/graph/person` | 인물 추가 |
 | Chat | `POST /api/chat` | 자연어 질의 → 답변 |
-| Interview | `POST /api/interview/start` | 인터뷰 시작 |
+| Interview | `POST /api/interview/start` | 인터뷰 시작 (`speaker_id` — 질문받는 사람) |
 | | `POST /api/interview/answer` | 답변 제출 (`speaker_id`, `audio_media_id`) |
 | Memories | `POST /api/memories/draft` | 올린 사진·영상으로 추억 초안 (제목·날짜·장소·인물·근거) |
 | | `POST /api/memories` | 추억 만들기 (저장 즉시 게시, 승인 없음) |

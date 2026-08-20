@@ -320,6 +320,9 @@ class ChatResponse(BaseModel):
 class InterviewStartRequest(BaseModel):
     target_type: str = "event"  # "event" | "media" | "auto"
     target_id: Optional[str] = None
+    # 지금 화면 앞에서 답할 사람. 인터뷰 대상이 이 사람이 된다 —
+    # 질문받는 사람과 답하는 사람이 어긋나면 답변의 주인도 흐려진다.
+    speaker_id: Optional[str] = None
 
 
 class InterviewStartResponse(BaseModel):

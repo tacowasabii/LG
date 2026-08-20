@@ -19,7 +19,7 @@ import uuid
 from typing import Optional
 
 from backend.config import EXAONE_PLANNER_MODEL
-from backend.services import llm_client
+from backend.services import kinship, llm_client
 from backend.models.graph_models import (
     MemoryNode, Edge, RelationType, SourceType, Confidence, NodeType,
 )
@@ -31,49 +31,76 @@ from backend.services.question_picker import pick_target
 _sessions: dict[str, dict] = {}
 
 
-INTERVIEW_SYSTEM_PROMPT = """너는 사람들의 기억을 수집하는 따뜻한 인터뷰어야.
-사진, 이벤트, 기억에 대해 자연스럽게 질문해서 빠진 정보를 채워나가.
-주어진 관계에 맞는 호칭을 써.
+INTERVIEW_SYSTEM_PROMPT = """너는 가족의 기억을 받아 적는 따뜻한 인터뷰어야.
+지금 화면 앞에는 한 사람이 앉아 있다. [인터뷰 대상]에 적힌 그 사람에게 묻는다.
 
 규칙:
-1. 한 번에 하나의 질문만 해.
-2. 질문은 구체적이고 답하기 쉬워야 해.
-3. 따뜻하고 대화하듯 자연스러운 톤으로 질문해.
-4. 답변에서 구조화할 수 있는 정보(날짜, 장소, 인물, 에피소드)를 추출해.
-5. 3~5개 질문 후 자연스럽게 마무리해.
-6. 한국어로 질문해.
+1. 한 번에 하나만 묻는다. 두 가지를 이어 붙이지 마.
+2. [인터뷰 대상]에게 직접 묻는다. 다른 사람을 그 자리에 세우지 마 —
+   답하는 사람이 아빠인데 "서연님, 기억나세요?"라고 물으면 안 된다.
+3. [가족 구성원]에 있는 사람만 언급한다. 목록에 없는 사람이나 호칭(형, 누나,
+   삼촌, 사촌 같은 말)을 만들어 내지 마. 확실하지 않으면 이름을 쓴다.
+4. 존댓말을 끝까지 유지한다. 중간에 반말로 바꾸지 마.
+5. [지금까지의 대화]에 이미 나온 질문을 다시 하지 않는다.
+6. 질문은 구체적이고 답하기 쉬워야 한다. 따뜻하게, 두 문장 안에.
+7. 한국어로 묻는다.
 """
 
+# "모르겠다"는 답. 같은 것을 또 물으면 대화가 제자리를 돈다 (실제로 그랬다 —
+# 모른다고 답한 질문을 모델이 다음 차례에 그대로 다시 냈다).
+_NO_MEMORY = re.compile(
+    r"모르겠|모름|잘\s*몰라|기억\s*(이|은)?\s*(안|없)|기억나지\s*않|생각\s*(이)?\s*안|글쎄"
+)
 
-async def start_interview(target_type: str = "auto", target_id: Optional[str] = None) -> dict:
+
+async def start_interview(
+    target_type: str = "auto",
+    target_id: Optional[str] = None,
+    speaker_id: Optional[str] = None,
+) -> dict:
     """인터뷰 세션 시작
 
     target_type: "event" | "media" | "auto"
     - auto: 아직 덜 채워진 사건을 하나 골라 묻는다
+
+    speaker_id  지금 화면 앞에서 답할 사람. 인터뷰 대상은 이 사람이다.
+
+                이 인자가 없던 동안 question_picker가 고른 인물(그 사건에 기억을
+                남기지 않은 참여자)이 인터뷰 대상이 됐다. 아빠로 로그인한 화면이
+                "서연님, 그때 기억나세요?"라고 물었고, 그 뒤로 모델은 답변을
+                서연의 기억으로 읽었다 ("서연이가 뛰어노는 순간들을…").
+                기억은 답한 사람의 것이므로 질문도 그 사람을 향해야 한다.
     """
     session_id = str(uuid.uuid4())
 
+    speaker = graph_manager.get_node(speaker_id) if speaker_id else None
+    if speaker and speaker.get("node_type") != NodeType.PERSON:
+        speaker = None
+
     # 타겟 결정
     target_node = None
-    # 수집한 기억을 누구의 것으로 기록할지. Gap이 "기억이 없는 참여자"를 이미 지목한다.
-    contributor_id = None
-    contributor_name = None
+    # 수집한 기억을 누구의 것으로 기록할지. 답할 사람을 알면 그 사람이다.
+    contributor_id = speaker["id"] if speaker else None
 
     if target_id:
         target_node = graph_manager.get_node(target_id)
 
     if not target_node and target_type == "auto":
         # 물어볼 사건을 하나 고른다 (목록을 만들지 않는다 — question_picker)
-        target = pick_target()
+        target = pick_target(speaker_id=contributor_id)
         target_node = target.get("event")
-        contributor_id = target.get("person_id")
-        contributor_name = target.get("person_name")
+        if not speaker:
+            # 누가 답할지 모르는 경우에만 picker가 지목한 인물에게 묻는다
+            contributor_id = target.get("person_id")
+
+    subject = speaker or (graph_manager.get_node(contributor_id) if contributor_id else None)
+    contributor_name = subject.get("name") if subject else None
 
     # 타겟 정보 구성
-    context = _build_interview_context(target_node, contributor_name)
+    context = _build_interview_context(target_node, subject)
 
     # 첫 질문 생성
-    first_question = await _generate_question(context, [])
+    first_question = await _generate_question(context, [], [], contributor_name)
 
     # 세션 저장
     _sessions[session_id] = {
@@ -138,8 +165,14 @@ async def process_answer(
 
     next_question = None
     if not is_complete:
-        # 다음 질문 생성
-        next_question = await _generate_question(session["context"], session["answers"])
+        # 다음 질문 생성. 지금까지 물은 것을 함께 넘긴다 — 이것을 주지 않아서
+        # 모델이 같은 질문을 다시 냈다.
+        next_question = await _generate_question(
+            session["context"],
+            session["questions"],
+            session["answers"],
+            session.get("contributor_name"),
+        )
         session["questions"].append(next_question)
         session["question_count"] += 1
 
@@ -173,20 +206,75 @@ def get_session_status(session_id: str) -> Optional[dict]:
     }
 
 
-def _build_interview_context(target_node: Optional[dict], contributor_name: Optional[str] = None) -> str:
-    """인터뷰 컨텍스트 구성"""
-    if not target_node:
-        return "가족의 기억에 대해 전반적으로 질문합니다."
+def _family_roster(subject: Optional[dict] = None) -> str:
+    """가족 명단과 서로의 관계
 
-    node_type = target_node.get("node_type", "")
+    모델에게 이것을 주지 않으면 없는 사람을 지어낸다. 남매뿐인 가족에게
+    "형이나 엄마와 함께했던 순간"을 물은 일이 있었다 — 형은 없다.
+    """
+    persons = graph_manager.get_persons()
+    if not persons:
+        return ""
+
+    lines = ["[가족 구성원] — 이 목록에 있는 사람만 언급한다"]
+    for person in persons:
+        bits = []
+        if person.get("relation"):
+            bits.append(person["relation"])
+        if person.get("birth_year"):
+            bits.append(f"{person['birth_year']}년생")
+        mark = " ← 지금 답하는 사람" if subject and person.get("id") == subject.get("id") else ""
+        detail = f" · {', '.join(bits)}" if bits else ""
+        lines.append(f"- {person.get('name', '')}{detail}{mark}")
+
+    # 서로를 어떻게 부르는지는 관계 엣지에 있다. 이것이 없으면 모델이 호칭을
+    # 짐작하고, 짐작한 호칭이 없는 사람을 만든다.
+    seen = set()
+    relations = []
+    for a, b, label in kinship.person_relation_edges():
+        if not label:
+            continue
+        key = tuple(sorted((a.get("id", ""), b.get("id", "")))) + (label,)
+        if key in seen:
+            continue
+        seen.add(key)
+        relations.append(f"- {a.get('name', '')} — {b.get('name', '')}: {label}")
+
+    if relations:
+        lines.append("[사람 사이의 관계]")
+        lines.extend(relations)
+
+    return "\n".join(lines)
+
+
+def _build_interview_context(target_node: Optional[dict], subject: Optional[dict] = None) -> str:
+    """인터뷰 컨텍스트 구성
+
+    subject는 지금 답하는 사람의 인물 노드다. 명단과 함께 맨 앞에 둔다 —
+    누구에게 묻는 자리인지가 흐려지면 모델은 다른 사람을 그 자리에 세운다.
+    """
     lines = []
 
-    if contributor_name:
-        # 질문이 특정 가족을 향하게 한다 (그 사람의 기억이 빠져 있어서 인터뷰 대상이 됐다)
-        lines.append(f"인터뷰 대상: {contributor_name} (이 사람의 기억이 아직 기록되지 않았습니다)")
+    roster = _family_roster(subject)
+    if roster:
+        lines.append(roster)
+
+    if subject:
+        relation = subject.get("relation") or ""
+        who = subject.get("name", "") + (f" · {relation}" if relation else "")
+        lines.append(
+            f"[인터뷰 대상] {who} — 지금 화면 앞에서 답하는 사람이다. "
+            "이 사람에게 직접 존댓말로 묻고, 다른 사람을 그 자리에 세우지 않는다."
+        )
+
+    if not target_node:
+        lines.append("[주제] 정해진 사건 없이 가족의 기억을 전반적으로 묻는다.")
+        return "\n".join(lines)
+
+    node_type = target_node.get("node_type", "")
 
     if node_type == "event":
-        lines.append(f"이벤트: {target_node.get('title', '')}")
+        lines.append(f"[주제] {target_node.get('title', '')}")
         lines.append(f"날짜: {target_node.get('date_start', '미상')}")
         lines.append(f"설명: {target_node.get('description', '없음')}")
 
@@ -196,12 +284,17 @@ def _build_interview_context(target_node: Optional[dict], contributor_name: Opti
         if persons:
             lines.append(f"참여자: {', '.join(p.get('name', '') for p in persons)}")
 
-        # 기존 기억
+        # 이미 기록된 기억. 누가 남긴 것인지 함께 준다 — 화자를 빼면 모델이
+        # 기억의 주인을 뒤바꿔 말한다 (아빠에게 "아버지가 찍으셨다고 하는데"라고
+        # 되물은 일이 있었다).
         memories = [n for n in connected if n.get("node_type") == "memory"]
         if memories:
-            lines.append("기존 기억:")
+            lines.append("이미 기록된 기억 (같은 것을 다시 묻지 않는다):")
             for m in memories[:3]:
-                lines.append(f"  - {m.get('content', '')[:100]}")
+                contributor = graph_manager.get_node(m.get("contributor_id") or "")
+                content = (m.get("content") or "")[:100]
+                who = contributor.get("name") if contributor else None
+                lines.append(f"  - {who}: {content}" if who else f"  - {content}")
 
     elif node_type == "media":
         lines.append(f"미디어: {target_node.get('original_filename', '')}")
@@ -211,29 +304,131 @@ def _build_interview_context(target_node: Optional[dict], contributor_name: Opti
     return "\n".join(lines)
 
 
-async def _generate_question(context: str, previous_answers: list[str]) -> str:
-    """EXAONE으로 인터뷰 질문 생성"""
-    messages = [{"role": "system", "content": INTERVIEW_SYSTEM_PROMPT}]
+def _dialogue(questions: list[str], answers: list[str]) -> str:
+    """지금까지 주고받은 것 (질문과 답을 짝지어서)
+
+    답변만 넘기던 동안 모델은 자기가 무엇을 물었는지 몰랐다. 그래서 "모르겠어요"를
+    받으면 같은 질문을 다시 냈다 — 대화가 제자리를 돌았다.
+    """
+    if not answers:
+        return "(첫 질문입니다)"
+
+    lines = []
+    for i, answer in enumerate(answers):
+        if i < len(questions) and questions[i]:
+            lines.append(f"Q{i + 1}. {questions[i]}")
+        lines.append(f"A{i + 1}. {answer}")
+    return "\n".join(lines)
+
+
+def _question_messages(
+    context: str,
+    questions: list[str],
+    answers: list[str],
+    subject_name: Optional[str] = None,
+) -> list[dict]:
+    """질문 생성 프롬프트 (LLM 호출과 분리해 둔다 — 규칙을 시험할 수 있게)"""
+    rules = [
+        "위 대화에 이미 나온 질문을 다시 하지 마세요. 말만 바꿔 같은 것을 묻는 것도 안 됩니다.",
+        "[가족 구성원]에 없는 사람이나 호칭을 만들지 마세요. 확실하지 않으면 이름을 쓰세요.",
+        "아직 비어 있는 것(날짜, 장소, 함께 있던 사람, 그때의 장면이나 감정)을 채우는 질문이면 좋습니다.",
+    ]
+    if subject_name:
+        rules.insert(0, f"{subject_name}님에게 직접, 존댓말로 묻습니다.")
+    if answers and _NO_MEMORY.search(answers[-1]):
+        # 기억나지 않는다는 답이다. 더 캐물으면 답할 수 없는 질문을 반복하게 된다.
+        rules.insert(0, '직전 답변은 "기억나지 않는다"는 뜻입니다. 그 질문을 되풀이하지 말고 다른 주제로 넘어가세요.')
 
     user_content = f"""[인터뷰 대상 정보]
 {context}
 
-[이전 답변들]
-{chr(10).join(f'- {a}' for a in previous_answers) if previous_answers else '(첫 질문입니다)'}
+[지금까지의 대화]
+{_dialogue(questions, answers)}
 
-위 정보를 바탕으로 가족에게 할 다음 질문 하나를 생성해주세요.
-빠진 정보(날짜, 장소, 함께한 사람, 그때의 감정이나 에피소드)를 채울 수 있는 질문이면 좋겠습니다."""
+다음 질문 하나만 쓰세요.
+""" + "\n".join(f"- {rule}" for rule in rules)
 
-    messages.append({"role": "user", "content": user_content})
+    return [
+        {"role": "system", "content": INTERVIEW_SYSTEM_PROMPT},
+        {"role": "user", "content": user_content},
+    ]
+
+
+def _normalize_question(text: str) -> str:
+    """비교용으로 공백·문장부호를 떼어낸 형태"""
+    return re.sub(r"[^가-힣a-zA-Z0-9]", "", text or "")
+
+
+def _repeats(question: str, questions: list[str]) -> bool:
+    """이미 물은 질문을 그대로 다시 낸 것인가
+
+    말을 바꿔 묻는 것까지 잡지는 않는다. 글자 겹침으로 재면 정상적인 후속
+    질문("그 수영장은 어디였나요?")이 걸린다 — 여기서 막는 것은 같은 문장이
+    다시 나오는 경우다.
+    """
+    current = _normalize_question(question)
+    if not current:
+        return False
+    for asked in questions:
+        past = _normalize_question(asked)
+        if past and (current == past or current in past or past in current):
+            return True
+    return False
+
+
+def _problem_with(question: str, questions: list[str]) -> Optional[str]:
+    """이 질문을 그대로 내보낼 수 없는 이유 (없으면 None)
+
+    모델에게 그대로 돌려줄 문장으로 쓴다. "다시 써"라고만 하면 같은 것이 온다.
+    """
+    strays = kinship.unknown_terms(question)
+    if strays:
+        return (
+            f"'{', '.join(strays)}'는 이 가족에 없습니다. [가족 구성원]에 있는 사람만 쓰세요."
+        )
+    if _repeats(question, questions):
+        return "그 질문은 이미 했습니다. 아직 묻지 않은 것을 물으세요."
+    return None
+
+
+async def _generate_question(
+    context: str,
+    questions: list[str],
+    answers: list[str],
+    subject_name: Optional[str] = None,
+) -> str:
+    """EXAONE으로 인터뷰 질문 생성
+
+    낸 질문을 한 번 검사한다. 없는 사람을 부르거나 이미 한 질문이면 한 번 더
+    청하고, 그래도 같으면 그 문장은 쓰지 않는다 — 화면에 나가면 답하는 사람이
+    없는 사람을 떠올리려 애쓰거나 같은 것을 두 번 답하게 된다.
+    """
+    messages = _question_messages(context, questions, answers, subject_name)
 
     question = await llm_client.complete(messages, max_tokens=256)
     if question is None:
-        return _simulate_question(context, previous_answers)
+        return _simulate_question(context, answers, questions)
+
+    problem = _problem_with(question, questions)
+    if not problem:
+        return question
+
+    retry = messages + [
+        {"role": "assistant", "content": question},
+        {"role": "user", "content": f"{problem} 질문을 다시 하나만 쓰세요."},
+    ]
+    question = await llm_client.complete(retry, max_tokens=256)
+    if question is None or _problem_with(question, questions):
+        return _simulate_question(context, answers, questions)
     return question
 
 
-def _simulate_question(context: str, previous_answers: list[str]) -> str:
-    """EXAONE 없을 때 시뮬레이션 질문"""
+def _simulate_question(
+    context: str,
+    previous_answers: list[str],
+    asked: list[str] | tuple = (),
+) -> str:
+    """EXAONE 없을 때 시뮬레이션 질문 (이미 한 것은 건너뛴다)"""
     question_pool = [
         "이 사진이 찍힌 날, 어떤 일이 있었는지 기억나세요?",
         "그때 함께 있었던 가족이 누구였나요? 특별히 기억나는 순간이 있나요?",
@@ -243,6 +438,10 @@ def _simulate_question(context: str, previous_answers: list[str]) -> str:
     ]
 
     idx = len(previous_answers) % len(question_pool)
+    for offset in range(len(question_pool)):
+        candidate = question_pool[(idx + offset) % len(question_pool)]
+        if not _repeats(candidate, list(asked)):
+            return candidate
     return question_pool[idx]
 
 

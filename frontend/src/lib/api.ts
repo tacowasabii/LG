@@ -652,10 +652,23 @@ export interface InterviewAnswerResult {
   message: string;
 }
 
-export async function startInterview(targetType?: string, targetId?: string): Promise<InterviewStartResult> {
+/**
+ * 인터뷰 시작.
+ * speakerId는 "지금 답하는 사람" — 질문이 이 사람을 향한다. 넘기지 않으면
+ * 서버가 아무 참여자를 인터뷰 대상으로 골라 다른 사람의 이름으로 묻는다.
+ */
+export async function startInterview(
+  targetType?: string,
+  targetId?: string,
+  speakerId?: string,
+): Promise<InterviewStartResult> {
   return fetchJSON(`${BASE_URL}/interview/start`, {
     method: 'POST',
-    body: JSON.stringify({ target_type: targetType || 'auto', target_id: targetId }),
+    body: JSON.stringify({
+      target_type: targetType || 'auto',
+      target_id: targetId,
+      speaker_id: speakerId,
+    }),
   });
 }
 

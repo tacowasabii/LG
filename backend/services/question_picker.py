@@ -20,8 +20,16 @@ from backend.models.graph_models import NodeType
 from backend.services.graph_manager import graph_manager
 
 
-def pick_target() -> dict:
+def pick_target(speaker_id: Optional[str] = None) -> dict:
     """지금 물어보기 가장 좋은 사건 하나
+
+    speaker_id  지금 화면 앞에서 답할 사람. 인터뷰는 이 사람의 기억을 받아 적는
+                자리이므로, 물어볼 사건도 이 사람이 함께 있었던 것에서 고른다.
+
+                이 인자가 없던 동안 여기서 고른 인물(기억을 남기지 않은 참여자)이
+                그대로 "인터뷰 대상"이 됐다. 아빠로 로그인한 사람에게 화면이
+                "서연님, 그때 기억나세요?"라고 물었다 — 답하는 사람과 질문받는
+                사람이 어긋났고, 그러면 답변의 주인이 누구인지도 흐려진다.
 
     Returns:
         {"event": dict|None, "person_id": str|None, "person_name": str|None,
@@ -29,6 +37,28 @@ def pick_target() -> dict:
 
         사건이 하나도 없으면 event가 None이다 (인터뷰는 그때 일반 질문을 한다).
     """
+    speaker = graph_manager.get_node(speaker_id) if speaker_id else None
+    if speaker and speaker.get("node_type") != NodeType.PERSON:
+        speaker = None
+
+    if speaker:
+        # 그 사람이 함께 있었던 사건 먼저. 없던 자리를 물으면 남는 것은 기억이
+        # 아니라 추측이다.
+        return (
+            _best_event(speaker, only_present=True)
+            or _best_event(speaker, only_present=False)
+            or _empty_target()
+        )
+
+    return _best_event(None, only_present=False) or _empty_target()
+
+
+def _empty_target() -> dict:
+    return {"event": None, "person_id": None, "person_name": None, "missing": []}
+
+
+def _best_event(speaker: Optional[dict], only_present: bool) -> Optional[dict]:
+    """빈 곳이 가장 많은 사건 하나 (없으면 None)"""
     best: Optional[dict] = None
     best_score = -1
 
@@ -37,6 +67,9 @@ def pick_target() -> dict:
         persons = [n for n in connected if n.get("node_type") == NodeType.PERSON]
         memories = [n for n in connected if n.get("node_type") == NodeType.MEMORY]
         media = [n for n in connected if n.get("node_type") == NodeType.MEDIA]
+
+        if only_present and speaker and speaker["id"] not in {p["id"] for p in persons}:
+            continue
 
         missing = []
         score = 0
@@ -54,20 +87,31 @@ def pick_target() -> dict:
             missing.append("사진")
             score += 1
 
-        # 함께 있던 사람 중 아직 기억을 남기지 않은 사람. 그 사람에게 물으면
-        # 새로운 관점이 하나 늘어난다 (사건을 완성하려는 것이 아니다).
+        # 아직 기억을 남기지 않은 사람에게 물으면 새로운 관점이 하나 늘어난다
+        # (사건을 완성하려는 것이 아니다).
         told = {m.get("contributor_id") for m in memories if m.get("contributor_id")}
-        silent = [p for p in persons if p["id"] not in told]
-        if silent and len(persons) >= 2:
-            score += 4
+
+        if speaker:
+            # 답할 사람이 정해져 있다. 인터뷰 대상은 그 사람이고, 그 사람이 아직
+            # 말하지 않은 사건일 때 물어볼 값이 커진다.
+            if speaker["id"] not in told:
+                score += 4
+            person_id = speaker["id"]
+            person_name = speaker.get("name")
+        else:
+            silent = [p for p in persons if p["id"] not in told]
+            if silent and len(persons) >= 2:
+                score += 4
+            person_id = silent[0]["id"] if silent else None
+            person_name = silent[0].get("name") if silent else None
 
         if score > best_score:
             best_score = score
             best = {
                 "event": event,
-                "person_id": silent[0]["id"] if silent else None,
-                "person_name": silent[0].get("name") if silent else None,
+                "person_id": person_id,
+                "person_name": person_name,
                 "missing": missing,
             }
 
-    return best or {"event": None, "person_id": None, "person_name": None, "missing": []}
+    return best
