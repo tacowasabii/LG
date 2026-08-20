@@ -132,8 +132,15 @@ class EventResponse(BaseModel):
 
 
 class MemoryDraftRequest(BaseModel):
-    """올린 사진·영상으로 초안을 만들어 달라는 요청"""
+    """올린 사진·영상으로 초안을 만들어 달라는 요청
+
+    기본은 날짜·장소로 갈라서 묶음마다 초안 하나다. 여러 사건의 사진을 한꺼번에
+    올리는 것이 정상이기 때문이다 — 어떤 사진이 같은 사건인지 사용자에게 묻지
+    않는다. 갈린 결과가 틀렸으면 merge로 다시 부른다.
+    """
     media_ids: list[str] = []
+    # True면 가르지 않고 전부 한 추억으로 본다 (화면의 "전부 하나의 추억으로")
+    merge: bool = False
 
 
 class MemoryCreateRequest(BaseModel):

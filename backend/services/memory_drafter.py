@@ -11,8 +11,12 @@
     주요 내용          scene_description (있을 때)
     기존 가족 기록     비슷한 날짜·같은 장소·같은 사람의 사건
 
-세 가지를 지킨다.
+네 가지를 지킨다.
 
+0. 어떤 사진이 같은 사건인지 사용자에게 묻지 않는다. 한 번에 올린 사진이 여러
+   사건에 걸쳐 있는 것이 정상이고(첫 사용자는 앨범에서 아무 사진이나 고른다),
+   날짜와 좌표를 읽을 수 있는 쪽이 갈라야 한다. `draft_groups`가 묶음마다 초안
+   하나를 만든다. 갈린 결과가 틀렸으면 화면에서 전부 하나로 합칠 수 있다.
 1. 없는 것을 만들지 않는다. 날짜를 못 읽으면 비워 두고 화면이 묻는다.
 2. 자동으로 확정하지 않는다. 인물 추정은 "이분이 엄마인가요?"로 되묻고,
    기존 추억과의 연결도 사용자가 고른다 (자동 병합 금지).
@@ -311,6 +315,85 @@ def _fallback_text(
     return title, " ".join(lines)
 
 
+def cluster_media(media_nodes: list[dict]) -> list[list[dict]]:
+    """올린 기록을 같은 사건으로 보이는 묶음으로 가른다
+
+    예전에는 업로드 하나가 사건 하나였다. 그 가정에서 1998년 부산 사진과 2015년
+    서울 사진을 함께 올리면 날짜는 1998년이 되고 좌표는 두 곳의 평균 —
+    아무도 가 본 적 없는 지점 — 이 되어 그 근처 장소 이름이 붙었다.
+
+    기준은 예전 자동 매칭이 쓰던 것과 같다 (±3일, 5km). 다른 것은 결과의 용도다.
+    여기서 나온 묶음은 그대로 저장되지 않고 초안이 되어 사용자에게 보인다.
+    자동 병합이 아니라 초안 분리다.
+
+    촬영 시점이 없는 기록(스캔한 옛 사진, 올린 음성)은 시간으로 잴 수 없으므로
+    따로 한 묶음으로 모은다. 날짜를 아는 사람이 화면에서 채운다.
+    """
+    dated = []
+    undated = []
+    for node in media_nodes:
+        if node.get("exif_date"):
+            dated.append(node)
+        else:
+            undated.append(node)
+
+    dated.sort(key=lambda n: n.get("exif_date") or "")
+
+    groups: list[list[dict]] = []
+    for node in dated:
+        if not groups:
+            groups.append([node])
+            continue
+
+        current = groups[-1]
+        gap = _days_between(node.get("exif_date"), current[-1].get("exif_date"))
+        near_day = gap is not None and gap <= NEAR_DAYS
+
+        # 좌표가 양쪽에 있을 때만 장소로 가른다. 한쪽만 있으면 날짜만 본다 —
+        # GPS가 없는 사진을 다른 사건으로 밀어내지 않기 위해서다.
+        far_place = False
+        anchor = next(
+            (n for n in reversed(current) if n.get("exif_lat") is not None), None
+        )
+        if anchor is not None and node.get("exif_lat") is not None:
+            far_place = _haversine_km(
+                node["exif_lat"], node["exif_lng"], anchor["exif_lat"], anchor["exif_lng"]
+            ) > NEAR_KM
+
+        if near_day and not far_place:
+            current.append(node)
+        else:
+            groups.append([node])
+
+    if undated:
+        groups.append(undated)
+
+    return groups
+
+
+async def draft_groups(
+    media_ids: list[str],
+    author_id: Optional[str] = None,
+    merge: bool = False,
+) -> list[dict]:
+    """올린 기록을 갈라서 묶음마다 초안 하나
+
+    merge=True면 가르지 않고 전부 한 추억으로 본다. 화면의 "전부 하나의 추억으로"
+    가 이 경로다 — AI가 잘못 갈랐을 때 사용자가 되돌릴 수 있어야 한다.
+    """
+    media_nodes = []
+    for media_id in media_ids or []:
+        node = graph_manager.get_node(media_id)
+        if node and node.get("node_type") == NodeType.MEDIA:
+            media_nodes.append(node)
+
+    if not media_nodes:
+        return []
+
+    groups = [media_nodes] if merge else cluster_media(media_nodes)
+    return [await draft([node["id"] for node in group], author_id) for group in groups]
+
+
 async def draft(media_ids: list[str], author_id: Optional[str] = None) -> dict:
     """올린 기록들로 추억 초안을 만든다
 
@@ -398,7 +481,11 @@ async def draft(media_ids: list[str], author_id: Optional[str] = None) -> dict:
     related = related_memories(day, lat, lng, tagged)
     ai_used = False
 
-    if llm_client.is_enabled("extract"):
+    # 읽어낸 사실이 하나도 없으면 모델을 부르지 않는다. "사진·영상 1개"만 주면
+    # 모델은 "사진을 아직 받지 못했습니다"라고 답하고, 그 답은 어차피 버려진다.
+    has_facts = bool(day or coords or persons or scenes)
+
+    if has_facts and llm_client.is_enabled("extract"):
         facts = []
         if day:
             facts.append(f"촬영 시점: {day}" + (f" ~ {last_day}" if last_day != day else ""))

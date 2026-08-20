@@ -927,10 +927,27 @@ export interface MemoryDraft {
   ai_used: boolean;
 }
 
-export async function draftMemory(mediaIds: string[]): Promise<MemoryDraft> {
+export interface MemoryDraftGroups {
+  /** 묶음마다 초안 하나. 여러 사건의 사진을 한꺼번에 올리면 여러 개가 온다 */
+  groups: MemoryDraft[];
+  total: number;
+  /** 갈랐는가 (화면이 "2개 묶음으로 갈랐어요"를 말할 수 있게) */
+  grouped: boolean;
+}
+
+/**
+ * 올린 기록으로 초안을 만든다.
+ *
+ * 기본은 날짜·장소로 갈라 묶음마다 초안 하나다 — 어떤 사진이 같은 사건인지
+ * 고르는 일을 사용자에게 맡기지 않는다. AI가 잘못 갈랐으면 merge로 다시 부른다.
+ */
+export async function draftMemory(
+  mediaIds: string[],
+  merge = false,
+): Promise<MemoryDraftGroups> {
   return fetchJSON(`${BASE_URL}/memories/draft`, {
     method: 'POST',
-    body: JSON.stringify({ media_ids: mediaIds }),
+    body: JSON.stringify({ media_ids: mediaIds, merge }),
   });
 }
 
