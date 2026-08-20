@@ -92,6 +92,8 @@ export interface MediaItem {
   duration_sec?: number | null;
   waveform?: number[];
   transcript?: string | null;
+  /** 그 글을 누가 썼는지: ai_stt(기계가 옮김) | user_input(사람이 적거나 고침) */
+  transcript_source?: string | null;
   speaker_id?: string | null;
   speaker_name?: string | null;
   event_id?: string | null;
@@ -112,6 +114,8 @@ export interface VoiceClip {
   speaker_name?: string | null;
   duration_sec: number;
   transcript?: string | null;
+  /** 전사문을 기계가 옮겼는지. 화면이 그렇다고 밝혀야 한다 */
+  transcript_source?: string | null;
   recorded_at?: string | null;
   waveform: number[];
 }
@@ -127,6 +131,7 @@ export function toVoiceClip(item: MediaItem): VoiceClip {
     speaker_name: item.speaker_name,
     duration_sec: item.duration_sec || 0,
     transcript: item.transcript,
+    transcript_source: item.transcript_source,
     recorded_at: (item.created_at || '').slice(0, 10),
     waveform: item.waveform || [],
   };
@@ -182,6 +187,8 @@ export async function uploadVoice(
     durationSec: number;
     waveform: number[];
     transcript?: string;
+    /** 전사문이 기계가 옮긴 것이면 'ai_stt'. 사람이 적거나 고쳤으면 비워 둔다 */
+    transcriptSource?: string;
     speakerId?: string;
     eventId?: string;
     filename?: string;
@@ -192,6 +199,7 @@ export async function uploadVoice(
   formData.append('duration_sec', String(meta.durationSec));
   formData.append('waveform', JSON.stringify(meta.waveform));
   if (meta.transcript) formData.append('transcript', meta.transcript);
+  if (meta.transcriptSource) formData.append('transcript_source', meta.transcriptSource);
   if (meta.speakerId) formData.append('speaker_id', meta.speakerId);
   if (meta.eventId) formData.append('event_id', meta.eventId);
   // 올린 사람이 소유자다 — 공개 범위를 정할 수 있는 사람

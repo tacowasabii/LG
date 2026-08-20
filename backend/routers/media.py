@@ -32,6 +32,9 @@ async def upload_media(
     duration_sec: Optional[float] = Form(None),
     waveform: Optional[str] = Form(None),
     transcript: Optional[str] = Form(None),
+    # 그 글을 누가 썼는지. ai_stt면 브라우저 음성 인식이 옮기고 사람이 손대지
+    # 않은 것이다. 안 보내면 사람이 적은 것으로 본다.
+    transcript_source: Optional[str] = Form(None),
     speaker_id: Optional[str] = Form(None),
     event_id: Optional[str] = Form(None),
     # 사진·영상에 찍힌 사람. 쉼표로 구분한 person_id.
@@ -61,8 +64,9 @@ async def upload_media(
     with open(save_path, "wb") as f:
         shutil.copyfileobj(file.file, f)
 
-    # 미디어 분석
-    media_node = analyze_media(str(save_path), file.filename)
+    # 미디어 분석. 브라우저가 알려준 형식을 함께 넘긴다 — 녹음은 audio/webm으로
+    # 오는데 .webm은 영상 확장자와 같아서, 확장자만 보면 목소리가 영상이 된다.
+    media_node = analyze_media(str(save_path), file.filename, file.content_type)
     media_node.file_path = f"/media-files/{save_path.name}"
 
     # 썸네일 생성 (사진인 경우)
@@ -80,6 +84,13 @@ async def upload_media(
         media_node.waveform = _parse_waveform(waveform)
     if transcript:
         media_node.transcript = transcript
+        # 기계가 옮긴 글을 사람이 쓴 것으로 남기면 신뢰도 표시가 거짓이 된다.
+        # 화면이 ai_stt라고 밝힌 경우만 그렇게 적고, 나머지는 사람이 쓴 것으로 본다.
+        media_node.transcript_source = (
+            SourceType.AI_STT
+            if transcript_source == SourceType.AI_STT.value
+            else SourceType.USER_INPUT
+        )
     if speaker_id and graph_manager.get_node(speaker_id):
         media_node.speaker_id = speaker_id
     if owner_id and graph_manager.get_node(owner_id):
@@ -93,6 +104,8 @@ async def upload_media(
 
     if is_audio:
         # 인터뷰 녹음은 말한 사람이 곧 출처다. 사람이 확인한 기록으로 본다.
+        # 여기서 확정하는 것은 목소리다. 그것을 옮긴 글의 출처는 별개 축이라
+        # transcript_source에 따로 남는다 — 기계가 옮긴 글이 섞여 들어온다.
         media_node.source = SourceType.INTERVIEW
         if media_node.speaker_id:
             media_node.confidence = Confidence.CONFIRMED
@@ -243,6 +256,7 @@ def _to_list_item(node: dict) -> MediaListItem:
         duration_sec=node.get("duration_sec"),
         waveform=node.get("waveform") or [],
         transcript=node.get("transcript"),
+        transcript_source=node.get("transcript_source"),
         speaker_id=node.get("speaker_id"),
         speaker_name=speaker_name,
         event_id=event_id,

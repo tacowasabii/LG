@@ -20,7 +20,7 @@
 |------|------|
 | **Memory Graph** | 사진·영상·음성을 인물/이벤트/장소로 자동 연결하는 그래프 |
 | **Memory Chat** | 자연어 질문 → Graph 검색 + EXAONE 답변 생성 |
-| **AI Interview** | 기억의 빈 곳을 AI가 질문하며 새로운 기록 수집 |
+| **AI Interview** | 기억의 빈 곳을 AI가 질문하며 새로운 기록 수집 (녹음 + 브라우저 전사) |
 | **Memory Gap** | 빠진 정보/한쪽 관점만 있는 기억 자동 탐지 |
 | **TV Memory Journey** | 조건 기반 사진 슬라이드쇼 (LG TV 시뮬레이션) |
 
@@ -203,6 +203,7 @@ python tests/test_family_visibility.py  # 가족 공간·초대 참여·공개 �
 python tests/test_permissions.py        # 역할 가드 11개
 python tests/test_interview_extraction.py # 답변에서 인물·장소·시점 추출
 python tests/test_media_person_tags.py  # 기록에 있는 사람 지목 6개
+python tests/test_transcript_source.py  # 전사문 출처·녹음 분류 7개
 
 # 같은 테스트를 Postgres 저장소로도 돌립니다 (구현이 갈리지 않게)
 DATABASE_URL="postgresql://..." python tests/test_verification.py

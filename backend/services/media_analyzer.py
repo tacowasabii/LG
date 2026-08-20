@@ -91,8 +91,24 @@ def _convert_to_degrees(value) -> Optional[float]:
         return None
 
 
-def detect_media_type(filename: str) -> str:
-    """파일 확장자로 미디어 타입 판별"""
+def detect_media_type(filename: str, content_type: Optional[str] = None) -> str:
+    """미디어 타입 판별 — 브라우저가 알려준 형식을 먼저 믿는다
+
+    확장자만으로는 갈리지 않는 경우가 있다. 브라우저 녹음은 audio/webm으로
+    나오는데 .webm은 영상 확장자와 같아서, 확장자만 보면 목소리가 영상으로
+    저장된다 — 음성 목록에서 빠지고 파형도 쓰이지 않는다.
+
+    Content-Type은 남이 보낸 값이지만 여기서 틀려도 손해는 분류 하나이고,
+    확장자보다 정확하다. 형식이 이상하면 확장자로 떨어진다.
+    """
+    prefix = (content_type or "").split(";")[0].strip().lower()
+    if prefix.startswith("audio/"):
+        return MediaType.AUDIO
+    if prefix.startswith("video/"):
+        return MediaType.VIDEO
+    if prefix.startswith("image/"):
+        return MediaType.PHOTO
+
     ext = Path(filename).suffix.lower()
     if ext in (".jpg", ".jpeg", ".png", ".gif", ".webp", ".heic", ".bmp", ".tiff"):
         return MediaType.PHOTO
@@ -103,15 +119,20 @@ def detect_media_type(filename: str) -> str:
     return MediaType.PHOTO  # default
 
 
-def analyze_media(file_path: str, original_filename: str) -> MediaNode:
+def analyze_media(
+    file_path: str,
+    original_filename: str,
+    content_type: Optional[str] = None,
+) -> MediaNode:
     """미디어 파일 분석 → MediaNode 생성
 
     MVP에서는:
     - 사진: EXIF 추출 (실제)
-    - 얼굴 인식 / 장면 분류: 시뮬레이션 (향후 AI Vision 연동)
-    - 음성/영상: 파일 정보만 (향후 STT 연동)
+    - 얼굴 인식 / 장면 분류: 없다. 사람이 직접 지목한다 (event_resolver.set_media_persons)
+    - 음성: 전사는 브라우저가 한다 (frontend/src/lib/transcriber.ts)
+    - 영상: 파일 정보만
     """
-    media_type = detect_media_type(original_filename)
+    media_type = detect_media_type(original_filename, content_type)
 
     node = MediaNode(
         media_type=media_type,

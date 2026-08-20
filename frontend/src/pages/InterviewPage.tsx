@@ -13,6 +13,11 @@ import LearnedFromAnswer from '../components/LearnedFromAnswer'
 import { Page, PageHeader } from '../components/Page'
 import { useCurrentUser } from '../lib/currentUser'
 import { Recording, VoiceRecorder, isRecordingSupported } from '../lib/recorder'
+import {
+  LiveTranscriber,
+  TranscriberError,
+  isTranscriptionSupported,
+} from '../lib/transcriber'
 import { invalidateEvents, invalidateVoiceClips } from '../lib/useGraphData'
 
 /**
@@ -30,9 +35,13 @@ import { invalidateEvents, invalidateVoiceClips } from '../lib/useGraphData'
  * 녹음은 MediaRecorder로 실제 저장한다. 파형과 길이는 브라우저가 계산해 함께
  * 올리고(lib/recorder.ts), 서버는 파일과 숫자 배열만 받는다.
  *
- * 전사(음성 → 글)는 아직 없다. ASR을 붙이기 전까지는 화면이 직접 적게 하고
- * 목소리 원본을 그대로 보관한다 — 없는 기능을 있는 것처럼 보이게 하지 않는다.
- * 붙일 자리: stopRecording() 안에서 blob을 전사 API로 보내 setInput에 채운다.
+ * 전사(음성 → 글)는 녹음과 동시에 돈다 (lib/transcriber.ts). 말하는 동안 입력란이
+ * 채워지고, 멈추면 고칠 수 있다. 옮긴 글은 기계가 만든 것이므로 그대로 남기면
+ * 그래프에 ai_stt로, 사람이 고치면 user_input으로 들어간다 — 누가 쓴 문장인지를
+ * 데이터가 알고 있어야 한다 (기획안 사실 vs 추정 분리).
+ *
+ * 인식이 실패해도 녹음은 그대로 남는다. 목소리 원본이 자산이고 글은 그것을 찾기
+ * 위한 색인이다. 순서를 뒤집지 않는다.
  */
 
 interface QA {
@@ -69,6 +78,21 @@ export default function InterviewPage() {
   const recorder = useRef<VoiceRecorder | null>(null)
   const canRecord = isRecordingSupported()
 
+  // --- 전사 (녹음과 동시에 돈다) ---
+  const transcriber = useRef<LiveTranscriber | null>(null)
+  const canTranscribe = isTranscriptionSupported()
+  /** 지금 듣고 있는 조각. 확정 전이라 다음 순간에 바뀐다 */
+  const [interim, setInterim] = useState('')
+  const [sttError, setSttError] = useState<string | null>(null)
+  /**
+   * 입력란의 글이 기계가 옮긴 것인가.
+   *
+   * 사람이 한 글자라도 고치면 false가 된다. 그래프에 남길 출처(ai_stt vs
+   * user_input)가 여기서 갈린다 — 고치지 않은 글을 사람이 쓴 것으로 남기면
+   * 신뢰도 표시가 거짓이 된다.
+   */
+  const [fromMachine, setFromMachine] = useState(false)
+
   // 녹음 경과 시간
   useEffect(() => {
     if (!recording) return
@@ -76,11 +100,13 @@ export default function InterviewPage() {
     return () => window.clearInterval(timer)
   }, [recording])
 
-  // 화면을 떠날 때 마이크를 놓아준다
+  // 화면을 떠날 때 마이크를 놓아준다 (녹음과 인식이 각각 잡고 있다)
   useEffect(() => {
     return () => {
       recorder.current?.cancel()
       recorder.current = null
+      transcriber.current?.cancel()
+      transcriber.current = null
     }
   }, [])
 
@@ -88,9 +114,27 @@ export default function InterviewPage() {
     setRecordError(null)
 
     if (recording) {
+      // 인식을 먼저 닫는다. 마지막 확정 결과가 stop 직전에 오기 때문이다.
+      let transcribed = ''
+      if (transcriber.current) {
+        try {
+          transcribed = await transcriber.current.stop()
+        } catch (e) {
+          console.warn('[interview] 전사를 마치지 못했습니다', e)
+        }
+        transcriber.current = null
+      }
+      setInterim('')
+
       try {
         const result = await recorder.current!.stop()
         setPending(result)
+        // 옮긴 글로 입력란을 채운다. 사람이 고칠 수 있게 두는 것이 핵심이다 —
+        // 기계가 잘못 들은 문장이 가족의 기억으로 굳으면 안 된다.
+        if (transcribed) {
+          setInput(transcribed)
+          setFromMachine(true)
+        }
       } catch (e) {
         console.error(e)
         setRecordError('녹음을 저장하지 못했습니다.')
@@ -107,6 +151,22 @@ export default function InterviewPage() {
       setPending(null)
       setRecordSec(0)
       setRecording(true)
+      setSttError(null)
+      setInterim('')
+      setFromMachine(false)
+
+      // 인식은 곁다리다. 실패해도 녹음은 계속된다.
+      if (canTranscribe) {
+        transcriber.current = new LiveTranscriber()
+        transcriber.current.start({
+          onUpdate: ({ final, interim: partial }) => {
+            setInput(final)
+            setInterim(partial)
+            setFromMachine(true)
+          },
+          onError: (error: TranscriberError) => setSttError(error.message),
+        })
+      }
     } catch (e) {
       console.error(e)
       recorder.current = null
@@ -118,6 +178,13 @@ export default function InterviewPage() {
     if (pending) URL.revokeObjectURL(pending.previewUrl)
     setPending(null)
     setRecordSec(0)
+    // 옮긴 글도 함께 버린다. 버린 녹음의 전사만 남으면 근거 없는 문장이 된다.
+    if (fromMachine) {
+      setInput('')
+      setFromMachine(false)
+    }
+    setInterim('')
+    setSttError(null)
   }
 
   const handleStart = async () => {
@@ -166,6 +233,9 @@ export default function InterviewPage() {
             durationSec: recorded.durationSec,
             waveform: recorded.waveform,
             transcript: answer,
+            // 고치지 않은 전사문은 기계가 쓴 문장이다. 그렇게 남겨야
+            // 화면이 "AI가 옮김"이라고 밝힐 수 있다.
+            transcriptSource: fromMachine ? 'ai_stt' : undefined,
             speakerId: current?.id,
             eventId: context?.target_id,
           })
@@ -482,8 +552,18 @@ export default function InterviewPage() {
                     </p>
                   )}
 
+                  {sttError && (
+                    <p className="t-caption m-0 mt-2" style={{ color: 'var(--ink-400)' }}>
+                      {sttError}
+                    </p>
+                  )}
+
                   <p className="t-caption m-0 mt-2">
-                    말한 내용은 아래에 직접 적어 주세요. 자동 전사는 아직 붙지 않았습니다.
+                    {!canTranscribe
+                      ? '이 브라우저는 자동 전사를 지원하지 않습니다 (크롬에서 됩니다). 말한 내용은 아래에 적어 주세요.'
+                      : recording
+                        ? '말하는 대로 아래에 옮겨 적습니다. 멈춘 뒤 고칠 수 있습니다.'
+                        : '자동 전사는 AI가 옮긴 것입니다. 틀린 곳은 아래에서 고쳐 주세요.'}
                   </p>
                 </div>
               )}
@@ -492,11 +572,17 @@ export default function InterviewPage() {
                 <input
                   type="text"
                   value={input}
-                  onChange={(e) => setInput(e.target.value)}
+                  onChange={(e) => {
+                    setInput(e.target.value)
+                    // 사람이 손을 댄 순간부터 이 문장은 기계의 것이 아니다
+                    setFromMachine(false)
+                  }}
                   onKeyDown={(e) => e.key === 'Enter' && !e.shiftKey && handleAnswer()}
                   placeholder={
                     mode === 'voice'
-                      ? '말한 내용을 여기에 적어 주세요'
+                      ? canTranscribe
+                        ? '말하면 여기에 옮겨 적습니다'
+                        : '말한 내용을 여기에 적어 주세요'
                       : '답변을 입력하세요'
                   }
                   className="field flex-1"
@@ -510,6 +596,19 @@ export default function InterviewPage() {
                   남기기 →
                 </button>
               </div>
+
+              {/* 아직 확정되지 않은 조각. 입력란에 넣으면 글자가 요동치므로 밖에 둔다 */}
+              {interim && (
+                <p className="t-caption mt-2 italic" style={{ color: 'var(--ink-300)' }}>
+                  …{interim}
+                </p>
+              )}
+
+              {fromMachine && !recording && input.trim() && (
+                <p className="t-caption mt-2.5" style={{ color: 'var(--ink-400)' }}>
+                  AI가 옮긴 문장입니다. 고치지 않고 남기면 그렇게 기록됩니다.
+                </p>
+              )}
 
               {currentQuestion && (
                 <p className="t-caption mt-2.5">

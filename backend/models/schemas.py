@@ -68,6 +68,9 @@ class MediaListItem(BaseModel):
     duration_sec: Optional[float] = None
     waveform: list[float] = []
     transcript: Optional[str] = None
+    # 그 글을 누가 썼는지: ai_stt(기계가 옮김) | user_input(사람이 적거나 고침).
+    # 목소리의 출처(source)와 다른 축이다 — 화면이 둘을 따로 밝힌다.
+    transcript_source: Optional[str] = None
     speaker_id: Optional[str] = None
     speaker_name: Optional[str] = None
     event_id: Optional[str] = None

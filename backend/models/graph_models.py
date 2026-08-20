@@ -193,6 +193,12 @@ class MediaNode:
     waveform: list = field(default_factory=list)  # 0~1 정규화된 피크
     # 음성을 글로 옮긴 원문. 요약이 아니라 말한 그대로를 보존한다.
     transcript: Optional[str] = None
+    # 그 글을 누가 썼는지. 노드 전체의 source와 따로 둔다 — 목소리는 사람이
+    # 남긴 것(interview)이지만 글은 기계가 옮긴 것(ai_stt)일 수 있고, 둘을 한
+    # 필드로 합치면 어느 쪽 신뢰도인지 읽을 수 없다.
+    #   ai_stt     : 브라우저 음성 인식이 옮기고 사람이 손대지 않았다
+    #   user_input : 사람이 적었거나, 옮겨진 글을 고쳤다
+    transcript_source: Optional[str] = None
     # 이 음성에서 말하는 사람 (NARRATED_BY 엣지와 함께 저장한다)
     speaker_id: Optional[str] = None
     # --- 권한 (기획안 08장 Asset 권한) ---

@@ -200,15 +200,27 @@ export default function AudioClip({ clip, dark = false, compact = false }: Props
       </div>
 
       {clip.transcript ? (
-        <p
-          className="t-body-sm m-0 mt-3.5"
-          style={{
-            color: dark ? 'rgba(250,250,247,0.8)' : 'var(--ink-500)',
-            textWrap: 'pretty',
-          }}
-        >
-          {clip.transcript}
-        </p>
+        <>
+          <p
+            className="t-body-sm m-0 mt-3.5"
+            style={{
+              color: dark ? 'rgba(250,250,247,0.8)' : 'var(--ink-500)',
+              textWrap: 'pretty',
+            }}
+          >
+            {clip.transcript}
+          </p>
+          {/* 목소리는 가족이 남긴 것이지만 글은 기계가 옮겼을 수 있다. 어느
+              쪽인지 밝히지 않으면 잘못 들은 문장이 가족의 말로 읽힌다. */}
+          {clip.transcript_source === 'ai_stt' && (
+            <p
+              className="t-caption m-0 mt-1.5"
+              style={{ color: dark ? 'rgba(250,250,247,0.45)' : 'var(--ink-300)' }}
+            >
+              AI가 옮긴 글입니다. 목소리가 원본입니다.
+            </p>
+          )}
+        </>
       ) : (
         <p
           className="t-caption m-0 mt-3.5"
