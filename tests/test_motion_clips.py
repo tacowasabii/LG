@@ -280,8 +280,15 @@ def test_only_new_events_are_generated():
     saved = MOTION_BASELINE_FILE.read_bytes() if MOTION_BASELINE_FILE.exists() else None
     try:
         MOTION_BASELINE_FILE.unlink(missing_ok=True)
-        # 처음 물으면 지금 있는 사건이 기준선이 된다
-        base = motion_clips.baseline_event_ids()
+
+        # 기준선을 아직 못 적었으면 아무것도 새 사건으로 보지 않는다.
+        # 기능이 조용히 안 되는 쪽이 돈이 조용히 나가는 쪽보다 낫다.
+        assert motion_clips.baseline_event_ids() is None
+        assert motion_clips.is_new_event("event_무엇이든") is False, \
+            "기준선 없이 새 사건으로 봤다 — 앨범 전체가 대상이 된다"
+
+        # 부팅 때 정한다 (main.py). 그때 있던 사건이 기준선이 된다.
+        base = motion_clips.ensure_baseline()
         existing = {event["id"] for event in graph_manager.get_events()}
         assert base == existing, (sorted(base), sorted(existing))
         assert MOTION_BASELINE_FILE.exists(), "기준선을 적어 두지 않았다"
@@ -290,7 +297,8 @@ def test_only_new_events_are_generated():
             assert motion_clips.is_new_event(event_id) is False, event_id
         assert motion_clips.is_new_event("event_아직없던것") is True
 
-        # 두 번째부터는 파일을 읽는다 (그래프가 늘어도 기준선은 그대로)
+        # 이미 적혀 있으면 다시 적지 않는다 (그래프가 늘어도 기준선은 그대로)
+        assert motion_clips.ensure_baseline() == base
         assert motion_clips.baseline_event_ids() == base
     finally:
         if saved is None:

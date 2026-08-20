@@ -9,9 +9,10 @@ from backend.config import (
     ALLOWED_ORIGIN_REGEX,
     DEV_ORIGINS,
     MEDIA_DIR,
+    MOTION_AUTOGEN_NEW_ONLY,
     STATE_DIR,
 )
-from backend.services import llm_client
+from backend.services import llm_client, motion_clips
 from backend.services.graph_manager import graph_manager
 from backend.routers import (
     media, graph, chat, interview, memories, tv, film, trust, family, export,
@@ -21,6 +22,16 @@ from backend.routers import (
 # 이게 필요하다 — 재시작이 안 된 채로 파일이 남아 있는 것과, 재시작 후에도 남아
 # 있는 것은 전혀 다른 이야기이고, 후자만 볼륨이 붙었다는 증거가 된다.
 BOOTED_AT = datetime.now(timezone.utc)
+
+# 미세 모션 자동 생성에서 뺄 사건 목록을 여기서 정한다 (MOTION_AUTOGEN_NEW_ONLY).
+#
+# 부팅 때여야 한다. 처음 필요할 때(누군가 Film을 여는 순간) 정하면 그 사이에
+# 만들어진 사건까지 기준선에 들어가서, 새 추억을 만들고 Film을 열면 그 추억이
+# "기존 사건"으로 적혀 영원히 대상에서 빠진다. 배포에서 실제로 그렇게 됐다.
+#
+# 시드는 uvicorn보다 먼저 돌기 때문에(scripts/docker_start.sh) 이 시점의 그래프는
+# 이미 채워져 있다.
+MOTION_BASELINE = motion_clips.ensure_baseline()
 
 app = FastAPI(
     title="LG HomeStory",
@@ -82,4 +93,14 @@ async def health_check():
         },
         "booted_at": BOOTED_AT.isoformat(),
         "uptime_sec": round((datetime.now(timezone.utc) - BOOTED_AT).total_seconds(), 1),
+        # 미세 모션 자동 생성 상태. 배포에서 "왜 안 움직이나"를 밖에서 가릴 수
+        # 있어야 한다 — 켜져 있는지, 기준선이 몇 개인지, 남은 횟수가 있는지.
+        # 이 세 값 중 하나만 어긋나도 화면은 그냥 정지 사진으로 보인다.
+        "motion": {
+            "autogen": motion_clips.enabled(),
+            "new_events_only": MOTION_AUTOGEN_NEW_ONLY,
+            "baseline_events": None if MOTION_BASELINE is None else len(MOTION_BASELINE),
+            "attempts_left": motion_clips.attempts_left(),
+            "clips": len(motion_clips.manifest()),
+        },
     }

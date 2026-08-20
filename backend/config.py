@@ -166,6 +166,19 @@ MOTION_COVERS_PER_EVENT = int(os.getenv("MOTION_COVERS_PER_EVENT", "3"))
 # false로 두면 기존 사건도 대상이 된다.
 MOTION_AUTOGEN_NEW_ONLY = os.getenv("MOTION_AUTOGEN_NEW_ONLY", "true").lower() == "true"
 
+# 기준선을 환경변수로 직접 지정한다. 파일보다 우선한다.
+#
+# 배포 볼륨에 잘못 적힌 기준선을 고칠 때 쓴다 — 컨테이너에 들어가 파일을 지울 수
+# 없으니 밖에서 덮을 길이 필요하다. 빈 값으로 두면("MOTION_BASELINE_EVENT_IDS=")
+# 제외할 사건이 없다는 뜻이고, 그러면 모든 사건이 자동 생성 대상이 된다.
+#
+#   MOTION_BASELINE_EVENT_IDS="E01,E02,E03,E04,E05,E06,E07,E08"
+_baseline_env = os.getenv("MOTION_BASELINE_EVENT_IDS")
+MOTION_BASELINE_EVENT_IDS = (
+    None if _baseline_env is None
+    else [x.strip() for x in _baseline_env.split(",") if x.strip()]
+)
+
 # 생성·후처리 기본값. 왜 이 값인지는 README "미세 모션 클립" 절에 있다.
 MOTION_RESOLUTION = os.getenv("MOTION_RESOLUTION", "480p")
 MOTION_SOURCE_SECONDS = int(os.getenv("MOTION_SOURCE_SECONDS", "5"))

@@ -37,6 +37,7 @@ from backend.config import (
     MOTION_AUTOGEN,
     MOTION_AUTOGEN_MAX,
     MOTION_AUTOGEN_NEW_ONLY,
+    MOTION_BASELINE_EVENT_IDS,
     MOTION_BASELINE_FILE,
     MOTION_CROSSFADE,
     MOTION_DIR,
@@ -428,19 +429,23 @@ _failed: dict[str, str] = {}
 _worker = ThreadPoolExecutor(max_workers=1, thread_name_prefix="motion")
 
 
-def baseline_event_ids() -> set[str]:
-    """자동 생성에서 빼 둘 사건 — 기능을 켠 시점에 이미 있던 것
+def ensure_baseline() -> Optional[set[str]]:
+    """자동 생성에서 뺄 사건 목록을 부팅할 때 한 번 정한다
 
-    처음 물을 때 지금 있는 사건을 적어 둔다. 그 뒤로 생기는 사건만 만든다.
-    이미 쌓인 앨범 전체를 한꺼번에 만들면 지출이 한 번에 튄다.
+    **부팅 때 정해야 한다.** 처음 필요할 때(누군가 Film을 여는 순간) 정하면 그
+    사이에 만들어진 사건까지 기준선에 들어간다 — 새 추억을 만들고 Film을 열면
+    그 추억이 "기존 사건"으로 적혀 영원히 대상에서 빠진다. 배포에서 실제로
+    그렇게 됐다.
 
     파일에 적어 두는 것이 요점이다. id 모양(시드가 붙이는 E01 같은 규칙)이나
-    만든 시각으로 가르면 재시드·이관에서 조용히 달라진다. 여기 적힌 목록은
-    그런 일에도 그대로 남는다.
+    만든 시각으로 가르면 재시드·이관에서 조용히 달라진다.
 
-    비어 있는 그래프에서 처음 불리면 기준선도 비어 있고, 그때는 모든 사건이
-    "새로 생긴 것"이 된다 — 그게 맞다.
+    이미 적혀 있으면 건드리지 않는다. 환경변수로 지정한 경우에도 파일을 쓰지
+    않는다 — 그쪽이 항상 우선이라 파일이 헷갈리게 남을 이유가 없다.
     """
+    if MOTION_BASELINE_EVENT_IDS is not None:
+        return set(MOTION_BASELINE_EVENT_IDS)
+
     recorded = _read_json(MOTION_BASELINE_FILE).get("event_ids")
     if isinstance(recorded, list):
         return set(recorded)
@@ -448,14 +453,21 @@ def baseline_event_ids() -> set[str]:
     # 늦게 가져온다. 이 모듈은 그래프를 몰라도 되고, 여기서만 필요하다.
     from backend.services.graph_manager import graph_manager
 
-    ids = sorted(event["id"] for event in graph_manager.get_events())
+    try:
+        ids = sorted(event["id"] for event in graph_manager.get_events())
+    except Exception:
+        # 그래프를 아직 못 읽는 상태에서 부팅 순서가 앞선 경우. 다음 부팅에 적힌다.
+        return None
+
     MOTION_BASELINE_FILE.parent.mkdir(parents=True, exist_ok=True)
     MOTION_BASELINE_FILE.write_text(
         json.dumps(
             {
                 "event_ids": ids,
                 "note": "이 사건들은 자동 생성에서 뺀다 (MOTION_AUTOGEN_NEW_ONLY). "
-                        "기존 사건에 클립을 넣으려면 scripts/build_motion_covers.py 를 쓴다.",
+                        "부팅할 때 한 번 적힌다. 고치려면 MOTION_BASELINE_EVENT_IDS "
+                        "환경변수로 덮거나 이 파일을 지운다. 기존 사건에 클립을 "
+                        "넣으려면 scripts/build_motion_covers.py 를 쓴다.",
             },
             ensure_ascii=False,
             indent=2,
@@ -466,11 +478,29 @@ def baseline_event_ids() -> set[str]:
     return set(ids)
 
 
+def baseline_event_ids() -> Optional[set[str]]:
+    """적혀 있는 기준선 (아직 정하지 못했으면 None)
+
+    여기서 새로 적지 않는다. 적는 시점은 부팅 한 곳이어야 한다.
+    """
+    if MOTION_BASELINE_EVENT_IDS is not None:
+        return set(MOTION_BASELINE_EVENT_IDS)
+    recorded = _read_json(MOTION_BASELINE_FILE).get("event_ids")
+    return set(recorded) if isinstance(recorded, list) else None
+
+
 def is_new_event(event_id: str) -> bool:
-    """이 사건이 기능을 켠 뒤에 생긴 것인가"""
+    """이 사건이 기준선을 정한 뒤에 생긴 것인가"""
     if not MOTION_AUTOGEN_NEW_ONLY:
         return True
-    return event_id not in baseline_event_ids()
+
+    baseline = baseline_event_ids()
+    if baseline is None:
+        # 기준선을 아직 못 적었다. 이때는 아무것도 새 사건으로 보지 않는다 —
+        # 기준선 없이 만들기 시작하면 앨범 전체가 대상이 되어 지출이 튄다.
+        # 기능이 조용히 안 되는 쪽이 돈이 조용히 나가는 쪽보다 낫다.
+        return False
+    return event_id not in baseline
 
 
 def enabled() -> bool:
