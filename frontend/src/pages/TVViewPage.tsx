@@ -9,6 +9,7 @@ import StatusPill, { STATE_CONFIG } from '../components/StatusPill'
 import { useEvents, useVoiceClips } from '../lib/useGraphData'
 import { usePrefersReducedMotion } from '../lib/reducedMotion'
 import { useNarrator } from '../lib/narrator'
+import { useFilmMusic } from '../lib/filmMusic'
 import { ambientSlides, buildLocalJourney, tvPresets } from '../lib/tvCuration'
 
 /**
@@ -37,6 +38,8 @@ import { ambientSlides, buildLocalJourney, tvPresets } from '../lib/tvCuration'
  *  - 사건에 연결된 실제 가족 음성의 전사문을 자막으로 함께 보여준다
  *  - OK 버튼으로 원본·촬영 시점·출처를 열어 볼 수 있다
  *  - 움직임이 적용된 장면에는 AI 라벨을 숨기지 않고 표시한다
+ *  - 배경 음악은 앱이 만든 소리다. 무드와 고른 근거를 밝히고, 가족의 목소리나
+ *    낭독이 나는 동안에는 음량을 내린다 (lib/filmMusic.ts)
  *
  * 실기능 개발 시 교체 지점:
  *   대기화면 후보  -> GET /api/tv/ambient ("N년 전 오늘" 계산을 서버로 옮길 자리)
@@ -136,7 +139,8 @@ export default function TVViewPage() {
   // 영상 재생은 CSS로 멈출 수 없어서 여기서 판단한다 (lib/reducedMotion.ts)
   const reducedMotion = usePrefersReducedMotion()
 
-  const { speak, stop: stopNarration, supported: canNarrate } = useNarrator()
+  const { speak, stop: stopNarration, supported: canNarrate, speaking } = useNarrator()
+  const music = useFilmMusic()
   /** 이 Journey의 내레이션을 이미 읽었는가 (일시정지 후 다시 처음부터 읽지 않게) */
   const narrated = useRef<string | null>(null)
 
@@ -147,6 +151,13 @@ export default function TVViewPage() {
   const [autoPlay, setAutoPlay] = useState(true)
   const [ambientIndex, setAmbientIndex] = useState(0)
   const [now, setNow] = useState(() => new Date())
+  /*
+    근거 화면에서 지금 나고 있는 가족 음성. 그동안 배경 음악을 내린다.
+
+    개수가 아니라 id를 담는다. AudioClip은 화면에 붙을 때도 "멈춰 있다"고 한 번
+    알리므로, 세는 방식이면 그 알림에 음수로 내려간다.
+  */
+  const [playingVoices, setPlayingVoices] = useState<Set<string>>(new Set())
   const evidenceRef = useRef<HTMLDivElement>(null)
 
   const ambient = useMemo(() => ambientSlides(events, allClips), [events, allClips])
@@ -177,6 +188,9 @@ export default function TVViewPage() {
    * 나쁜 실패라서 폴백을 둔다 (정적 배포·백엔드 중단 대비).
    */
   const start = useCallback(async (title: string, query: string, eventIds: string[]) => {
+    // 소리 낼 준비를 지금 해 둔다. 아래 await 뒤는 이미 사용자 동작 밖이라
+    // 브라우저가 AudioContext를 열어 주지 않는다 (자동재생 정책).
+    music.prime()
     setScreen('loading')
     setShowEvidence(false)
 
@@ -196,7 +210,7 @@ export default function TVViewPage() {
     // 같은 프리셋을 다시 보면 id가 같다. 초기화하지 않으면 두 번째부터 낭독이
     // 안 나온다 — 처음 볼 때만 읽어 주는 화면이 되어 버린다.
     narrated.current = null
-  }, [])
+  }, [music.prime])
 
   /**
    * 타이틀 장면에서 내레이션을 읽어 준다.
@@ -252,6 +266,38 @@ export default function TVViewPage() {
     }, SLIDE_MS)
     return () => window.clearTimeout(timer)
   }, [screen, autoPlay, showEvidence, journey, slideIndex, exitToAmbient])
+
+  /*
+    배경 음악 — 재생 화면에서 자동재생이 돌 때만 난다.
+
+    일시정지하면 멈춘다. 낭독이 그렇게 동작하고(멈추면 읽기도 멈춘다), 화면이 선
+    자리에서 소리만 계속 흐르면 무엇이 멈춘 것인지 알 수 없다. 근거 화면을 열어
+    둔 동안에는 계속 난다 — 그건 멈춘 것이 아니라 들여다보는 것이다.
+
+    서버에 닿지 못해 로컬로 조립한 여정에는 무드가 없어서(journey.music) 음악 없이
+    재생한다. 낱말 표를 화면에 복사해 두지 않는 이유는, 두 곳이 갈라지는 것보다
+    추모하는 자리에 근거 없이 아무 소리나 얹는 것이 더 나쁘기 때문이다.
+  */
+  const journeyMusic = journey?.music ?? null
+  const musicPlaying =
+    screen === 'play' && autoPlay && Boolean(journeyMusic) && music.supported
+
+  useEffect(() => {
+    if (musicPlaying && journeyMusic) music.start(journeyMusic.mood, journeyMusic.pace)
+    else music.stop()
+    // 무드·속도가 그대로면 다시 시작하지 않는다 (객체가 아니라 값으로 본다)
+  }, [musicPlaying, journeyMusic?.mood, journeyMusic?.pace, music.start, music.stop])
+
+  /*
+    가족의 목소리나 낭독이 나는 동안 배경 음악을 내린다.
+
+    끄지 않고 내린다. 한 마디마다 꺼졌다 켜지면 그 편집이 목소리보다 더 들린다.
+    거실에서 3m 떨어져 듣는 화면이라 이쪽이 웹보다 더 중요하다 — 스피커 하나로
+    같이 나오고, 볼륨을 손으로 맞출 수 없다.
+  */
+  useEffect(() => {
+    music.duck(speaking || playingVoices.size > 0)
+  }, [speaking, playingVoices, music.duck])
 
   // 리모컨 — 화면마다 버튼 뜻이 다르므로 한 곳에서 갈라 준다
   useRemote(
@@ -545,6 +591,11 @@ export default function TVViewPage() {
         <div className="tv-safe absolute left-0 top-0 z-20 flex flex-col items-start gap-[0.8vh]">
           <OverlayPill>{motionLabel}</OverlayPill>
           {clips.length > 0 && <OverlayPill>실제 가족 음성 {clips.length}개</OverlayPill>}
+          {/* 지금 실제로 나고 있을 때만 적는다. 일시정지로 멈춰 있는데 음악이
+              깔린다고 쓰면, 적용된 것을 밝힌다는 원칙이 거꾸로 뒤집힌다. */}
+          {musicPlaying && journeyMusic && (
+            <OverlayPill>배경 음악 · {journeyMusic.label} · 앱이 만든 소리</OverlayPill>
+          )}
         </div>
       )}
 
@@ -564,6 +615,18 @@ export default function TVViewPage() {
                 </div>
               )}
             </>
+          )}
+
+          {/* 무엇을 왜 깔았는지 적는 자리는 여기뿐이다 — 재생 화면은 알약 한 줄이라
+              근거가 들어가지 않는다. 여정이 시작되는 화면에서 한 번 밝힌다. */}
+          {journeyMusic && music.supported && (
+            <div className="mt-[2.5vh] flex flex-col items-center gap-[0.9vh]">
+              <OverlayPill>배경 음악 · {journeyMusic.label} · 앱이 만든 소리입니다</OverlayPill>
+              <p className="tv-caption max-w-[52vw] text-paper/50">
+                {journeyMusic.reason} 가족이 남긴 기록이 아니고, 가족의 목소리가 나는 동안에는
+                음량을 낮춥니다.
+              </p>
+            </div>
           )}
         </div>
       ) : (
@@ -670,7 +733,21 @@ export default function TVViewPage() {
               {clips.length > 0 && (
                 <div className="mt-[2vh] flex flex-col gap-[1vh]">
                   {clips.map((clip) => (
-                    <AudioClip key={clip.id} clip={clip} dark compact />
+                    <AudioClip
+                      key={clip.id}
+                      clip={clip}
+                      dark
+                      compact
+                      /* 이 목소리가 나는 동안 배경 음악을 내린다 */
+                      onPlayingChange={(isPlaying) =>
+                        setPlayingVoices((prev) => {
+                          const next = new Set(prev)
+                          if (isPlaying) next.add(clip.id)
+                          else next.delete(clip.id)
+                          return next
+                        })
+                      }
+                    />
                   ))}
                 </div>
               )}

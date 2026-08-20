@@ -795,6 +795,15 @@ export interface TVJourney {
   title: string;
   slides: TVSlide[];
   narration: string;
+  /**
+   * 이 여정에 깔리는 배경 음악. 여정 전체에 하나뿐이다 — 슬라이드마다 바꾸면
+   * 9초마다 곡이 갈린다 (backend/services/film_music.pick_journey).
+   *
+   * 서버에 닿지 못해 로컬로 조립한 여정에는 없다. 그때는 음악 없이 재생한다 —
+   * 낱말 표를 화면에 복사해 두면 두 곳이 갈라지고, 무엇보다 추모하는 자리에
+   * 근거 없이 아무 소리나 얹게 된다.
+   */
+  music?: FilmMusic | null;
   total_duration_sec: number;
 }
 

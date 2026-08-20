@@ -1,5 +1,9 @@
 """Memory Film 배경 음악 — 무드 고르기 (기획안 02장 CORE · STORY)
 
+부르는 곳이 둘이다. Memory Film은 사건 하나로(pick), TV Journey는 사건 여럿을
+엮은 여정으로(pick_journey) 무드를 고른다. 낱말 표와 판단 순서는 한 곳에 둔다 —
+두 화면이 각자 고르면 같은 사건이 거실에서 다르게 들린다.
+
 소리는 서버가 만들지 않는다. 무드만 고르고, 화면이 그 무드로 소리를 합성한다
 (frontend/src/lib/filmMusic.ts). narrator(브라우저 speechSynthesis)·recorder·
 transcriber와 같은 분업이다 — 음원 자산도 음악 생성 API 키도 없는데, 브라우저는
@@ -35,6 +39,11 @@ MOOD_LABEL = {
 }
 
 DEFAULT_MOOD = "calm"
+
+# 판단 순서. 한 사건에서 낱말이 여럿 걸릴 때의 우선순위이고(pick), 여정에서 무드가
+# 동수일 때의 tie-break도 같은 순서를 쓴다(pick_journey). 순서를 두 개 두면 어느
+# 쪽이 왜 이겼는지 화면에 적을 수 없다.
+MOOD_PRIORITY = ("solemn", "nostalgic", "bright", "warm", "calm")
 
 # 추모하는 자리. 가장 먼저 보고, 다른 낱말이 함께 걸려도 이쪽이 이긴다.
 # 여러 글자짜리만 넣는다 — "묘"·"돌" 같은 한 글자는 묘사·돌잔치에 걸린다.
@@ -144,5 +153,66 @@ def pick(
         "label": MOOD_LABEL[mood],
         "reason": reason,
         # 소수점 둘째 자리까지. 화면이 코드 전환과 음 간격에 곱한다.
+        "pace": round(pace, 2),
+    }
+
+
+def pick_journey(
+    events: list[dict],
+    places: Optional[dict[str, str]] = None,
+    pace: float = 1.0,
+    today: Optional[date] = None,
+) -> Optional[dict]:
+    """여정 하나에 깔 음악의 무드 (TV Memory Journey)
+
+    여정은 사건 하나가 아니라 여럿을 엮은 것이다. 그래서 슬라이드마다 무드를 고르지
+    않고 여정 전체에 하나를 정한다 — 9초마다 곡이 바뀌면 그건 배경이 아니라 편집이
+    앞에 나서는 소리다.
+
+    모으는 규칙은 둘뿐이다.
+
+      1. 추모하는 기록이 하나라도 있으면 그쪽이 이긴다. 성묘 사진이 한 장 섞인
+         여정에 밝은 음악을 깔 수는 없다. 그 한 장이 지나갈 동안만 어울리지 않는
+         것이 아니라, 그 사진을 그런 소리로 덮은 것이 된다
+      2. 그 밖에는 가장 많은 무드. 동수면 MOOD_PRIORITY 순서로 가른다
+
+    사건이 하나뿐이면(대기화면에서 OK를 누른 길) pick과 똑같이 답한다. 그쪽 문구가
+    "28년 전 기록입니다"처럼 더 구체적이다.
+
+    사건을 하나도 못 찾으면 None을 준다. 화면은 음악 없이 재생한다 — 근거가 없는데
+    아무 소리나 얹지 않는다.
+    """
+    if not events:
+        return None
+
+    places = places or {}
+    today = today or date.today()
+    picked = [
+        pick(event, places.get(event.get("id", "")), pace=pace, today=today)
+        for event in events
+    ]
+
+    # 1. 추모하는 자리가 있으면 그쪽
+    for event, music in zip(events, picked):
+        if music["mood"] == "solemn":
+            title = event.get("title") or "기록"
+            return {
+                **music,
+                "reason": f"추모하는 기록이 함께 있습니다 ({title}).",
+            }
+
+    if len(picked) == 1:
+        return picked[0]
+
+    # 2. 가장 많은 무드. 동수는 판단 순서로 가른다
+    counts = {mood: 0 for mood in MOOD_PRIORITY}
+    for music in picked:
+        counts[music["mood"]] += 1
+    top = max(counts, key=lambda mood: (counts[mood], -MOOD_PRIORITY.index(mood)))
+
+    return {
+        "mood": top,
+        "label": MOOD_LABEL[top],
+        "reason": f"이 여정의 사건 {len(picked)}개 중 {counts[top]}개가 ‘{MOOD_LABEL[top]}’입니다.",
         "pace": round(pace, 2),
     }

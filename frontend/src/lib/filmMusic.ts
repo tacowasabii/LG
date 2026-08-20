@@ -229,8 +229,24 @@ class FilmMusicEngine {
   }
 
   /**
+   * AudioContext만 미리 열어 둔다 (소리는 내지 않는다).
+   *
+   * TV는 리모컨 OK를 누른 뒤 서버에서 여정을 받아오고, 그게 온 다음에야 무슨
+   * 음악을 깔지 안다. 그 사이에 await가 있어서 start()는 이미 사용자 동작 밖이다.
+   * 브라우저가 소리를 열어 주는 것은 동작 안에서뿐이므로, 키를 누른 그 순간에
+   * 이것만 먼저 부른다.
+   */
+  prime(): void {
+    const Ctor = audioContextCtor()
+    if (!Ctor) return
+    if (!this.ctx) this.ctx = new Ctor()
+    void this.ctx.resume()
+  }
+
+  /**
    * 재생을 시작한다. 반드시 사용자 동작(클릭) 안에서 불러야 한다 — 그러지 않으면
-   * 브라우저가 AudioContext를 열어 주지 않는다.
+   * 브라우저가 AudioContext를 열어 주지 않는다. 미리 prime()으로 열어 두었다면
+   * 그 뒤에는 동작 밖에서 불러도 된다.
    */
   start(mood: string, pace = 1): void {
     const Ctor = audioContextCtor()
@@ -487,6 +503,11 @@ class FilmMusicEngine {
 export interface FilmMusicPlayer {
   /** 이 브라우저에서 소리를 만들 수 있는가 */
   supported: boolean
+  /**
+   * 소리 낼 준비만 해 둔다. 시작이 비동기라 사용자 동작 안에서 start()를 부를 수
+   * 없을 때(TV의 리모컨 OK -> 서버 응답 대기) 그 동작 안에서 이것을 먼저 부른다.
+   */
+  prime: () => void
   /** 재생 시작. 사용자 동작(클릭) 안에서 불러야 한다 */
   start: (mood: string, pace?: number) => void
   /** 서서히 사라지게 하고 멈춘다 */
@@ -508,6 +529,12 @@ export function useFilmMusic(): FilmMusicPlayer {
     }
   }, [])
 
+  const prime = useCallback(() => {
+    if (!supported) return
+    if (!engine.current) engine.current = new FilmMusicEngine()
+    engine.current.prime()
+  }, [supported])
+
   const start = useCallback(
     (mood: string, pace = 1) => {
       if (!supported) return
@@ -525,5 +552,5 @@ export function useFilmMusic(): FilmMusicPlayer {
     engine.current?.duck(on)
   }, [])
 
-  return { supported, start, stop, duck }
+  return { supported, prime, start, stop, duck }
 }

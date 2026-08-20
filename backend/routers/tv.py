@@ -37,6 +37,9 @@ def _journey(result: dict) -> TVJourneyResponse:
         title=result["title"],
         slides=[_slide(s) for s in result["slides"]],
         narration=result.get("narration", ""),
+        # 큐레이터가 고른 배경 음악의 무드. 위 _slide와 같은 이유로 여기 적는다 —
+        # 빼먹으면 서버가 정한 것이 라우터에서 조용히 버려진다.
+        music=result.get("music"),
         total_duration_sec=result.get("total_duration_sec", 0),
     )
 

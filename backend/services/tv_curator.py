@@ -5,7 +5,7 @@ from __future__ import annotations
 import uuid
 from typing import Optional
 
-from backend.services import film_composer, llm_client, motion_clips
+from backend.services import film_composer, film_music, llm_client, motion_clips
 from backend.models.graph_models import NodeType
 from backend.services.graph_manager import graph_manager
 
@@ -31,12 +31,23 @@ async def create_journey(query: str, style: str = "timeline") -> dict:
     # 3. 내레이션 생성
     narration = await _generate_narration(query, slides)
 
-    # 4. Journey 구성
+    # 4. 배경 음악의 무드. 소리는 화면이 만든다 (frontend/src/lib/filmMusic.ts).
+    #
+    # 여정 전체에 하나만 정한다 — 슬라이드마다 바꾸면 9초마다 곡이 갈린다.
+    # Film과 같은 함수를 쓴다: 낱말 표가 갈라지면 같은 사건이 거실에서 다르게
+    # 들리고, 무엇을 왜 깔았는지 적어 둔 문구가 두 화면에서 어긋난다.
+    events, places = _slide_events(slides)
+    music = film_music.pick_journey(events, places)
+
+    # 5. Journey 구성
     journey = {
         "id": journey_id,
         "title": query,
         "slides": slides,
         "narration": narration,
+        # 없을 수 있다 (사건에 연결되지 않은 사진만 모인 여정). 그때 화면은 음악
+        # 없이 재생한다 — 근거가 없는데 아무 소리나 얹지 않는다.
+        "music": music,
         "total_duration_sec": len(slides) * 5,  # 슬라이드당 5초
     }
 
@@ -88,6 +99,33 @@ def _parse_query(query: str) -> dict:
     conditions["keywords"] = [w for w in query.split() if len(w) >= 2]
 
     return conditions
+
+
+def _slide_events(slides: list[dict]) -> tuple[list[dict], dict[str, str]]:
+    """슬라이드가 가리키는 사건과 그 장소 이름 (중복 없이, 나온 순서대로)
+
+    배경 음악의 무드를 사건에서 고르므로 여정에 실제로 담긴 사건만 본다. 슬라이드가
+    스무 장이어도 사건은 몇 개뿐이고, 같은 사건을 여러 번 세면 사진이 많은 사건이
+    무드를 혼자 정하게 된다 — 사진 수가 아니라 사건 수로 센다.
+    """
+    events: list[dict] = []
+    places: dict[str, str] = {}
+    seen: set[str] = set()
+
+    for slide in slides:
+        event_id = slide.get("event_id")
+        if not event_id or event_id in seen:
+            continue
+        seen.add(event_id)
+        event = graph_manager.get_node(event_id)
+        if not event:
+            continue
+        events.append(event)
+        place = graph_manager.get_node(event.get("location_id") or "")
+        if place and place.get("name"):
+            places[event_id] = place["name"]
+
+    return events, places
 
 
 def _motion_fields(media_id: str, clips: dict) -> dict:

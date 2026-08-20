@@ -658,4 +658,7 @@ class TVJourneyResponse(BaseModel):
     title: str
     slides: list[TVSlide]
     narration: str = ""
+    # 이 여정에 깔리는 배경 음악. 여정 전체에 하나뿐이다 (film_music.pick_journey).
+    # 사건에 연결된 슬라이드가 없으면 비어 온다 — 그때 화면은 음악 없이 재생한다.
+    music: Optional[FilmMusic] = None
     total_duration_sec: int = 0

@@ -12,6 +12,9 @@ Film과 TV가 같은 자산(data/motion/manifest.json)을 읽어야 한다. 만�
   - Film과 같은 매니페스트를 읽는가 (두 화면이 갈리지 않게)
   - 실제 HTTP 응답에도 실려 나가는가 (스키마에 빠뜨리면 화면이 못 본다)
 
+배경 음악도 함께 본다. Film과 같은 낱말 표로 무드를 고르고(film_music), 여정
+전체에 하나만 실린다 — 슬라이드마다 바꾸면 9초마다 곡이 갈린다.
+
 매니페스트를 읽기만 하므로 그래프를 바꾸지 않는다.
 
 시드된 그래프가 필요하다:
@@ -20,12 +23,13 @@ Film과 TV가 같은 자산(data/motion/manifest.json)을 읽어야 한다. 만�
 
 import asyncio
 import sys
+from datetime import date
 from pathlib import Path
 
 ROOT_DIR = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT_DIR))
 
-from backend.services import film_composer, tv_curator  # noqa: E402
+from backend.services import film_composer, film_music, motion_clips, tv_curator  # noqa: E402
 from backend.services.graph_manager import graph_manager  # noqa: E402
 
 QUERY = "부산 여행"
@@ -52,7 +56,7 @@ def test_manifest_clips_reach_the_slides():
     클립이 하나도 없는 저장소에서도 이 테스트는 성립해야 한다 (아직 안 만든
     상태가 정상이다). 그때는 "실린 것이 없다"를 확인하고 넘어간다.
     """
-    clips = film_composer.motion_clips()
+    clips = motion_clips.manifest()
     slides = _photo_slides(_journey())
     assert slides, "사진 슬라이드가 없다 (시드 확인)"
 
@@ -79,7 +83,7 @@ def test_slides_without_clip_carry_nothing():
     빈 문자열이나 원본 경로를 넣으면 화면이 그것을 클립으로 알고 <video>에
     물린다. 없으면 없어야 한다 — 화면은 그때 카메라 움직임으로 떨어진다.
     """
-    clips = film_composer.motion_clips()
+    clips = motion_clips.manifest()
     slides = _photo_slides(_journey())
 
     bare = [s for s in slides if s["media_id"] not in clips]
@@ -99,7 +103,7 @@ def test_subject_preserved_flag_is_carried():
     마스크를 쓴 클립은 인물 영역이 원본 픽셀이다. 화면이 라벨에 "인물은 원본"을
     붙일 근거가 이 값이고, 빠뜨리면 생성물과 원본을 구분해 밝힐 수 없다.
     """
-    clips = film_composer.motion_clips()
+    clips = motion_clips.manifest()
     masked = {mid for mid, c in clips.items() if c.get("subject_preserved")}
     if not masked:
         print("  마스크를 쓴 클립이 없음 — 건너뜀")
@@ -123,7 +127,7 @@ def test_tv_and_film_read_the_same_manifest():
     각자 목록을 들면 한쪽만 갱신되어 Film에서는 움직이고 TV에서는 안 움직이는
     상태가 된다. 실제로 TV가 클립을 아예 안 쓰던 기간이 있었다.
     """
-    clips = film_composer.motion_clips()
+    clips = motion_clips.manifest()
     if not clips:
         print("  매니페스트가 비어 있음 — 건너뜀")
         return
@@ -144,6 +148,81 @@ def test_tv_and_film_read_the_same_manifest():
             if media_id in source and source[media_id]:
                 assert source[media_id] == expected, source[media_id]
         print("  각 화면이 매니페스트 값과 일치 OK")
+
+
+def test_journey_carries_one_music_mood():
+    """여정에는 무드가 하나 실린다 (슬라이드마다 바뀌지 않는다)
+
+    소리는 화면이 만든다. 서버가 정하는 것은 무드와 그것을 고른 근거뿐이고,
+    Film과 같은 표를 쓴다 — 표가 갈라지면 같은 사건이 거실에서 다르게 들린다.
+    """
+    journey = _journey()
+    music = journey["music"]
+
+    assert music, "여정에 배경 음악 무드가 없다"
+    assert music["mood"] in film_music.MOOD_LABEL, music
+    assert music["label"] == film_music.MOOD_LABEL[music["mood"]], music
+    assert music["reason"], "무드를 고른 근거가 없다"
+    # 슬라이드에는 음악을 싣지 않는다. 장면마다 있으면 장면마다 바꾸게 된다.
+    for slide in journey["slides"]:
+        assert "music" not in slide, slide
+    print(f"  {QUERY}: {music['label']} · {music['reason']}")
+
+
+def test_a_memorial_record_in_the_journey_wins():
+    """추모하는 기록이 하나라도 섞이면 그쪽 소리로 깔린다
+
+    성묘 사진 한 장이 든 여정에 밝은 음악을 깔면, 그 한 장이 지나갈 동안만
+    어울리지 않는 것이 아니라 그 사진을 그런 소리로 덮은 것이 된다.
+    """
+    bright = {"id": "T1", "title": "2017 첫 가족 캠핑", "date_start": "2017-05-04"}
+    warm = {"id": "T2", "title": "2024 부모님 환갑 가족모임", "date_start": "2024-10-05"}
+    memorial = {"id": "T3", "title": "2023 할아버지 성묘", "date_start": "2023-09-28"}
+
+    without = film_music.pick_journey([bright, warm], today=date(2026, 8, 21))
+    with_memorial = film_music.pick_journey([bright, warm, memorial], today=date(2026, 8, 21))
+
+    assert without["mood"] != "solemn", without
+    assert with_memorial["mood"] == "solemn", with_memorial
+    assert "성묘" in with_memorial["reason"], with_memorial["reason"]
+    print("  캠핑+환갑 ->", without["label"], "· 성묘가 섞이면 ->", with_memorial["label"])
+
+
+def test_music_counts_events_not_photos():
+    """무드는 사진 수가 아니라 사건 수로 센다
+
+    사진이 열 장인 사건과 한 장인 사건이 같은 무게여야 한다. 사진으로 세면 앨범이
+    두꺼운 사건 하나가 여정 전체의 소리를 혼자 정한다.
+    """
+    journey = _journey("아빠와의 추억")
+    events, _places = tv_curator._slide_events(journey["slides"])
+    event_ids = [e["id"] for e in events]
+
+    assert len(event_ids) == len(set(event_ids)), f"같은 사건을 여러 번 셌다: {event_ids}"
+    photo_count = len([s for s in journey["slides"] if s.get("media_id")])
+    assert photo_count >= len(event_ids), (photo_count, len(event_ids))
+    print(f"  사진 {photo_count}장 -> 사건 {len(event_ids)}개로 셈")
+
+
+def test_http_response_carries_music():
+    """배경 음악이 실제 HTTP 응답에 실려 나간다
+
+    라우터의 _journey가 필드를 하나씩 적는다. 빠뜨리면 서버는 무드를 고르는데
+    화면은 못 받아 음악 없이 재생한다 — 미세 모션 필드에서 실제로 그랬다.
+    """
+    from fastapi.testclient import TestClient
+
+    from backend.main import app
+
+    with TestClient(app) as client:
+        response = client.post("/api/tv/journey", json={"query": QUERY, "style": "timeline"})
+        assert response.status_code == 200, response.text
+        music = response.json().get("music")
+
+    assert music, "응답에 music이 없다"
+    assert music["mood"] in film_music.MOOD_LABEL, music
+    assert music["label"] and music["reason"], music
+    print("  HTTP 응답에 배경 음악 실림 OK:", music["label"])
 
 
 def test_http_response_carries_motion_fields():
@@ -177,6 +256,10 @@ TESTS = [
     test_subject_preserved_flag_is_carried,
     test_tv_and_film_read_the_same_manifest,
     test_http_response_carries_motion_fields,
+    test_journey_carries_one_music_mood,
+    test_a_memorial_record_in_the_journey_wins,
+    test_music_counts_events_not_photos,
+    test_http_response_carries_music,
 ]
 
 
