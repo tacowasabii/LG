@@ -1,3 +1,5 @@
+from datetime import datetime, timezone
+
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
@@ -13,6 +15,11 @@ from backend.services.graph_manager import graph_manager
 from backend.routers import (
     media, graph, chat, interview, gaps, tv, film, trust, family, export,
 )
+
+# 프로세스가 언제 떴는지. 배포가 실제로 새 컨테이너로 갈렸는지 밖에서 구분하려면
+# 이게 필요하다 — 재시작이 안 된 채로 파일이 남아 있는 것과, 재시작 후에도 남아
+# 있는 것은 전혀 다른 이야기이고, 후자만 볼륨이 붙었다는 증거가 된다.
+BOOTED_AT = datetime.now(timezone.utc)
 
 app = FastAPI(
     title="LG HomeStory",
@@ -64,4 +71,6 @@ async def health_check():
         "store": "postgres" if type(graph_manager).__name__ == "PostgresGraphStore" else "json",
         "state_dir": str(STATE_DIR),
         "media_dir_exists": MEDIA_DIR.exists(),
+        "booted_at": BOOTED_AT.isoformat(),
+        "uptime_sec": round((datetime.now(timezone.utc) - BOOTED_AT).total_seconds(), 1),
     }
