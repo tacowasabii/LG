@@ -47,7 +47,7 @@ type InputMode = 'text' | 'voice'
 const QUESTION_TOTAL = 5
 
 export default function InterviewPage() {
-  const { current, members, setCurrentId } = useCurrentUser()
+  const { current } = useCurrentUser()
   const [sessionId, setSessionId] = useState<string | null>(null)
   const [context, setContext] = useState<InterviewStartResult['context']>(null)
   const [qaHistory, setQaHistory] = useState<QA[]>([])
@@ -228,7 +228,10 @@ export default function InterviewPage() {
         lead="AI가 기억의 빈 곳을 찾아 질문합니다. 답변은 답한 사람의 기억으로 저장됩니다."
       />
 
-      {/* 지금 답하는 사람 — 기억은 사람에게 귀속되는 데이터다 (기획안 08장) */}
+      {/*
+        답하는 사람은 로그인한 본인이다 — 기억은 사람에게 귀속되는 데이터라서
+        (기획안 08장), 다른 구성원을 골라 그 사람의 기억으로 적을 수는 없다.
+      */}
       <div className="surface mt-8 px-6 py-5">
         <div className="flex flex-wrap items-center justify-between gap-5">
           <div>
@@ -239,32 +242,26 @@ export default function InterviewPage() {
               {current ? current.name + '님의 기억으로 저장됩니다.' : '구성원을 불러오는 중입니다.'}
             </p>
           </div>
-          <div className="flex flex-wrap gap-1.5">
-            {members.map((m) => (
-              <button
-                key={m.id}
-                onClick={() => setCurrentId(m.id)}
-                className={`chip flex items-center gap-1.5 py-1 pl-1 pr-2.5 ${
-                  current?.id === m.id ? 'chip-on' : ''
-                }`}
+          {/* 누를 수 없는 표시다 — .chip은 고르는 알약이라 여기 쓰지 않는다 */}
+          <div
+            className="flex items-center gap-1.5 rounded-full py-1 pl-1 pr-3 text-xs text-ink-500"
+            style={{ border: '1px solid var(--border)' }}
+          >
+            {current?.thumbnail_url ? (
+              <img
+                src={mediaUrl(current.thumbnail_url)}
+                alt=""
+                className="h-5 w-5 rounded-full bg-ink-50 object-cover"
+              />
+            ) : (
+              <span
+                className="flex h-5 w-5 items-center justify-center rounded-full
+                           bg-ink-50 text-[9px] text-ink-300"
               >
-                {m.thumbnail_url ? (
-                  <img
-                    src={mediaUrl(m.thumbnail_url)}
-                    alt=""
-                    className="h-5 w-5 rounded-full bg-ink-50 object-cover"
-                  />
-                ) : (
-                  <span
-                    className="flex h-5 w-5 items-center justify-center rounded-full
-                               bg-ink-50 text-[9px] text-ink-300"
-                  >
-                    {m.name.slice(0, 1)}
-                  </span>
-                )}
-                {m.name}
-              </button>
-            ))}
+                {current?.name.slice(0, 1) || '·'}
+              </span>
+            )}
+            {current?.relation ?? '—'}
           </div>
         </div>
       </div>

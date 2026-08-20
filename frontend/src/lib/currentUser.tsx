@@ -1,14 +1,17 @@
 /**
- * 현재 사용자(= 지금 쓰는 사람) 컨텍스트
+ * 현재 사용자(= 로그인한 사람) 컨텍스트
  *
  * 기획안 08장은 "누가 남긴 기억이고 누가 확인했는지"를 제품의 핵심으로 둔다.
- * 계정 로그인은 아직 없으므로, 가족 공간 안에서 "지금 나는 누구인가"를
- * 명시적으로 고르는 방식으로 귀속을 분명히 한다.
+ * 그래서 화면에 보이는 프로필은 로그인한 본인 하나다 — 다른 구성원으로
+ * 갈아타는 UI는 두지 않는다. 남의 이름으로 기억을 남길 수 있으면 귀속이
+ * 무너진다.
  *
- * 고른 사람은 api.setViewer로 심어 모든 조회에 함께 나간다. 서버가 그 사람의
+ * 이 사람은 api.setViewer로 심어 모든 조회에 함께 나간다. 서버가 그 사람의
  * 열람 범위에 맞춰 기록을 가려 준다 (backend/services/visibility.py).
  *
- * 로그인이 붙으면 이 파일은 세션에서 사용자를 읽고 고르는 UI는 사라진다.
+ * 계정 로그인 자체는 아직 없다. 세션 대신 초대 참여(JoinPage)에서 정해진
+ * 사람을 브라우저에 기억해 두고, 아무것도 없으면 가족 관리자로 시작한다.
+ * 로그인이 붙으면 이 파일은 저장소 대신 세션에서 사용자를 읽는다.
  */
 
 import { createContext, useContext, useEffect, useState, ReactNode } from 'react'
@@ -21,6 +24,7 @@ interface CurrentUserValue {
   loading: boolean
   /** 백엔드에 못 붙었을 때의 이유. 화면이 "불러오는 중"에 갇히지 않게 한다 */
   error: string | null
+  /** 로그인하는 지점에서만 부른다 — 초대로 참여한 사람(JoinPage)이 그대로 쓴다 */
   setCurrentId: (id: string) => void
   /** 역할·동의가 바뀐 뒤 다시 받아온다 */
   reload: () => void
@@ -28,7 +32,7 @@ interface CurrentUserValue {
 
 const CurrentUserContext = createContext<CurrentUserValue | null>(null)
 
-/** 마지막으로 고른 사람을 기억한다 (새로고침해도 같은 사람으로) */
+/** 로그인한 사람을 기억한다 (새로고침해도 같은 사람으로) — 세션 대신이다 */
 const STORAGE_KEY = 'homestory.viewer'
 
 export function CurrentUserProvider({ children }: { children: ReactNode }) {
@@ -62,16 +66,16 @@ export function CurrentUserProvider({ children }: { children: ReactNode }) {
     load()
   }, [])
 
-  // 초대 대기는 아직 쓰는 사람이 아니다
+  // 초대 대기는 아직 로그인할 수 있는 사람이 아니다
   const active = members.filter((m) => m.role !== 'invited')
   const current =
     active.find((m) => m.id === currentId) ||
-    // 처음 열었으면 가족 관리자로 시작한다 (기획안이 지목한 30~50대 기록자)
+    // 참여 기록이 없으면 가족 관리자로 시작한다 (기획안이 지목한 30~50대 기록자)
     active.find((m) => m.role === 'owner') ||
     active[0] ||
     null
 
-  // 고른 사람을 API 계층에 심는다 — 이후 모든 조회가 이 사람의 시야로 나간다
+  // 로그인한 사람을 API 계층에 심는다 — 이후 모든 조회가 이 사람의 시야로 나간다
   useEffect(() => {
     setViewer(current?.id ?? null)
     if (current) window.localStorage.setItem(STORAGE_KEY, current.id)

@@ -1,4 +1,3 @@
-import { useState } from 'react'
 import { Outlet, NavLink } from 'react-router-dom'
 import {
   AlertCircle,
@@ -75,8 +74,7 @@ const navGroups = [
 ]
 
 export default function AppLayout() {
-  const { current, members, setCurrentId, error: familyError } = useCurrentUser()
-  const [switcherOpen, setSwitcherOpen] = useState(false)
+  const { current, error: familyError } = useCurrentUser()
 
   // 확인 대기 건수 — 사건 목록이 확인 상태를 함께 내려준다
   const { events } = useEvents()
@@ -98,12 +96,13 @@ export default function AppLayout() {
           <p className="t-caption m-0 mt-1">기억을 잇는 공간</p>
         </div>
 
-        {/* 지금 사용 중인 사람 — 남기는 기억과 확인의 귀속 대상 */}
+        {/*
+          로그인한 사람의 프로필 — 남기는 기억과 확인의 귀속 대상.
+          고르는 목록이 아니라 본인 프로필 하나만 보여 준다.
+        */}
         <div className="px-4 pb-4">
-          <button
-            onClick={() => setSwitcherOpen((v) => !v)}
-            className="flex w-full items-center gap-2.5 rounded bg-ink-50 p-2.5 text-left
-                       transition-colors duration-150 ease-out hover:bg-accent-soft"
+          <div
+            className="flex w-full items-center gap-2.5 rounded bg-ink-50 p-2.5"
             style={{ border: '1px solid var(--border)' }}
           >
             {current?.thumbnail_url ? (
@@ -125,11 +124,10 @@ export default function AppLayout() {
                 {current?.name || (familyError ? '연결 안 됨' : '불러오는 중…')}
               </span>
               <span className="mt-px block text-[11px] text-ink-300">
-                {current ? current.relation + '으로 사용 중' : ''}
+                {current?.relation ?? ''}
               </span>
             </span>
-            <span className="text-[10px] text-ink-300">{switcherOpen ? '▲' : '▼'}</span>
-          </button>
+          </div>
 
           {/*
             백엔드에 못 붙으면 여기서 말한다. 예전에는 "불러오는 중…"에 갇혀서
@@ -142,45 +140,6 @@ export default function AppLayout() {
             >
               {familyError}
             </p>
-          )}
-
-          {switcherOpen && (
-            <ul
-              className="mt-1.5 overflow-hidden rounded bg-paper-pure"
-              style={{ border: '1px solid var(--border)', boxShadow: 'var(--shadow-sm)' }}
-            >
-              {members
-                .filter((m) => m.id !== current?.id)
-                .map((m) => (
-                  <li key={m.id}>
-                    <button
-                      onClick={() => {
-                        setCurrentId(m.id)
-                        setSwitcherOpen(false)
-                      }}
-                      className="flex w-full items-center gap-2 px-2.5 py-2 text-left hover:bg-ink-50"
-                      style={{ borderBottom: '1px solid var(--ink-50)' }}
-                    >
-                      {m.thumbnail_url ? (
-                        <img
-                          src={mediaUrl(m.thumbnail_url)}
-                          alt=""
-                          className="h-[22px] w-[22px] rounded-full bg-ink-100 object-cover"
-                        />
-                      ) : (
-                        <span
-                          className="flex h-[22px] w-[22px] items-center justify-center
-                                     rounded-full bg-ink-100 text-[10px] text-ink-300"
-                        >
-                          {m.name.slice(0, 1)}
-                        </span>
-                      )}
-                      <span className="text-[13px] text-ink-500">{m.name}</span>
-                      <span className="ml-auto text-[11px] text-ink-300">{m.relation}</span>
-                    </button>
-                  </li>
-                ))}
-            </ul>
           )}
         </div>
 
