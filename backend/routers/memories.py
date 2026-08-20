@@ -10,6 +10,7 @@
     POST /api/memories/{id}/echo   나도 기억나요 (토글)
     POST /api/memories/{id}/memory 내 기억 더하기
     DEL  /api/memories/{id}/memory/{memory_id}  내가 남긴 기억 지우기
+    DEL  /api/memories/{id}        추억 지우기 (사진·영상은 사진첩에 남는다)
     POST /api/memories/{id}/media  기존 추억에 사진·영상 추가
     POST /api/memories/{id}/story  함께 기억한 이야기 만들기
 """
@@ -18,7 +19,7 @@ from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 
-from backend.models.graph_models import SourceType
+from backend.models.graph_models import NodeType, SourceType
 from backend.models.schemas import (
     ContributionRequest,
     MemoryCreateRequest,
@@ -32,6 +33,7 @@ from backend.services import (
     permissions,
     visibility,
 )
+from backend.services.graph_manager import graph_manager
 from backend.services.permissions import current_actor
 
 router = APIRouter()
@@ -255,6 +257,46 @@ async def delete_memory(
         "state": memories.state_of(event_id, actor["id"] if actor else None),
         "message": message,
     }
+
+
+@router.delete("/{event_id}")
+async def delete_event(
+    event_id: str,
+    actor: Optional[dict] = Depends(current_actor),
+):
+    """추억 하나 지우기 (만든 사람이나 가족 관리자만)
+
+    사진첩에서 사진을 다 지워도 추억은 남는다 — 원본을 지울 때 끊기는 것은
+    연결뿐이다. 자료도 기억도 없는 추억을 치우는 자리가 여기다.
+
+    함께 지워지는 것은 이 추억에 붙은 기억 문장이고, 사진·영상·목소리는 사진첩에
+    그대로 있다. 그래서 응답에 몇 개가 지워지고 몇 개가 남았는지 밝힌다 —
+    "지웠습니다" 한 마디로 끝내면 사진까지 사라진 줄 안다 (기억 하나 지우기와
+    같은 방식이다).
+
+    남이 만든 추억을 지우려 하면 서버가 그 이유를 밝히며 막는다(403). 화면은
+    단추를 미리 감추지 않는다.
+    """
+    event = graph_manager.get_node(event_id)
+    if not event or event.get("node_type") != NodeType.EVENT:
+        raise HTTPException(status_code=404, detail="그 추억을 찾을 수 없습니다.")
+
+    permissions.require_owner_of(event, actor, what="추억")
+
+    result = memories.delete_event(event_id)
+    if not result:
+        raise HTTPException(status_code=404, detail="그 추억을 찾을 수 없습니다.")
+
+    title = result["title"] or "제목 없는 추억"
+    message = f"'{title}' 추억을 지웠습니다."
+    if result["deleted_memories"]:
+        message += f" 이 추억에 남아 있던 기억 {len(result['deleted_memories'])}개도 함께 지웠습니다."
+    if result["kept_media"]:
+        message += (
+            f" 사진·영상·목소리 {len(result['kept_media'])}개는 사진첩에 그대로 있습니다."
+        )
+
+    return {**result, "message": message}
 
 
 @router.post("/{event_id}/media")

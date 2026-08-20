@@ -10,6 +10,7 @@
     3. 다르게 기억해도 한쪽을 정답으로 정하지 않는다
     4. 나도 기억나요는 눌렀다 뗄 수 있고, 아무도 안 눌러도 추억은 그대로다
     5. 남긴 기억은 거둘 수 있다. 문장만 지워지고 원본은 추억에 남는다
+    6. 추억도 거둘 수 있다. 그 안의 기억까지 지워지고 원본은 사진첩에 남는다
 
 그래프를 실제로 바꾸므로 만든 것은 끝에서 지운다. 데모 데이터를 더럽히지 않는다.
 
@@ -370,6 +371,75 @@ def test_memory_of_another_event_is_not_deletable_here():
         _cleanup()
 
 
+def test_event_can_be_deleted_with_its_memories():
+    """추억을 지우면 그 안의 기억 문장까지 지워지고, 사진은 사진첩에 남는다
+
+    사진첩에서 사진을 다 지워도 추억은 남는다 (원본을 지울 때 끊기는 것은
+    연결뿐이다). 그 추억을 치우는 자리가 delete_event다.
+    """
+    photos = [
+        m for m in graph_manager.get_media_for_event(EVENT)
+        if m.get("media_type") == "photo"
+    ]
+    assert photos, "시드 사건에 사진이 없다"
+    photo = photos[0]
+
+    event = memories.create_memory(
+        author_id=AUTHOR,
+        title="테스트 추억 (추억 삭제)",
+        description="지울 추억에 남긴 내 기억입니다.",
+        person_ids=[AUTHOR, OTHER],
+        media_ids=[photo["id"]],
+    )
+    _created.append(event["id"])
+
+    mine = memories.author_memory(event["id"])
+    assert mine, "최초 작성자의 기억이 없다"
+    _created.append(mine["id"])
+
+    added = memories.add_contribution(event["id"], OTHER, "저도 여기 있었어요.")
+    assert added, "기억을 더하지 못했다"
+    _created.append(added["id"])
+
+    try:
+        result = memories.delete_event(event["id"])
+        assert result, "지우지 못했다"
+
+        assert graph_manager.get_node(event["id"]) is None, "추억이 남아 있다"
+        assert set(result["deleted_memories"]) == {mine["id"], added["id"]}, (
+            result["deleted_memories"]
+        )
+        for memory_id in (mine["id"], added["id"]):
+            assert graph_manager.get_node(memory_id) is None, "기억 문장이 남았다"
+
+        # 사건도 기억도 없어졌으니 그것들에 매달렸던 관계도 남지 않는다
+        gone = {event["id"], mine["id"], added["id"]}
+        assert not any(
+            gone & {e["source"], e["target"]} for e in graph_manager.get_all_edges()
+        ), "지운 추억의 엣지가 남았다"
+
+        # 원본은 사진첩에 그대로 있고, 원래 붙어 있던 사건에서도 빠지지 않는다
+        assert result["kept_media"] == [photo["id"]], result["kept_media"]
+        assert graph_manager.get_node(photo["id"]), "사진이 함께 지워졌다"
+        assert any(
+            m["id"] == photo["id"] for m in graph_manager.get_media_for_event(EVENT)
+        ), "다른 사건의 사진 연결이 끊겼다"
+
+        # 시드 사건의 기억은 건드리지 않는다
+        assert memories.memories_of(EVENT), "다른 사건의 기억이 함께 지워졌다"
+        print("  추억 삭제 OK (기억은 함께, 사진은 남는다)")
+    finally:
+        _cleanup()
+
+
+def test_delete_event_only_touches_events():
+    """사건이 아닌 id로는 아무것도 지워지지 않는다"""
+    assert memories.delete_event(AUTHOR) is None, "사람이 지워졌다"
+    assert graph_manager.get_node(AUTHOR), "지워지면 안 되는 인물이 지워졌다"
+    assert memories.delete_event("없는-사건") is None, "없는 사건을 지웠다고 한다"
+    print("  사건만 지운다 OK")
+
+
 TESTS = [
     test_new_memory_is_published_immediately,
     test_contribution_does_not_overwrite_original,
@@ -381,6 +451,8 @@ TESTS = [
     test_deleted_author_memory_does_not_promote_someone_elses,
     test_deleting_memory_clears_a_story_that_quotes_it,
     test_memory_of_another_event_is_not_deletable_here,
+    test_event_can_be_deleted_with_its_memories,
+    test_delete_event_only_touches_events,
 ]
 
 

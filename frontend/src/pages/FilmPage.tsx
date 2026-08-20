@@ -319,20 +319,42 @@ export default function FilmPage() {
         <div className="flex flex-wrap gap-1.5">
           {events.map((event) => {
             const ready = event.media_count > 0
+            /*
+              자료가 없는 사건은 눌러도 아무 일이 없는 칩으로 두지 않는다.
+              사진첩에서 사진을 다 지우면 사건은 남고(원본을 지울 때 끊기는 것은
+              연결뿐이다) 여기에 옅은 칩으로 계속 뜨는데, 예전에는 그것을 치울
+              길이 이 화면에 없었다. 상세로 보낸다 — 거기서 사진을 더하거나
+              추억을 지운다.
+            */
+            if (!ready) {
+              return (
+                <Link
+                  key={event.id}
+                  to={`/memory/${event.id}`}
+                  className="chip text-ink-200"
+                  title="자료가 없어 장면을 만들 수 없습니다. 상세에서 사진을 더하거나 추억을 지울 수 있습니다."
+                >
+                  {event.title.replace(/^\d{4}\s*/, '')}
+                </Link>
+              )
+            }
             return (
               <button
                 key={event.id}
-                disabled={!ready}
                 onClick={() => setEventId(event.id)}
-                className={`chip ${eventId === event.id ? 'chip-on' : ''}
-                            ${ready ? '' : 'cursor-not-allowed text-ink-200 hover:bg-transparent'}`}
-                title={ready ? undefined : '장면을 만들 자료가 아직 부족합니다'}
+                className={`chip ${eventId === event.id ? 'chip-on' : ''}`}
               >
                 {event.title.replace(/^\d{4}\s*/, '')}
               </button>
             )
           })}
         </div>
+        {events.some((event) => event.media_count === 0) && (
+          <p className="t-caption m-0 mt-2">
+            옅은 사건은 연결된 사진·영상이 없어 이야기를 만들 수 없습니다. 누르면 그
+            추억으로 가서 사진을 더하거나 추억을 지울 수 있습니다.
+          </p>
+        )}
       </div>
 
       <div className="mt-6 grid grid-cols-2 gap-8">

@@ -23,6 +23,11 @@
 함께 올린 사진·영상·목소리는 사건에 그대로 남는다 — 원본을 지우는 자리는
 사진첩이다. 남긴 사람과 가족 관리자만 지운다. 판정하지 않는 것과 지우지 못하는
 것은 다르다: 내가 한 말을 거둘 수 없으면 그건 보존이 아니라 구속이다.
+
+추억 자체도 지울 수 있다 (delete_event). 사진을 다 지운 뒤에도 사건은 남기
+때문이다 — 사진첩에서 지우면 연결만 끊긴다. 자료도 기억도 없는 추억이 화면
+목록에 계속 뜨는 것을 치우는 자리다. 사진이 0장이 된 것을 신호로 자동으로
+지우지는 않는다: 가족이 남긴 문장이 남의 사진 정리에 딸려 사라지면 안 된다.
 """
 
 from __future__ import annotations
@@ -493,6 +498,62 @@ def delete_memory(event_id: str, memory_id: str) -> Optional[dict]:
         "memory_id": memory_id,
         "kept_media": kept_media,
         "story_cleared": story_cleared,
+    }
+
+
+def delete_event(event_id: str) -> Optional[dict]:
+    """추억 하나를 지운다 — 사건과 거기에 붙은 기억 문장까지
+
+    사진첩에서 사진을 다 지워도 사건은 남는다. 원본을 지울 때 끊기는 것은 연결뿐
+    이기 때문이다 (routers/media.py). 그래서 자료가 하나도 없는 추억이 Film의 사건
+    목록에 옅은 칩으로 계속 남았다. 그것을 치우는 자리가 여기다.
+
+    사진이 0장이 된 것을 신호로 삼아 자동으로 지우지 않는다. 그 추억에는 다른
+    가족이 남긴 기억 문장과 "나도 기억나요"가 붙어 있을 수 있고, 사진 한 장
+    지우기에 딸려 그것이 사라지면 정리가 아니라 사고다. 지우는 것은 사람이
+    고른 결과로만 일어난다.
+
+    함께 지우는 것: 이 사건에 붙은 기억 문장(MemoryNode)과 그 관계들. 사건이
+    없어지면 그 문장은 어디에도 걸리지 않고, 상세로 들어갈 길조차 없다.
+
+    남기는 것: 사진·영상·목소리와 사람·장소. 원본을 지우는 자리는 사진첩이고
+    (기억 문장 하나를 지울 때 원본이 남는 것과 짝을 맞춘 것이다), 사람과 장소는
+    이 추억만의 것이 아니다.
+
+    공개 범위로 걸러 세지 않는다. 내가 볼 수 없는 기억도 이 사건에 붙어 있으면
+    함께 지워진다 — 남겨 두면 사건 없는 문장이 저장소에 떠돌고, 어느 화면에서도
+    거둘 수 없다. 대신 무엇이 지워지고 무엇이 남았는지 세어 돌려준다.
+
+    권한은 라우터가 본다 (permissions.require_owner_of). 여기는 무엇이 지워지고
+    무엇이 남는지만 정한다 — delete_memory와 같은 분업이다.
+
+    Returns:
+        지운 것과 남은 것. 그 id의 사건이 없으면 None.
+    """
+    event = graph_manager.get_node(event_id)
+    if not event or event.get("node_type") != NodeType.EVENT:
+        return None
+
+    doomed = [
+        node["id"]
+        for node in graph_manager.get_connected_nodes(event_id)
+        if node.get("node_type") == NodeType.MEMORY
+    ]
+    kept_media = [media["id"] for media in graph_manager.get_media_for_event(event_id)]
+
+    # 한 묶음으로 지운다. 갈라지면 사건은 없는데 그 사건의 기억 문장만 남는
+    # 상태가 생기고, 그 문장은 어느 화면에서도 지울 수 없다.
+    with graph_manager.batch():
+        for memory_id in doomed:
+            graph_manager.delete_node(memory_id)
+        graph_manager.delete_node(event_id)
+
+    return {
+        "event_id": event_id,
+        "title": event.get("title") or "",
+        "deleted_memories": doomed,
+        "kept_media": kept_media,
+        "echo_count": len(event.get("echoes") or []),
     }
 
 

@@ -1557,6 +1557,31 @@ export async function deleteMemoryEntry(
   });
 }
 
+/**
+ * 추억 하나 지우기.
+ *
+ * 사진첩에서 사진을 다 지워도 추억은 남는다 — 원본을 지울 때 끊기는 것은 연결
+ * 뿐이다. 자료도 기억도 없는 추억을 치우는 길이 이것이다.
+ *
+ * 함께 지워지는 것은 이 추억에 붙은 기억 문장(deleted_memories)이고, 사진·영상·
+ * 목소리는 사진첩에 남는다(kept_media). 화면은 지우기 전에 그것을 밝히고, 지운
+ * 뒤에는 서버가 준 message를 그대로 적는다.
+ *
+ * 남이 만든 추억이면 403이 온다 (readDetail로 그 이유를 읽는다).
+ */
+export async function deleteMemoryEvent(eventId: string): Promise<{
+  event_id: string;
+  title: string;
+  /** 함께 지운 기억 문장. 사건이 없어지면 걸릴 자리가 없다 */
+  deleted_memories: string[];
+  /** 지워지지 않고 사진첩에 남는 원본 */
+  kept_media: string[];
+  echo_count: number;
+  message: string;
+}> {
+  return fetchJSON(`${BASE_URL}/memories/${eventId}`, { method: 'DELETE' });
+}
+
 /** 기존 추억에 사진·영상 더하기 (AI가 자동으로 붙이지 않는다) */
 export async function addMediaToMemory(
   eventId: string,

@@ -1,14 +1,16 @@
 import { useEffect, useState } from 'react'
 import { Link, useParams } from 'react-router-dom'
-import { Heart, Plus, Sparkles } from 'lucide-react'
+import { Heart, Plus, Sparkles, Trash2 } from 'lucide-react'
 import {
   MemoryDetail,
   MemoryEntry,
   composeTogetherStory,
   deleteMemoryEntry,
+  deleteMemoryEvent,
   echoMemory,
   getMemoryDetail,
   mediaUrl,
+  readDetail,
 } from '../lib/api'
 import AudioClip from '../components/AudioClip'
 import MemoryDeleteButton from '../components/MemoryDeleteButton'
@@ -143,6 +145,11 @@ export default function MemoryDetailPage() {
   const [error, setError] = useState<string | null>(null)
   /* 방금 지운 뒤 서버가 밝힌 것 — 무엇이 남았고, 이야기가 왜 사라졌는지 */
   const [removed, setRemoved] = useState<string | null>(null)
+  /* 추억 자체를 지웠다. 이 화면이 가리키던 것이 없어졌으므로 상세를 다시 받지
+     않고, 서버가 밝힌 결과만 남긴다 */
+  const [gone, setGone] = useState<string | null>(null)
+  const [confirmingEvent, setConfirmingEvent] = useState(false)
+  const [deletingEvent, setDeletingEvent] = useState(false)
 
   const load = () => {
     if (!eventId) return Promise.resolve()
@@ -199,6 +206,35 @@ export default function MemoryDetailPage() {
     await load()
   }
 
+  /**
+   * 추억 자체를 지운다.
+   *
+   * 사진첩에서 사진을 다 지워도 추억은 남는다 — 원본을 지울 때 끊기는 것은
+   * 연결뿐이다. 그래서 자료가 없는 추억이 Film의 사건 목록에 옅은 칩으로
+   * 남았고, 그것을 치우는 자리가 여기다.
+   *
+   * 지운 뒤 목록으로 튕기지 않는다. 서버가 밝힌 것(기억 몇 개가 함께 지워졌고
+   * 사진 몇 개가 사진첩에 남았는지)을 읽을 자리가 없어지기 때문이다. 여기서
+   * 그것을 보여주고, 돌아가는 길은 링크로 둔다.
+   */
+  const removeEvent = async () => {
+    if (!eventId) return
+    setDeletingEvent(true)
+    setError(null)
+    try {
+      const result = await deleteMemoryEvent(eventId)
+      // 홈·지도·TV·Film이 세는 사건 목록에서도 즉시 빠져야 한다
+      invalidateEvents()
+      setGone(result.message)
+    } catch (e) {
+      // 남이 만든 추억이면 서버가 이유를 밝히며 막는다 (403). 그 문장을 그대로.
+      setError(readDetail(e, '추억을 지우지 못했습니다.'))
+      setConfirmingEvent(false)
+    } finally {
+      setDeletingEvent(false)
+    }
+  }
+
   const makeStory = async () => {
     if (!eventId) return
     setStoryBusy(true)
@@ -223,6 +259,24 @@ export default function MemoryDetailPage() {
     }
   }
 
+  if (gone) {
+    return (
+      <Page width={880}>
+        <p className="t-body-sm m-0" style={{ color: 'var(--critical-ink)' }}>
+          {gone}
+        </p>
+        <div className="mt-6 flex gap-5">
+          <Link to="/continue" className="btn-link">
+            ← 기억 이어가기
+          </Link>
+          <Link to="/album" className="btn-link">
+            사진첩에서 원본 보기
+          </Link>
+        </div>
+      </Page>
+    )
+  }
+
   if (loading) {
     return (
       <Page width={880}>
@@ -245,6 +299,8 @@ export default function MemoryDetailPage() {
   const config = STATE_CONFIG[detail.state] ?? STATE_CONFIG.alone
   const visuals = detail.media.filter((m) => m.media_type !== 'audio')
   const audios = detail.media.filter((m) => m.media_type === 'audio')
+  // 지금 이 사람에게 보이는 기억 문장 수 (지우기 확인문에 적는다)
+  const memoryCount = detail.contributions.length + (detail.author_memory ? 1 : 0)
 
   return (
     <Page width={880}>
@@ -484,11 +540,71 @@ export default function MemoryDetailPage() {
         </p>
       )}
 
-      <div className="mt-10">
+      {/*
+        추억 지우기는 화면 맨 끝, 조용한 자리에 둔다 — 기억을 읽는 화면에서 가장
+        눈에 띄는 것이 지우기여서는 안 된다 (기억 한 줄의 지우기와 같은 자리).
+
+        사진첩에서 사진을 다 지워도 이 추억은 남기 때문에 필요한 단추다. 원본을
+        지울 때 끊기는 것은 연결뿐이고, 자료 없는 추억은 Film의 사건 목록에
+        옅은 칩으로 남는다.
+      */}
+      <div className="mt-10 flex items-center justify-between gap-4">
         <Link to="/continue" className="btn-link">
           ← 기억 이어가기
         </Link>
+        {!confirmingEvent && (
+          <button
+            onClick={() => {
+              setConfirmingEvent(true)
+              setError(null)
+            }}
+            className="btn-link flex items-center gap-1 text-[11px]"
+          >
+            <Trash2 size={12} />이 추억 지우기
+          </button>
+        )}
       </div>
+
+      {confirmingEvent && (
+        <div className="mt-4 rounded px-5 py-4" style={{ background: 'var(--critical-soft)' }}>
+          <p className="t-body-sm m-0" style={{ color: 'var(--critical-ink)' }}>
+            '{detail.title}' 추억을 지웁니다. 되돌릴 수 없습니다.
+          </p>
+          {/*
+            보이는 개수만 세어 적는다. 공개 범위 때문에 내게 가려진 기억도 이
+            추억에 붙어 있으면 함께 지워지므로, 숫자를 약속하지 않고 "모두"라고
+            적는다 — 지운 뒤 서버가 실제 개수를 밝힌다.
+          */}
+          <p className="t-caption m-0 mt-1" style={{ color: 'var(--critical-ink)' }}>
+            {memoryCount > 0
+              ? `이 추억에 붙은 기억 문장이 모두 함께 지워집니다 (지금 보이는 것 ${memoryCount}개).`
+              : '이 추억에 붙은 기억 문장이 함께 지워집니다 — 지금 보이는 것은 없습니다.'}
+            {detail.echo_count > 0 && ` 기억나요 ${detail.echo_count}개도 사라집니다.`}
+          </p>
+          <p className="t-caption m-0 mt-1" style={{ color: 'var(--critical-ink)' }}>
+            {detail.media.length > 0
+              ? `사진·영상·목소리 ${detail.media.length}개는 사진첩에 그대로 남습니다 — 원본을 지우는 자리는 사진첩입니다.`
+              : '이 추억에는 연결된 사진·영상이 없습니다.'}
+          </p>
+          <div className="mt-3 flex items-center gap-3">
+            <button
+              onClick={removeEvent}
+              disabled={deletingEvent}
+              className="cursor-pointer rounded border-0 px-4 py-2 text-[13px] disabled:opacity-40"
+              style={{ background: 'var(--critical-ink)', color: 'var(--paper)' }}
+            >
+              {deletingEvent ? '지우는 중…' : '정말 지웁니다'}
+            </button>
+            <button
+              onClick={() => setConfirmingEvent(false)}
+              disabled={deletingEvent}
+              className="btn-quiet"
+            >
+              취소
+            </button>
+          </div>
+        </div>
+      )}
     </Page>
   )
 }

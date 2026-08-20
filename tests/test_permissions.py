@@ -321,6 +321,62 @@ def test_memory_delete_is_limited_to_its_author_and_admin():
         _restore()
 
 
+def test_event_delete_is_limited_to_its_author_and_admin():
+    """추억을 지우는 것은 만든 사람과 가족 관리자뿐이다
+
+    추억에도 주인이 있다 (author_id). 남이 만든 추억을 대신 지울 수 있으면
+    가족이 남긴 기억 문장이 함께 사라진다 — 원본 삭제와 같은 판정을 지난다.
+    """
+    _setup_roles()
+
+    def _make(person_id: str) -> str:
+        with TestClient(app) as client:
+            res = client.post(
+                "/api/memories",
+                json={"title": "권한 시험으로 만든 추억", "description": "지울 추억입니다."},
+                headers=_as(person_id),
+            )
+        assert res.status_code == 200, res.text
+        event_id = res.json()["event_id"]
+        _created.append(event_id)
+        # 만들 때 함께 생긴 작성자의 기억도 정리 목록에 담는다
+        detail = res.json()["memory"]
+        if detail.get("author_memory"):
+            _created.append(detail["author_memory"]["id"])
+        return event_id
+
+    try:
+        mine = _make(WRITER)
+        with TestClient(app) as client:
+            # 남이 만든 추억은 기록자여도 못 지운다
+            other = client.delete(f"/api/memories/{mine}", headers=_as("P02"))
+            assert other.status_code == 403, other.status_code
+            assert graph_manager.get_node(mine), "차단했는데 지워졌다"
+
+            # 열람자도 못 지운다
+            viewer = client.delete(f"/api/memories/{mine}", headers=_as(VIEWER))
+            assert viewer.status_code == 403, viewer.status_code
+            assert graph_manager.get_node(mine), "차단했는데 지워졌다"
+
+            # 만든 사람은 지울 수 있다
+            own = client.delete(f"/api/memories/{mine}", headers=_as(WRITER))
+            assert own.status_code == 200, own.text
+            assert graph_manager.get_node(mine) is None, "삭제가 반영되지 않았다"
+
+        # 가족 관리자도 지울 수 있다 (남이 만든 추억이라도)
+        second = _make(WRITER)
+        with TestClient(app) as client:
+            admin = client.delete(f"/api/memories/{second}", headers=_as(OWNER_PERSON))
+            assert admin.status_code == 200, admin.text
+            assert graph_manager.get_node(second) is None, "삭제가 반영되지 않았다"
+
+        # 시드 사건은 이 시험에서 건드리지 않는다
+        assert graph_manager.get_node(EVENT), "시드 사건이 지워졌다"
+        print("  추억 삭제 권한 OK (남·열람자 차단 · 만든 사람·관리자 허용)")
+    finally:
+        _restore()
+
+
 def test_visibility_change_requires_owner_or_admin():
     _setup_roles()
     graph_manager.update_node(MEDIA, {"owner_id": WRITER})
@@ -381,6 +437,7 @@ TESTS = [
     test_person_can_toggle_own_private_request,
     test_delete_is_limited_to_owner_and_admin,
     test_memory_delete_is_limited_to_its_author_and_admin,
+    test_event_delete_is_limited_to_its_author_and_admin,
     test_visibility_change_requires_owner_or_admin,
     test_hidden_record_delete_returns_404_not_403,
     test_write_without_actor_still_works,
