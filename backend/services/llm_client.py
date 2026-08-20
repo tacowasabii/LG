@@ -79,11 +79,22 @@ def bedrock_enabled() -> bool:
     return bool(AWS_ACCESS_KEY_ID and AWS_SECRET_ACCESS_KEY) or bool(AWS_PROFILE)
 
 
+# 어느 용도를 어디로 보내는지 한 번씩만 알린다 (호출마다 찍으면 로그가 시끄럽다)
+_announced: set = set()
+
+
 def provider_for(purpose: Optional[str]) -> str:
     """이 용도를 어디로 보낼지. 설정이 bedrock이라도 자격증명이 없으면 EXAONE."""
     provider = _PROVIDER_BY_PURPOSE.get(purpose or "", "exaone")
     if provider == "bedrock" and not bedrock_enabled():
-        return "exaone"
+        provider = "exaone"
+
+    key = (purpose or "answer", provider)
+    if key not in _announced:
+        _announced.add(key)
+        model = BEDROCK_MODEL_ID if provider == "bedrock" else EXAONE_MODEL
+        print(f"[LLM] {key[0]} -> {provider} ({model})")
+
     return provider
 
 
@@ -169,7 +180,9 @@ def _bedrock_client():
         config=Config(
             read_timeout=BEDROCK_TIMEOUT,
             connect_timeout=10,
-            retries={"max_attempts": 2, "mode": "standard"},
+            # 이 망에서는 새 연결의 첫 요청이 자주 끊긴다 (ConnectionClosedError).
+            # 두 번째부터는 1~3초로 안정적이라 재시도로 덮는다.
+            retries={"max_attempts": 4, "mode": "standard"},
         ),
     )
 
@@ -206,15 +219,33 @@ def _bedrock_invoke(messages: list[dict], max_tokens: int, temperature: float) -
     if not turns:
         return None
 
-    try:
-        response = _bedrock_client().converse(
-            modelId=BEDROCK_MODEL_ID,
-            messages=turns,
-            system=system or [{"text": "요청받은 형식으로만 답한다."}],
-            inferenceConfig={"maxTokens": max_tokens, "temperature": temperature},
-        )
-    except Exception as e:  # 자격증명·권한·모델 접근·타임아웃 전부
-        print(f"[Bedrock] 호출 실패 ({type(e).__name__}: {str(e)[:200]}) → EXAONE으로 재시도")
+    request = {
+        "modelId": BEDROCK_MODEL_ID,
+        "messages": turns,
+        "system": system or [{"text": "요청받은 형식으로만 답한다."}],
+        "inferenceConfig": {"maxTokens": max_tokens, "temperature": temperature},
+    }
+
+    # 연결이 끊기는 것(첫 요청에서 잦다)과 권한·모델 오류를 구분한다. 앞은 다시
+    # 걸면 되고, 뒤는 다시 걸어도 같은 결과라 바로 EXAONE으로 넘긴다.
+    from botocore.exceptions import ConnectionClosedError, EndpointConnectionError
+
+    response = None
+    for attempt in (1, 2):
+        try:
+            response = _bedrock_client().converse(**request)
+            break
+        except (ConnectionClosedError, EndpointConnectionError) as e:
+            if attempt == 1:
+                print(f"[Bedrock] 연결이 끊겼습니다 ({type(e).__name__}) → 다시 겁니다")
+                continue
+            print(f"[Bedrock] 연결 실패 ({type(e).__name__}) → EXAONE으로 재시도")
+            return None
+        except Exception as e:  # 자격증명·권한·모델 접근·형식 오류
+            print(f"[Bedrock] 호출 실패 ({type(e).__name__}: {str(e)[:200]}) → EXAONE으로 재시도")
+            return None
+
+    if response is None:
         return None
 
     blocks = (response.get("output") or {}).get("message", {}).get("content") or []
