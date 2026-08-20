@@ -57,6 +57,14 @@ from backend.config import (
     EXAONE_TIMEOUT,
     EXAONE_TOP_K,
     EXAONE_TOP_P,
+    FRIENDLI_API_URL,
+    FRIENDLI_ENABLE_THINKING,
+    FRIENDLI_MODEL,
+    FRIENDLI_PRESENCE_PENALTY,
+    FRIENDLI_TEMPERATURE,
+    FRIENDLI_TIMEOUT,
+    FRIENDLI_TOKEN,
+    FRIENDLI_TOP_P,
     LLM_EXTRACT_PROVIDER,
     LLM_ANSWER_PROVIDER,
     LLM_PLAN_PROVIDER,
@@ -80,10 +88,21 @@ _PROVIDER_BY_PURPOSE = {
 }
 
 
+def friendli_enabled() -> bool:
+    """FriendliAI를 부를 토큰이 있는지"""
+    return bool(FRIENDLI_TOKEN)
+
+
 def bedrock_enabled() -> bool:
     """Bedrock을 부를 자격증명이 있는지 (.env의 키 또는 프로필)"""
     return bool(AWS_ACCESS_KEY_ID and AWS_SECRET_ACCESS_KEY) or bool(AWS_PROFILE)
 
+
+_MODEL_BY_PROVIDER = {
+    "exaone": EXAONE_MODEL,
+    "bedrock": BEDROCK_MODEL_ID,
+    "friendli": FRIENDLI_MODEL,
+}
 
 # 어느 용도를 어디로 보내는지 한 번씩만 알린다 (호출마다 찍으면 로그가 시끄럽다)
 _announced: set = set()
@@ -94,11 +113,13 @@ def provider_for(purpose: Optional[str]) -> str:
     provider = _PROVIDER_BY_PURPOSE.get(purpose or "answer", "exaone")
     if provider == "bedrock" and not bedrock_enabled():
         provider = "exaone"
+    if provider == "friendli" and not friendli_enabled():
+        provider = "exaone"
 
     key = (purpose or "answer", provider)
     if key not in _announced:
         _announced.add(key)
-        model = BEDROCK_MODEL_ID if provider == "bedrock" else EXAONE_MODEL
+        model = _MODEL_BY_PROVIDER.get(provider, EXAONE_MODEL)
         print(f"[LLM] {key[0]} -> {provider} ({model})", flush=True)
 
     return provider
@@ -110,7 +131,7 @@ def model_for(purpose: Optional[str] = None) -> str:
     화면에 "무엇이 답했는지" 밝히는 데 쓴다. 제공자와 따로 관리하면 Bedrock이
     답한 것을 EXAONE 이름으로 적게 된다.
     """
-    return BEDROCK_MODEL_ID if provider_for(purpose) == "bedrock" else EXAONE_MODEL
+    return _MODEL_BY_PROVIDER.get(provider_for(purpose), EXAONE_MODEL)
 
 
 def is_enabled(purpose: Optional[str] = None) -> bool:
@@ -119,7 +140,7 @@ def is_enabled(purpose: Optional[str] = None) -> bool:
     purpose를 주면 그 용도의 제공자를 본다. Bedrock으로 보내는 용도는 EXAONE
     키가 없어도 동작한다 (반대도 마찬가지).
     """
-    if provider_for(purpose) == "bedrock":
+    if provider_for(purpose) in ("bedrock", "friendli"):
         return True  # provider_for가 이미 자격증명을 확인했다
     return bool(EXAONE_API_KEY)
 
@@ -165,6 +186,63 @@ def get_chat_model(
             "chat_template_kwargs": {"enable_thinking": use_thinking},
         },
     )
+
+
+# --- FriendliAI ---------------------------------------------------------------
+
+
+def _friendli_base_url() -> str:
+    """ChatOpenAI가 /chat/completions를 스스로 붙이므로 떼어낸 값을 준다"""
+    suffix = "/chat/completions"
+    if FRIENDLI_API_URL.endswith(suffix):
+        return FRIENDLI_API_URL[: -len(suffix)]
+    return FRIENDLI_API_URL
+
+
+@lru_cache(maxsize=8)
+def get_friendli_model(max_tokens: int = 1024, temperature: Optional[float] = None) -> ChatOpenAI:
+    """FriendliAI용 ChatOpenAI (OpenAI 호환, 인증은 Bearer)
+
+    사내망 게이트웨이와 달리 표준 Authorization 헤더를 쓴다. 추론을 켜면
+    응답에 사고 과정이 함께 오므로 strip_thinking()으로 걷어낸다.
+    """
+    return ChatOpenAI(
+        model=FRIENDLI_MODEL,
+        base_url=_friendli_base_url(),
+        api_key=FRIENDLI_TOKEN,
+        temperature=FRIENDLI_TEMPERATURE if temperature is None else temperature,
+        top_p=FRIENDLI_TOP_P,
+        presence_penalty=FRIENDLI_PRESENCE_PENALTY,
+        max_tokens=max_tokens + (EXAONE_THINKING_BUDGET if FRIENDLI_ENABLE_THINKING else 0),
+        timeout=FRIENDLI_TIMEOUT,
+        max_retries=2,
+        extra_body={
+            "chat_template_kwargs": {
+                "enable_thinking": FRIENDLI_ENABLE_THINKING,
+                # 사고 과정을 응답에 남긴다. strip_thinking()이 화면에 나가기 전에
+                # 떼어내고, 남겨 두는 쪽이 빈 본문이 왔을 때 원인을 볼 수 있다.
+                "preserve_thinking": FRIENDLI_ENABLE_THINKING,
+            }
+        },
+    )
+
+
+async def _friendli_invoke(
+    messages: list[dict], max_tokens: int, temperature: Optional[float]
+) -> Optional[str]:
+    """FriendliAI 호출. 실패하면 None (호출부가 폴백한다)"""
+    try:
+        result = await get_friendli_model(max_tokens, temperature).ainvoke(messages)
+    except Exception as e:
+        print(f"[Friendli] 호출 실패 ({type(e).__name__}: {str(e)[:200]})", flush=True)
+        return None
+
+    answer = strip_thinking(result.content if isinstance(result.content, str) else "")
+    if not answer:
+        finish = (result.response_metadata or {}).get("finish_reason")
+        print(f"[Friendli] 본문이 비어 있음 (finish_reason={finish})", flush=True)
+        return None
+    return answer
 
 
 # --- Bedrock ------------------------------------------------------------------
@@ -271,6 +349,73 @@ def _bedrock_invoke(messages: list[dict], max_tokens: int, temperature: float) -
     return text
 
 
+def _bedrock_describe_image(image_bytes: bytes, fmt: str, prompt: str) -> Optional[str]:
+    """이미지 한 장을 보내고 설명을 받는다 (동기 — 호출부가 to_thread로 감싼다)
+
+    Converse API는 본문 블록에 이미지를 함께 실을 수 있다. 텍스트만 다루는
+    _to_converse를 고치지 않고 여기서 직접 요청을 만든다 — 이미지가 필요한
+    호출은 이 하나뿐이고, 텍스트 경로에 분기를 더하면 그쪽이 읽기 어려워진다.
+    """
+    request = {
+        "modelId": BEDROCK_MODEL_ID,
+        "messages": [{
+            "role": "user",
+            "content": [
+                {"image": {"format": fmt, "source": {"bytes": image_bytes}}},
+                {"text": prompt},
+            ],
+        }],
+        "inferenceConfig": {"maxTokens": 300, "temperature": 0.2},
+    }
+
+    from botocore.exceptions import ConnectionClosedError, EndpointConnectionError
+
+    # 텍스트 경로보다 한 번 더 시도한다. 여기서 놓치면 설명이 빈 채로 남고,
+    # 그 사진은 초안·검색에서 계속 내용 없는 사진으로 취급된다.
+    response = None
+    attempts = (1, 2, 3)
+    for attempt in attempts:
+        try:
+            response = _bedrock_client().converse(**request)
+            break
+        except (ConnectionClosedError, EndpointConnectionError) as e:
+            if attempt < attempts[-1]:
+                print(
+                    f"[Bedrock/vision] 연결이 끊겼습니다 ({type(e).__name__}) "
+                    f"→ 다시 겁니다 ({attempt}/{attempts[-1]})",
+                    flush=True,
+                )
+                continue
+            print(f"[Bedrock/vision] 연결 실패 ({type(e).__name__}) → 설명을 비워 둡니다", flush=True)
+            return None
+        except Exception as e:
+            print(
+                f"[Bedrock/vision] 호출 실패 ({type(e).__name__}: {str(e)[:200]}) "
+                "→ 설명을 비워 둡니다",
+                flush=True,
+            )
+            return None
+
+    blocks = (response.get("output") or {}).get("message", {}).get("content") or []
+    text = "".join(block.get("text", "") for block in blocks).strip()
+    return text or None
+
+
+async def describe_image(image_bytes: bytes, fmt: str, prompt: str) -> Optional[str]:
+    """사진 한 장을 모델에게 보여주고 설명을 받는다
+
+    EXAONE 폴백이 없다. 이 게이트웨이는 이미지를 받지 않으므로, Bedrock 자격증명이
+    없으면 설명을 만들지 않는다 — 사진을 보지 않고 쓴 문장을 "AI가 읽은 내용"으로
+    남기면 그게 가장 나쁜 거짓이다.
+
+    Returns:
+        설명 문장. 자격증명 없음·호출 실패·본문 없음이면 None.
+    """
+    if not bedrock_enabled():
+        return None
+    return await asyncio.to_thread(_bedrock_describe_image, image_bytes, fmt, prompt)
+
+
 def strip_thinking(text: str) -> str:
     """추론 블록을 제거하고 사용자에게 보여줄 본문만 남긴다"""
     cleaned = _THINK_BLOCK.sub("", text)
@@ -301,7 +446,15 @@ async def complete(
     Returns:
         답변 본문. 호출 실패/본문 없음이면 None (호출부가 폴백한다).
     """
-    if provider_for(purpose) == "bedrock":
+    provider = provider_for(purpose)
+
+    if provider == "friendli":
+        text = await _friendli_invoke(messages, max_tokens, temperature)
+        if text is not None:
+            return text
+        # 실패하면 아래 EXAONE 경로로 한 번 더 시도한다 (조용히 죽지 않게)
+
+    if provider == "bedrock":
         text = await asyncio.to_thread(
             _bedrock_invoke, messages, max_tokens, 0.0 if temperature is None else temperature
         )

@@ -101,6 +101,21 @@ BEDROCK_TIMEOUT = float(os.getenv("BEDROCK_TIMEOUT", "30"))
 # 용도별 제공자: bedrock | exaone
 # 기본값이 bedrock이지만, 자격증명이 없으면 자동으로 EXAONE으로 돌아간다 —
 # 설정하지 않은 사람의 화면이 깨지지 않게.
+# FriendliAI — EXAONE을 공용 인터넷으로 서비스하는 경로.
+# 사내망 게이트웨이(api.lgresearch.ai)는 사설 주소라서 배포 서버에서 닿지 않는다.
+# 배포에서도 EXAONE으로 답하려면 이쪽을 쓴다. OpenAI 호환이고 인증은 Bearer다.
+FRIENDLI_API_URL = os.getenv(
+    "FRIENDLI_API_URL", "https://api.friendli.ai/dedicated/v1/chat/completions"
+)
+FRIENDLI_TOKEN = os.getenv("FRIENDLI_TOKEN", "").strip()
+# 전용 엔드포인트 ID가 모델 이름 자리에 들어간다
+FRIENDLI_MODEL = os.getenv("FRIENDLI_MODEL", "depe675tjc2rcpo").strip()
+FRIENDLI_TEMPERATURE = float(os.getenv("FRIENDLI_TEMPERATURE", "1.0"))
+FRIENDLI_TOP_P = float(os.getenv("FRIENDLI_TOP_P", "0.95"))
+FRIENDLI_PRESENCE_PENALTY = float(os.getenv("FRIENDLI_PRESENCE_PENALTY", "0.0"))
+FRIENDLI_ENABLE_THINKING = os.getenv("FRIENDLI_ENABLE_THINKING", "true").lower() == "true"
+FRIENDLI_TIMEOUT = float(os.getenv("FRIENDLI_TIMEOUT", "120"))
+
 # 채팅 답변을 어디로 보낼지. 기본은 EXAONE이다 — 사내망에서는 그게 동작하고,
 # 프롬프톤 산출물이니 답변만은 EXAONE으로 두는 게 맞다. 다만 EXAONE 게이트웨이는
 # 사내망 사설 주소(10.x)라서 공용 클라우드에 배포하면 닿지 않는다. 배포에서는
