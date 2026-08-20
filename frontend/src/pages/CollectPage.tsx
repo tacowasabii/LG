@@ -24,6 +24,7 @@ import {
   MediaUploadResult,
   getEvents,
   mediaUrl,
+  setMediaPersons,
   startInterview,
   submitInterviewAnswer,
   supplementMedia,
@@ -36,7 +37,9 @@ import RichText from '../components/RichText'
 import { Page, PageHeader, StatRow } from '../components/Page'
 
 const MEDIA_TYPE_LABEL: Record<string, string> = {
-  image: '사진',
+  // 서버가 내려주는 값은 photo다 (MediaType.PHOTO). image로 적어 두면 알약에
+  // 영문이 그대로 노출된다.
+  photo: '사진',
   video: '영상',
   audio: '음성',
 }
@@ -53,7 +56,7 @@ interface SupplementForm {
 }
 
 export default function CollectPage() {
-  const { current } = useCurrentUser()
+  const { current, members } = useCurrentUser()
   const [events, setEvents] = useState<EventListItem[]>([])
   /** 그래프가 비었는가 — 말투를 정한다 (첫 사용인지 아닌지) */
   const [firstTime, setFirstTime] = useState(false)
@@ -63,6 +66,10 @@ export default function CollectPage() {
   const [results, setResults] = useState<MediaUploadResult[]>([])
   const [error, setError] = useState<string | null>(null)
   const [supplementForms, setSupplementForms] = useState<Record<string, SupplementForm>>({})
+  /** 기록별로 지목된 사람. 얼굴 인식이 없으므로 여기가 detected_faces의 출처다 */
+  const [personTags, setPersonTags] = useState<Record<string, string[]>>({})
+  /** 지금 저장 중인 기록 — 연달아 누를 때 응답이 엇갈리지 않게 */
+  const [tagging, setTagging] = useState<string | null>(null)
 
   // 올린 뒤 이어지는 첫 질문 (실제 인터뷰 세션이다)
   const [session, setSession] = useState<InterviewStartResult | null>(null)
@@ -96,6 +103,13 @@ export default function CollectPage() {
     }
 
     setResults((prev) => [...uploaded, ...prev])
+    setPersonTags((prev) => {
+      const next = { ...prev }
+      uploaded.forEach((r) => {
+        next[r.id] = r.detected_faces ?? []
+      })
+      return next
+    })
     setUploading(false)
 
     if (uploaded.length === 0) return
@@ -113,6 +127,34 @@ export default function CollectPage() {
       }
     }
   }, [session])
+
+  /**
+   * 이 기록에 있는 사람을 켜고 끈다. 켠 결과 전체를 서버에 보낸다.
+   *
+   * 낙관적으로 먼저 칠하고 실패하면 되돌린다 — 여러 번 누르는 조작이라 매번
+   * 응답을 기다리면 누른 것이 반응하지 않는 것처럼 보인다.
+   */
+  const togglePerson = async (mediaId: string, personId: string) => {
+    const before = personTags[mediaId] ?? []
+    const next = before.includes(personId)
+      ? before.filter((id) => id !== personId)
+      : [...before, personId]
+
+    setPersonTags((prev) => ({ ...prev, [mediaId]: next }))
+    setTagging(mediaId)
+    try {
+      // 서버가 걸러낸 결과로 맞춘다 (그래프에 없는 사람은 버려진다)
+      const res = await setMediaPersons(mediaId, next)
+      setPersonTags((prev) => ({ ...prev, [mediaId]: res.detected_faces }))
+      invalidateEvents()
+    } catch (e) {
+      console.error(e)
+      setPersonTags((prev) => ({ ...prev, [mediaId]: before }))
+      setError('사람을 저장하지 못했습니다.')
+    } finally {
+      setTagging(null)
+    }
+  }
 
   const patchForm = (id: string, patch: Partial<SupplementForm>) =>
     setSupplementForms((prev) => {
@@ -347,6 +389,45 @@ export default function CollectPage() {
                     {result.needs_info ? '추가 정보 필요' : '자동 연결 완료'}
                   </span>
                 </div>
+
+                {/* 누가 있는지는 자동으로 알 수 없다 — 가족이 직접 지목한다.
+                    음성은 찍힌 사람이 아니라 말한 사람이므로 여기서 다루지 않는다
+                    (녹음은 speaker_id로 이어진다). */}
+                {result.media_type !== 'audio' && members.length > 0 && (
+                  <div className="ml-[92px] mt-4">
+                    <p className="t-caption m-0">
+                      이 {MEDIA_TYPE_LABEL[result.media_type] || '기록'}에 누가 있나요? 지목한
+                      사람만 그래프에 이어집니다.
+                    </p>
+                    <div className="mt-2 flex flex-wrap gap-1.5">
+                      {members.map((m) => {
+                        const on = (personTags[result.id] ?? []).includes(m.id)
+                        return (
+                          <button
+                            key={m.id}
+                            onClick={() => togglePerson(result.id, m.id)}
+                            disabled={tagging === result.id}
+                            className="pill px-2.5 py-1 disabled:opacity-50"
+                            style={
+                              on
+                                ? {
+                                    background: 'var(--accent-soft)',
+                                    color: 'var(--accent-ink)',
+                                  }
+                                : {
+                                    background: 'var(--ink-50)',
+                                    color: 'var(--ink-500)',
+                                    fontWeight: 400,
+                                  }
+                            }
+                          >
+                            {m.name}
+                          </button>
+                        )
+                      })}
+                    </div>
+                  </div>
+                )}
 
                 {/* EXIF가 없는 기록 — 추측해서 채우지 않고 아는 것만 받는다 */}
                 {needsForm && (

@@ -72,6 +72,7 @@ Base URL: `http://localhost:8000`
 |--------|------|------|
 | POST | `/api/media/upload` | 파일 업로드 (multipart/form-data) |
 | POST | `/api/media/supplement` | EXIF 없는 미디어 추가 정보 제공 |
+| PUT | `/api/media/{id}/persons` | 이 기록에 있는 사람 지목 (보낸 목록이 최종 상태) |
 | GET | `/api/media` | 미디어 목록 (쿼리: ?media_type=photo&person_id=P01) |
 | GET | `/api/media/{id}` | 미디어 상세 |
 | DELETE | `/api/media/{id}` | 미디어 삭제 |
@@ -171,6 +172,19 @@ Response:
   "description": "해운대 해변 사진"
 }
 ```
+
+### PUT /api/media/{id}/persons
+얼굴 인식이 없으므로 이 요청이 `detected_faces`의 유일한 출처입니다.
+보낸 목록이 최종 상태가 됩니다 — 빈 배열을 보내면 태그를 모두 뗍니다.
+```json
+{ "person_ids": ["P01", "P03"] }
+```
+Response:
+```json
+{ "media_id": "media_abc123", "detected_faces": ["P01", "P03"] }
+```
+업로드할 때 한 번에 붙이려면 `POST /api/media/upload` 의 `person_ids`
+폼 필드에 쉼표로 구분해 보냅니다 (`P01,P03`).
 
 ### POST /api/chat
 ```json

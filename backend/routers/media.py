@@ -7,12 +7,15 @@ import shutil
 from pathlib import Path
 
 from backend.config import MEDIA_DIR
-from backend.models.schemas import MediaUploadResponse, MediaListItem, MediaDetail, MediaSupplementRequest
+from backend.models.schemas import (
+    MediaUploadResponse, MediaListItem, MediaDetail, MediaSupplementRequest,
+    MediaPersonTagRequest,
+)
 from backend.models.graph_models import (
     NodeType, MediaType, RelationType, Edge, Confidence, SourceType,
 )
 from backend.services.media_analyzer import analyze_media, generate_thumbnail
-from backend.services.event_resolver import resolve_event_for_media
+from backend.services.event_resolver import resolve_event_for_media, set_media_persons
 from backend.services.graph_manager import graph_manager
 from backend.services import permissions, visibility
 from backend.services.permissions import current_actor
@@ -31,6 +34,9 @@ async def upload_media(
     transcript: Optional[str] = Form(None),
     speaker_id: Optional[str] = Form(None),
     event_id: Optional[str] = Form(None),
+    # 사진·영상에 찍힌 사람. 쉼표로 구분한 person_id.
+    # 얼굴 인식이 없으므로 이 값이 detected_faces의 유일한 출처다.
+    person_ids: Optional[str] = Form(None),
     # 올린 사람. 공개 범위를 정할 수 있는 사람이고, 비공개로 두면 이 사람만 본다.
     owner_id: Optional[str] = Form(None),
     actor: Optional[dict] = Depends(current_actor),
@@ -93,6 +99,11 @@ async def upload_media(
 
     # Graph에 추가
     graph_manager.add_media(media_node)
+
+    # 찍힌 사람 연결 (Media -> Person). 화면이 고른 사람만 붙는다 — 추측하지 않는다.
+    if person_ids:
+        # 응답에도 반영한다. 화면은 이 값으로 "누구를 붙였는지"를 되읽는다.
+        media_node.detected_faces = set_media_persons(media_node.id, person_ids.split(","))
 
     # 말하는 사람 연결 (Media -> Person). 사진에 찍힌 것과 구분되는 관계다.
     if media_node.speaker_id:
@@ -276,6 +287,32 @@ async def get_media_detail(
         linked_events=[{"id": e["id"], "title": e.get("title", "")} for e in linked_events],
         linked_persons=[{"id": p["id"], "name": p.get("name", "")} for p in linked_persons],
     )
+
+
+@router.put("/{media_id}/persons")
+async def set_media_person_tags(
+    media_id: str,
+    request: MediaPersonTagRequest,
+    actor: Optional[dict] = Depends(current_actor),
+):
+    """이 기록에 있는 사람을 지목한다 (보낸 목록이 최종 상태가 된다)
+
+    얼굴 인식이 없으므로 이 요청이 detected_faces의 유일한 출처다.
+    최종 목록을 받는 이유는 화면이 켜고 끄는 그대로를 그래프에 반영하기
+    위해서다 — 더하기만 있으면 잘못 지목한 사람을 뗄 수 없다.
+    """
+    permissions.require_writer(actor)
+
+    node = graph_manager.get_node(media_id)
+    if not node or node.get("node_type") != NodeType.MEDIA:
+        raise HTTPException(status_code=404, detail="미디어를 찾을 수 없습니다.")
+
+    if not visibility.can_view(node, actor["id"] if actor else None):
+        # 볼 수 없는 기록의 존재를 응답으로 알려주지 않는다
+        raise HTTPException(status_code=404, detail="미디어를 찾을 수 없습니다.")
+
+    tagged = set_media_persons(media_id, request.person_ids)
+    return {"media_id": media_id, "detected_faces": tagged}
 
 
 @router.delete("/{media_id}")
