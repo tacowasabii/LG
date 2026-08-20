@@ -29,6 +29,7 @@ import {
 } from '../lib/api'
 import { AUDIENCE_DESC, AUDIENCE_LABEL, Audience, FilmLength } from '../lib/filmOptions'
 import { useEvents, useVoiceClips } from '../lib/useGraphData'
+import { usePrefersReducedMotion } from '../lib/reducedMotion'
 import { Page, PageHeader } from '../components/Page'
 import AudioClip from '../components/AudioClip'
 import RichText from '../components/RichText'
@@ -48,26 +49,6 @@ const MOTION_CLASS: Record<string, string> = {
   'pan-left': 'motion-pan-left',
   'zoom-out': 'motion-zoom-out',
   'pan-right': 'motion-pan-right',
-}
-
-/**
- * 움직임을 줄이도록 설정한 사용자에게는 생성된 클립도 재생하지 않는다.
- *
- * index.css는 CSS 애니메이션을 prefers-reduced-motion에서 끄지만 영상 재생은
- * CSS로 멈출 수 없다. 같은 취지를 지키려면 여기서 판단해야 한다.
- */
-function usePrefersReducedMotion(): boolean {
-  const [reduced, setReduced] = useState(false)
-
-  useEffect(() => {
-    const query = window.matchMedia('(prefers-reduced-motion: reduce)')
-    setReduced(query.matches)
-    const onChange = () => setReduced(query.matches)
-    query.addEventListener('change', onChange)
-    return () => query.removeEventListener('change', onChange)
-  }, [])
-
-  return reduced
 }
 
 export default function FilmPage() {
@@ -277,6 +258,11 @@ export default function FilmPage() {
                   className={`h-full w-full object-cover ${
                     (currentScene.motion && MOTION_CLASS[currentScene.motion]) || ''
                   }`}
+                  /* index.css의 9초 고정을 장면 길이로 덮는다. 세대별 배속과
+                     목소리 길이 때문에 장면은 6~11초로 갈리는데, 애니메이션이
+                     9초로 굳어 있으면 짧은 장면은 잘리고 긴 장면은 끝에서
+                     멈춰 선다 — 움직임이 있다고 적어 둔 동안 정지 화면이다. */
+                  style={{ animationDuration: currentScene.duration_sec + 's' }}
                 />
               )}
               <div
@@ -287,14 +273,21 @@ export default function FilmPage() {
                 }}
               />
 
-              {/* AI 라벨 — 생성 요소를 숨기지 않는다 */}
+              {/* AI 라벨 — 생성 요소를 숨기지 않는다.
+                  움직임을 끈 사용자에게는 걸리지 않은 효과를 적지 않는다.
+                  화면은 멈춰 있는데 "AI 생성 미세 움직임"이라고 쓰면, 적용된 것을
+                  드러낸다는 원칙이 반대로 뒤집힌다. */}
               <span
                 className="absolute right-4 top-4 rounded-full px-3 py-[5px] text-[11px]"
                 style={{ background: 'rgba(14,13,11,0.62)', color: 'var(--paper)' }}
               >
-                {currentScene.ai_effects.length > 0
-                  ? 'AI 효과 · ' + currentScene.ai_effects.join(' · ')
-                  : '원본 그대로'}
+                {reducedMotion
+                  ? currentScene.ai_effects.length > 0
+                    ? '원본 그대로 · 움직임 끔'
+                    : '원본 그대로'
+                  : currentScene.ai_effects.length > 0
+                    ? 'AI 효과 · ' + currentScene.ai_effects.join(' · ')
+                    : '원본 그대로'}
               </span>
 
               <div className="absolute inset-x-0 bottom-0 p-7">
@@ -419,18 +412,30 @@ export default function FilmPage() {
                       <span className="pill bg-ink-50 px-[9px] font-normal text-ink-500">
                         {scene.source_label}
                       </span>
-                      {scene.ai_effects.map((fx) => (
+                      {!reducedMotion &&
+                        scene.ai_effects.map((fx) => (
+                          <span
+                            key={fx}
+                            className="pill px-[9px] font-normal"
+                            style={{
+                              background: 'var(--warning-soft)',
+                              color: 'var(--warning-ink)',
+                            }}
+                          >
+                            AI · {fx}
+                          </span>
+                        ))}
+                      {reducedMotion && scene.ai_effects.length > 0 && (
                         <span
-                          key={fx}
                           className="pill px-[9px] font-normal"
                           style={{
-                            background: 'var(--warning-soft)',
-                            color: 'var(--warning-ink)',
+                            background: 'var(--positive-soft)',
+                            color: 'var(--positive-ink)',
                           }}
                         >
-                          AI · {fx}
+                          원본 그대로 · 움직임 끔
                         </span>
-                      ))}
+                      )}
                       {scene.ai_effects.length === 0 && (
                         <span
                           className="pill px-[9px] font-normal"

@@ -5,7 +5,7 @@ from __future__ import annotations
 import uuid
 from typing import Optional
 
-from backend.services import llm_client
+from backend.services import film_composer, llm_client
 from backend.models.graph_models import NodeType
 from backend.services.graph_manager import graph_manager
 
@@ -90,9 +90,29 @@ def _parse_query(query: str) -> dict:
     return conditions
 
 
+def _motion_fields(media_id: str, clips: dict) -> dict:
+    """이 사진에 미리 만들어 둔 클립이 있으면 슬라이드에 실어 준다
+
+    Film과 같은 매니페스트를 읽는다 (film_composer.motion_clips). 만들어 둔 것을
+    한 화면에서만 쓰면, 거실에서 보는 화면이 가장 좋은 재료를 못 쓰게 된다.
+
+    항목이 없는 사진은 빈 값이 되고 화면은 지금까지처럼 카메라 움직임만 건다.
+    """
+    clip = clips.get(media_id)
+    if not clip:
+        return {}
+    return {
+        "motion_url": clip.get("file"),
+        "motion_poster": clip.get("poster"),
+        "subject_preserved": bool(clip.get("subject_preserved")),
+    }
+
+
 def _build_slides(conditions: dict, style: str) -> list[dict]:
     """조건에 맞는 슬라이드 목록 생성"""
     slides = []
+    # 매니페스트는 파일 하나라 한 번만 읽는다 (film_composer가 캐시한다)
+    clips = film_composer.motion_clips()
 
     # 타이틀 슬라이드
     slides.append({
@@ -158,6 +178,7 @@ def _build_slides(conditions: dict, style: str) -> list[dict]:
             "event_id": event.get("id") if event else None,
             "event_title": event.get("title") if event else None,
             "date": media.get("exif_date", media.get("created_at", "")),
+            **_motion_fields(media["id"], clips),
         })
 
     # 매칭된 미디어가 없으면 전체에서 최신 순으로
@@ -180,6 +201,7 @@ def _build_slides(conditions: dict, style: str) -> list[dict]:
                 "event_id": event.get("id") if event else None,
                 "event_title": event.get("title") if event else None,
                 "date": media.get("exif_date", media.get("created_at", "")),
+                **_motion_fields(media["id"], clips),
             })
 
     return slides

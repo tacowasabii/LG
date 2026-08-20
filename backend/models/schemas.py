@@ -550,6 +550,14 @@ class TVSlide(BaseModel):
     event_id: Optional[str] = None
     event_title: Optional[str] = None
     date: Optional[str] = None
+    # 미리 만들어 둔 미세 모션 클립 (data/motion/manifest.json). 있으면 사진 대신
+    # 이걸 재생한다. Film과 같은 자산을 쓴다 — 만들어 둔 것을 한 화면에서만
+    # 쓰면 거실에서 보는 화면이 가장 좋은 재료를 못 쓴다.
+    motion_url: Optional[str] = None
+    # 클립이 못 뜰 때 보여줄 정지 그림 (생성 클립의 첫 프레임)
+    motion_poster: Optional[str] = None
+    # 이 클립이 인물 영역을 원본으로 되돌렸는가. 화면이 라벨에 밝힌다.
+    subject_preserved: bool = False
 
 
 class TVJourneyResponse(BaseModel):

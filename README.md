@@ -293,6 +293,7 @@ python tests/test_media_person_tags.py  # 기록에 있는 사람 지목 6개
 python tests/test_album.py              # 사진첩 목록·필터·커서·공개 범위·삭제 23개
 python tests/test_transcript_source.py  # 전사문 출처·녹음 분류 7개
 python tests/test_video_upload.py       # 영상 길이·첫 장면 썸네일 4개
+python tests/test_tv_motion.py          # TV가 미세 모션 클립을 쓰는지 5개
 
 # 같은 테스트를 Postgres 저장소로도 돌립니다 (구현이 갈리지 않게)
 DATABASE_URL="postgresql://..." python tests/test_memories.py

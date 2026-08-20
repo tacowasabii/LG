@@ -7,6 +7,7 @@ import AudioClip from '../components/AudioClip'
 import RemoteHint from '../components/RemoteHint'
 import StatusPill, { STATE_CONFIG } from '../components/StatusPill'
 import { useEvents, useVoiceClips } from '../lib/useGraphData'
+import { usePrefersReducedMotion } from '../lib/reducedMotion'
 import { ambientSlides, buildLocalJourney, tvPresets } from '../lib/tvCuration'
 
 /**
@@ -27,7 +28,10 @@ import { ambientSlides, buildLocalJourney, tvPresets } from '../lib/tvCuration'
  * 덜 시리다. 강조색은 TVLayout의 data-theme="dark"가 밝은 베리색으로 갈아 끼운다.
  *
  * 기획안 진정성 원칙은 그대로 지킨다.
- *  - 인물·행동을 새로 만들지 않고 패닝·줌만 쓴다 (index.css의 motion-* 유틸리티)
+ *  - 카메라 움직임은 패닝·줌만 쓴다 (index.css의 motion-* 유틸리티)
+ *  - 미리 만들어 둔 미세 모션 클립이 있는 사진은 그것을 재생한다. 파도·불꽃처럼
+ *    환경만 움직이고 인물의 행동은 만들지 않는다 (scripts/build_motion_covers.py).
+ *    없던 픽셀이 생긴 것이므로 라벨을 카메라 움직임과 나눠 적는다
  *  - 날짜·장소·사건명을 자막으로 항상 띄운다
  *  - 사건에 연결된 실제 가족 음성의 전사문을 자막으로 함께 보여준다
  *  - OK 버튼으로 원본·촬영 시점·출처를 열어 볼 수 있다
@@ -128,6 +132,9 @@ export default function TVViewPage() {
   // 자막의 장소·확인 상태와 슬라이드에 붙는 목소리는 그래프에서 온다
   const { events, eventById } = useEvents()
   const { clips: allClips, clipsForEvent } = useVoiceClips()
+  // 영상 재생은 CSS로 멈출 수 없어서 여기서 판단한다 (lib/reducedMotion.ts)
+  const reducedMotion = usePrefersReducedMotion()
+
   const [screen, setScreen] = useState<Screen>('ambient')
   const [journey, setJourney] = useState<TVJourney | null>(null)
   const [slideIndex, setSlideIndex] = useState(0)
@@ -454,29 +461,56 @@ export default function TVViewPage() {
   const clips = slide.event_id ? clipsForEvent(slide.event_id) : []
   const motion = MOTIONS[slideIndex % MOTIONS.length]
   const isTitle = slide.type === 'title'
+
+  // 만들어 둔 클립이 있고 움직임을 끄지 않았을 때만 재생한다
+  const playClip = Boolean(slide.motion_url) && !reducedMotion
+  const motionLabel = reducedMotion
+    ? '움직임 끔 · 원본 사진 그대로'
+    : playClip
+      ? slide.subject_preserved
+        ? 'AI 생성 미세 움직임 · 인물은 원본'
+        : 'AI 생성 미세 움직임'
+      : 'AI 카메라 움직임 · 원본 사진 그대로'
   const extraCaption = captionRemainder(slide.caption ?? '', slide.event_title, slide.date)
 
   return (
     <div className="relative h-full w-full overflow-hidden">
-      {/* 배경 사진 + 허용된 움직임만 */}
+      {/* 배경 — 만들어 둔 클립이 있으면 그것을, 없으면 사진에 카메라 움직임을.
+          움직임을 끈 사용자에게는 어느 쪽도 걸지 않는다 (영상은 CSS로 못 멈춘다). */}
       {!isTitle && slide.file_path && (
         <div className="absolute inset-0 overflow-hidden">
-          <img
-            key={slideIndex}
-            src={mediaUrl(slide.file_path)}
-            alt={slide.caption}
-            className={`h-full w-full object-cover ${motion}`}
-          />
+          {playClip ? (
+            <video
+              key={slideIndex}
+              src={mediaUrl(slide.motion_url)}
+              poster={mediaUrl(slide.motion_poster || slide.file_path)}
+              className="h-full w-full object-cover"
+              autoPlay
+              loop
+              muted
+              playsInline
+            />
+          ) : (
+            <img
+              key={slideIndex}
+              src={mediaUrl(slide.file_path)}
+              alt={slide.caption}
+              className={`h-full w-full object-cover ${reducedMotion ? '' : motion}`}
+              style={reducedMotion ? undefined : { animationDuration: SLIDE_MS / 1000 + 's' }}
+            />
+          )}
           <div className="absolute inset-0" style={{ background: SCRIM_PLAY }} />
         </div>
       )}
 
       <TopBar paused={!autoPlay && !showEvidence} onExit={exitToApp} />
 
-      {/* AI 라벨 — 생성 요소를 숨기지 않는다 */}
+      {/* AI 라벨 — 생성 요소를 숨기지 않는다.
+          생성 클립에 "원본 사진 그대로"를 붙이면 정확히 거꾸로 말하는 것이다.
+          카메라 움직임은 원본 픽셀을 옮긴 것이고, 클립은 없던 픽셀이 생긴 것이다. */}
       {!isTitle && (
         <div className="tv-safe absolute left-0 top-0 z-20 flex flex-col items-start gap-[0.8vh]">
-          <OverlayPill>AI 움직임 적용 · 원본 사진 그대로</OverlayPill>
+          <OverlayPill>{motionLabel}</OverlayPill>
           {clips.length > 0 && <OverlayPill>실제 가족 음성 {clips.length}개</OverlayPill>}
         </div>
       )}

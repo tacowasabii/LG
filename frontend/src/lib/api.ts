@@ -725,6 +725,12 @@ export interface TVSlide {
   event_id?: string | null;
   event_title?: string | null;
   date?: string | null;
+  /** 미리 만들어 둔 미세 모션 클립. 있으면 사진 대신 재생한다 (Film과 같은 자산) */
+  motion_url?: string | null;
+  /** 클립이 못 뜰 때 보여줄 정지 그림 */
+  motion_poster?: string | null;
+  /** 인물 영역을 원본으로 되돌린 클립인가. 라벨에 밝힌다 */
+  subject_preserved?: boolean;
 }
 
 export interface TVJourney {
