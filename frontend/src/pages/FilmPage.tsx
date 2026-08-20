@@ -15,6 +15,11 @@
  * 사진에 클립(motion_url)이 있으면 그것을 재생하고, 없으면 원본 사진에 CSS
  * 카메라 움직임을 건다. 어느 쪽인지는 서버가 정하고 AI 라벨에 그대로 적힌다.
  *
+ * 클립을 만드는 중(motion_pending)이면 이야기를 내주지 않고 "만들고 있어요"를
+ * 보여준다. 바로 재생하면 처음 본 사람은 줌만 되는 화면을 이 기능의 결과로 읽고,
+ * 조금 뒤에 사진이 저절로 영상으로 바뀌는 것이 고장처럼 보인다. 한 장에 40초씩
+ * 걸리는 일이라 빠져나갈 길("기다리지 않고 먼저 보기")은 함께 둔다.
+ *
  * 배경 음악도 무엇을 깔지는 서버가 정하고(무드), 소리는 화면이 만든다
  * (lib/filmMusic.ts). 음원 파일이 아니라 무드만 내려오므로 화면이 합성한다 —
  * narrator가 브라우저 목소리를 쓰는 것과 같은 분업이다. 앱이 만든 소리라는 사실과
@@ -52,6 +57,16 @@ const AUDIENCES: Audience[] = ['child', 'adult', 'elder']
  * 서버가 라벨을 붙이는 순서와 달라서, 화면에 적힌 효과와 실제로 걸린 효과가
  * 네 경우 모두 어긋나 있었다 (backend/services/film_composer.py CAMERA_MOTIONS).
  */
+/** 초를 "1분 20초"처럼 읽는 말로. 0이면 "곧" */
+function formatWait(seconds: number): string {
+  const whole = Math.max(0, Math.round(seconds))
+  if (whole === 0) return '곧'
+  if (whole < 60) return `${whole}초`
+  const minutes = Math.floor(whole / 60)
+  const rest = whole % 60
+  return rest ? `${minutes}분 ${rest}초` : `${minutes}분`
+}
+
 const MOTION_CLASS: Record<string, string> = {
   'zoom-in': 'motion-zoom-in',
   'pan-left': 'motion-pan-left',
@@ -80,6 +95,21 @@ export default function FilmPage() {
   const [anniversaries, setAnniversaries] = useState<Anniversary[]>([])
   const [playing, setPlaying] = useState(false)
   const [elapsed, setElapsed] = useState(0)
+  /*
+    미세 움직임을 만드는 동안은 이야기를 내주지 않는다.
+
+    예전에는 바로 재생되다가 도중에 사진이 하나씩 영상으로 바뀌었다. 그러면
+    처음 본 사람은 "줌만 되는 화면"을 이 기능의 결과로 읽고, 조금 뒤에 화면이
+    저절로 달라지는 것이 고장처럼 보인다. 만드는 중이라고 밝히고 다 되면
+    시작하는 편이 정직하다.
+
+    total은 이 사건에서 만들기 시작한 장수다 (진행률의 분모).
+    skipWait은 기다리지 않고 먼저 보겠다고 누른 경우 — 40초씩 걸리는 일이라
+    빠져나갈 길은 있어야 한다.
+  */
+  const [motionTotal, setMotionTotal] = useState(0)
+  const [waitedSec, setWaitedSec] = useState(0)
+  const [skipWait, setSkipWait] = useState(false)
   const [musicOn, setMusicOn] = useState(true)
   // 지금 이 장면의 가족 음성이 나고 있는가. AudioClip만 아는 값이라 받아 둔다.
   const [voicePlaying, setVoicePlaying] = useState(false)
@@ -107,6 +137,11 @@ export default function FilmPage() {
     setError(null)
     setPlaying(false)
     setElapsed(0)
+    // 기다림은 사건마다 새로 센다. 다른 사건으로 옮기면 앞서 기다린 시간과
+    // "먼저 보기"를 눌렀던 것도 그 사건의 이야기다.
+    setMotionTotal(0)
+    setWaitedSec(0)
+    setSkipWait(false)
 
     composeFilm(eventId, length, audience)
       .then((result) => {
@@ -132,6 +167,23 @@ export default function FilmPage() {
   const totalSec = board?.total_sec ?? 0
   const motionPending = board?.motion_pending ?? []
   const filmMusic = board?.music ?? null
+
+  /** 아직 만들고 있어서 이야기를 내주지 않는 상태 */
+  const waitingForMotion = motionPending.length > 0 && !skipWait
+  /** 이 사건에서 만들기 시작한 장수 중 끝난 것 */
+  const motionDone = Math.max(0, motionTotal - motionPending.length)
+
+  // 분모는 줄지 않는다 — 하나 끝날 때마다 전체도 같이 줄면 진행률이 늘 100%다
+  useEffect(() => {
+    setMotionTotal((prev) => Math.max(prev, motionPending.length))
+  }, [motionPending.length])
+
+  // 기다리는 동안 초를 센다. 숫자가 늘지 않으면 멈춘 화면으로 읽힌다.
+  useEffect(() => {
+    if (!waitingForMotion) return
+    const timer = window.setInterval(() => setWaitedSec((s) => s + 1), 1000)
+    return () => window.clearInterval(timer)
+  }, [waitingForMotion])
 
   /*
     아직 만들고 있는 클립을 기다린다.
@@ -341,7 +393,60 @@ export default function FilmPage() {
         </p>
       )}
 
-      {board && currentScene && (
+      {board && waitingForMotion && (
+        /*
+          만드는 중에는 이야기를 내주지 않는다.
+
+          바로 재생하면 처음 본 사람은 "줌만 되는 화면"을 이 기능의 결과로 읽고,
+          조금 뒤에 사진이 저절로 영상으로 바뀌는 것이 고장처럼 보인다.
+
+          기다리게 하는 대신 세 가지를 보여준다 — 몇 장 중 몇 장이 됐는지, 몇 초
+          기다렸는지, 얼마나 더 걸릴지. 그리고 빠져나갈 길을 둔다. 한 장에 40초씩
+          걸리는 일이라 갇히면 안 된다.
+        */
+        <div className="surface mt-8 px-7 py-8">
+          <p className="t-eyebrow m-0 text-ink-300">Memory Film</p>
+          <p className="m-0 mt-2.5 text-[19px] font-semibold text-ink-900">
+            이 이야기를 만들고 있어요
+          </p>
+          <p className="t-body mt-3 max-w-[58ch]">
+            사진이 움직이는 장면으로 바뀌는 중입니다. 한 장에 40초쯤 걸리고, 다 되면
+            이야기가 시작됩니다.
+          </p>
+
+          <div className="mt-7">
+            <div className="h-0.5" style={{ background: 'var(--ink-100)' }}>
+              <div
+                className="h-0.5"
+                style={{
+                  background: 'var(--accent)',
+                  width: (motionTotal ? (motionDone / motionTotal) * 100 : 0) + '%',
+                  transition: 'width 400ms var(--ease-out)',
+                }}
+              />
+            </div>
+            <div className="mt-2 flex justify-between">
+              <span className="t-mono text-[11px] text-ink-400">
+                {motionDone} / {motionTotal}장 완료
+              </span>
+              <span className="t-mono text-[11px] text-ink-400">
+                {formatWait(waitedSec)} 기다림 · 약 {formatWait(motionPending.length * 40)} 남음
+              </span>
+            </div>
+          </div>
+
+          <p className="t-caption mt-5 max-w-[58ch]">
+            만드는 것은 파도·불꽃·머리카락처럼 저절로 움직이는 것뿐입니다. 인물의
+            행동이나 표정은 만들지 않습니다.
+          </p>
+
+          <button onClick={() => setSkipWait(true)} className="btn-quiet mt-5">
+            기다리지 않고 먼저 보기
+          </button>
+        </div>
+      )}
+
+      {board && currentScene && !waitingForMotion && (
         <>
           <div className="surface mt-8 overflow-hidden">
             <div
@@ -543,12 +648,12 @@ export default function FilmPage() {
               )}
             </div>
             {motionPending.length > 0 && (
-              /* 만들고 있다는 사실을 밝힌다. 조용히 기다리게 하면 사진이 왜
-                 안 움직이는지 알 수 없고, 준비되면 그 자리에서 바뀐다. */
+              /* 기다리지 않고 먼저 보기를 누른 뒤에만 여기까지 온다. 아직 만드는
+                 중이라는 사실은 그때도 밝혀야 한다 — 도중에 사진이 저절로 영상으로
+                 바뀌는데 그 이유가 화면에 없으면 고장으로 읽힌다. */
               <p className="t-caption m-0 mt-2">
-                사진 {motionPending.length}장의 미세 움직임을 만들고 있습니다. 한 장에 40초쯤
-                걸리고, 준비되면 그 장면이 움직이는 영상으로 바뀝니다. 지금은 카메라
-                움직임으로 재생됩니다.
+                사진 {motionPending.length}장은 아직 만들고 있습니다. 지금은 카메라 움직임으로
+                재생되고, 준비되면 그 장면이 움직이는 영상으로 바뀝니다.
               </p>
             )}
             {board.omitted_scenes > 0 && (
