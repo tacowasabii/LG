@@ -332,10 +332,10 @@ def _bedrock_invoke(messages: list[dict], max_tokens: int, temperature: float) -
             if attempt == 1:
                 print(f"[Bedrock] 연결이 끊겼습니다 ({type(e).__name__}) → 다시 겁니다", flush=True)
                 continue
-            print(f"[Bedrock] 연결 실패 ({type(e).__name__}) → EXAONE으로 재시도", flush=True)
+            print(f"[Bedrock] 연결 실패 ({type(e).__name__}) → 다음 제공자로", flush=True)
             return None
         except Exception as e:  # 자격증명·권한·모델 접근·형식 오류
-            print(f"[Bedrock] 호출 실패 ({type(e).__name__}: {str(e)[:200]}) → EXAONE으로 재시도", flush=True)
+            print(f"[Bedrock] 호출 실패 ({type(e).__name__}: {str(e)[:200]}) → 다음 제공자로", flush=True)
             return None
 
     if response is None:
@@ -423,6 +423,65 @@ def strip_thinking(text: str) -> str:
     return cleaned.strip()
 
 
+_FALLBACK_ORDER = ("friendli", "bedrock", "exaone")
+
+
+def _provider_available(provider: str) -> bool:
+    """이 제공자를 부를 자격증명이 있는지"""
+    if provider == "friendli":
+        return friendli_enabled()
+    if provider == "bedrock":
+        return bedrock_enabled()
+    return bool(EXAONE_API_KEY)
+
+
+async def _exaone_invoke(
+    messages: list[dict],
+    max_tokens: int,
+    model: Optional[str],
+    thinking: Optional[bool],
+    temperature: Optional[float],
+) -> Optional[str]:
+    """사내망 EXAONE 게이트웨이 호출. 실패하면 None"""
+    llm = get_chat_model(
+        model=model, max_tokens=max_tokens, thinking=thinking, temperature=temperature
+    )
+    try:
+        result = await llm.ainvoke(messages)
+    except Exception as e:  # 게이트웨이 오류·타임아웃·인증 실패 전부
+        print(f"[EXAONE] 호출 실패 ({type(e).__name__}: {str(e)[:200]})", flush=True)
+        return None
+
+    answer = strip_thinking(result.content if isinstance(result.content, str) else "")
+    if not answer:
+        finish = (result.response_metadata or {}).get("finish_reason")
+        print(
+            f"[EXAONE] 본문이 비어 있음 (finish_reason={finish}). "
+            f"EXAONE_THINKING_BUDGET({EXAONE_THINKING_BUDGET}) 부족 의심",
+            flush=True,
+        )
+        return None
+    return answer
+
+
+async def _invoke(
+    provider: str,
+    messages: list[dict],
+    max_tokens: int,
+    model: Optional[str],
+    thinking: Optional[bool],
+    temperature: Optional[float],
+) -> Optional[str]:
+    """제공자 하나를 부른다"""
+    if provider == "friendli":
+        return await _friendli_invoke(messages, max_tokens, temperature)
+    if provider == "bedrock":
+        return await asyncio.to_thread(
+            _bedrock_invoke, messages, max_tokens, 0.0 if temperature is None else temperature
+        )
+    return await _exaone_invoke(messages, max_tokens, model, thinking, temperature)
+
+
 async def complete(
     messages: list[dict],
     max_tokens: int,
@@ -448,45 +507,23 @@ async def complete(
     """
     provider = provider_for(purpose)
 
-    if provider == "friendli":
-        text = await _friendli_invoke(messages, max_tokens, temperature)
+    preferred = provider_for(purpose)
+
+    # 설정된 제공자를 먼저 부르고, 실패하면 자격증명이 있는 다른 제공자로 넘어간다.
+    # 순서를 고정으로 둔 이유: 예전에는 무엇이 실패해도 마지막이 EXAONE이었는데,
+    # EXAONE 게이트웨이는 사내망 사설 주소라서 배포에서는 연결이 열리지 않은 채
+    # 타임아웃까지 매달린다 — 폴백이 오히려 응답을 더 늦추는 함정이었다.
+    # 자격증명이 없는 제공자는 아예 건너뛰므로, 배포에서 EXAONE 키를 두지 않으면
+    # 그 경로는 시도조차 하지 않는다.
+    for provider in [preferred] + [p for p in _FALLBACK_ORDER if p != preferred]:
+        if not _provider_available(provider):
+            continue
+        text = await _invoke(provider, messages, max_tokens, model, thinking, temperature)
         if text is not None:
             return text
-        # 실패하면 아래 EXAONE 경로로 한 번 더 시도한다 (조용히 죽지 않게)
+        print(f"[LLM] {provider} 응답 없음 → 다음 제공자", flush=True)
 
-    if provider == "bedrock":
-        text = await asyncio.to_thread(
-            _bedrock_invoke, messages, max_tokens, 0.0 if temperature is None else temperature
-        )
-        if text is not None:
-            return text
-        # Bedrock이 실패하면 EXAONE으로 한 번 더 시도한다 (조용히 죽지 않게)
-
-    if not EXAONE_API_KEY:
-        return None
-
-    llm = get_chat_model(
-        model=model, max_tokens=max_tokens, thinking=thinking, temperature=temperature
-    )
-
-    try:
-        result = await llm.ainvoke(messages)
-    except Exception as e:  # 게이트웨이 오류·타임아웃·인증 실패 전부
-        print(f"[EXAONE] 호출 실패 ({type(e).__name__}: {str(e)[:200]}) → 시뮬레이션 폴백", flush=True)
-        return None
-
-    answer = strip_thinking(result.content if isinstance(result.content, str) else "")
-
-    if not answer:
-        finish = (result.response_metadata or {}).get("finish_reason")
-        print(
-            f"[EXAONE] 본문이 비어 있음 (finish_reason={finish}). "
-            f"EXAONE_THINKING_BUDGET({EXAONE_THINKING_BUDGET}) 부족 의심 → 시뮬레이션 폴백",
-            flush=True,
-        )
-        return None
-
-    return answer
+    return None
 
 
 async def complete_json(
