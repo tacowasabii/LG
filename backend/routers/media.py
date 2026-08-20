@@ -8,7 +8,7 @@ from pathlib import Path
 
 from backend.config import MEDIA_DIR
 from backend.models.schemas import (
-    MediaUploadResponse, MediaListItem, MediaDetail, MediaPersonTagRequest,
+    AlbumResponse, MediaUploadResponse, MediaListItem, MediaDetail, MediaPersonTagRequest,
 )
 from backend.models.graph_models import (
     NodeType, MediaType, RelationType, Edge, Confidence, SourceType,
@@ -16,7 +16,7 @@ from backend.models.graph_models import (
 from backend.services.media_analyzer import analyze_media, generate_thumbnail
 from backend.services.event_resolver import set_media_persons
 from backend.services.graph_manager import graph_manager
-from backend.services import permissions, visibility
+from backend.services import album, permissions, visibility
 from backend.services.permissions import current_actor
 
 router = APIRouter()
@@ -301,6 +301,39 @@ def _to_list_item(node: dict) -> MediaListItem:
         event_id=event_id,
         event_title=event_title,
         source=node.get("source"),
+    )
+
+
+@router.get("/album", response_model=AlbumResponse)
+async def get_album(
+    cursor: Optional[str] = Query(None, description="이전 응답의 next_cursor"),
+    limit: int = Query(album.DEFAULT_LIMIT, ge=1, le=album.MAX_LIMIT),
+    types: Optional[str] = Query(None, description="photo,video — 비우면 둘 다"),
+    year: Optional[int] = Query(None, description="촬영 연도 (EXIF 기준)"),
+    person_id: Optional[str] = Query(None, description="이 사람이 지목된 사진만"),
+    event_status: str = Query("all", description="all|linked|unlinked"),
+    sort: str = Query("captured_desc", description="captured_desc|captured_asc|uploaded_desc"),
+    q: Optional[str] = Query(None, description="파일명·추억 제목·인물·장소명"),
+    viewer_id: Optional[str] = Query(None, description="지금 보는 사람 (공개 범위 적용)"),
+):
+    """사진첩 — 가족이 모은 사진·영상을 촬영 순서대로
+
+    이 라우트는 반드시 `/{media_id}` 위에 있어야 한다. 아래에 두면 FastAPI가
+    "album"을 media_id로 읽어 404를 돌려준다.
+
+    목록·정렬·필터·페이지는 전부 데이터 처리다. AI를 끼우지 않는다
+    (backend/services/album.py 첫 주석).
+    """
+    return album.query(
+        viewer_id=viewer_id,
+        types=types,
+        year=year,
+        person_id=person_id,
+        event_status=event_status,
+        sort=sort,
+        q=q,
+        cursor=cursor,
+        limit=limit,
     )
 
 

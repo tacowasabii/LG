@@ -55,6 +55,7 @@ prompthon-2026/
 │   │   └── tv.py            # TV Memory Journey
 │   ├── services/            # 비즈니스 로직
 │   │   ├── graph_manager.py # NetworkX Graph CRUD + 검색 (싱글톤)
+│   │   ├── album.py         # 사진첩 목록 (필터·정렬·커서·공개 범위, AI 없음)
 │   │   ├── media_analyzer.py# EXIF 추출, 썸네일 생성
 │   │   ├── event_resolver.py# 미디어→인물·장소 연결 (사건 자동 생성은 하지 않음)
 │   │   ├── chat_engine.py   # Graph RAG + EXAONE 호출
@@ -74,6 +75,7 @@ prompthon-2026/
 │   │   ├── layouts/         # AppLayout (사이드바), TVLayout (풀스크린)
 │   │   └── pages/           # 화면들
 │   │       ├── HomePage.tsx       # 타임라인 + 통계 + 미디어 갤러리
+│   │       ├── AlbumPage.tsx      # 사진첩 — 연월 그리드 + 필터 + Lightbox
 │   │       ├── CollectPage.tsx    # 모으기 — 업로드 → AI 초안 → 추억 만들기
 │   │       ├── GraphPage.tsx      # react-force-graph-2d 시각화
 │   │       ├── ChatPage.tsx       # 채팅 UI + 소스 뱃지
@@ -207,6 +209,7 @@ python tests/test_family_visibility.py  # 가족 공간·초대 참여·공개 �
 python tests/test_permissions.py        # 역할 가드 11개
 python tests/test_interview_extraction.py # 답변에서 인물·장소·시점 추출
 python tests/test_media_person_tags.py  # 기록에 있는 사람 지목 6개
+python tests/test_album.py              # 사진첩 목록·필터·커서·공개 범위 17개
 python tests/test_transcript_source.py  # 전사문 출처·녹음 분류 7개
 python tests/test_video_upload.py       # 영상 길이·첫 장면 썸네일 4개
 
@@ -351,6 +354,7 @@ JSON 파일은 그대로 남습니다. `DATABASE_URL`을 지우면 다시 파일
 | Media | `POST /api/media/upload` | 파일 업로드 + 자동 분석 (음성은 길이·파형·전사, 영상은 길이·첫 장면을 함께 받음) |
 | | `PUT /api/media/{id}/persons` | 이 기록에 있는 사람 지목 (보낸 목록이 최종 상태) |
 | | `GET /api/media` | 미디어 목록 (`?media_type=audio&person_id=P02`) |
+| | `GET /api/media/album` | 사진첩 — 사진·영상만, 사건·인물·장소를 붙여 커서로 나눠 준다 (`?year=2025&person_id=P02&types=photo&event_status=unlinked`) |
 | Graph | `GET /api/graph` | 전체 노드+엣지 |
 | | `GET /api/graph/events` | 사건 목록 + 장소 좌표·참여자·썸네일·기억 상태 |
 | | `GET /api/graph/event/{id}` | 이벤트 상세 |

@@ -203,6 +203,59 @@ class PersonRef(BaseModel):
     thumbnail_url: Optional[str] = None
 
 
+# --- 사진첩 ---
+
+class AlbumEventRef(BaseModel):
+    """이 사진이 속한 추억. 사진첩에서 추억 상세로 되짚어 갈 고리다."""
+    id: str
+    title: str
+
+
+class AlbumPlaceRef(BaseModel):
+    """사진이 찍힌 곳. 사진첩은 이름만 쓴다 (점을 찍는 화면은 지도다)."""
+    id: str
+    name: str
+
+
+class AlbumMediaItem(BaseModel):
+    """사진첩 한 칸
+
+    MediaListItem과 나눠 둔 이유: 목록 화면은 사건·인물·장소·공개 범위를 함께
+    그려야 하는데, 그것을 기존 항목에 더하면 그 목록을 쓰는 홈·인물·채팅·TV의
+    응답이 함께 무거워진다. 반대로 음성 전용 필드(파형·전사문)는 여기 없다.
+    """
+    id: str
+    media_type: str
+    file_path: str
+    thumbnail_path: Optional[str] = None
+    original_filename: str
+    # 촬영일. exif_date가 없으면 올린 시각으로 채우고 has_exif=False로 밝힌다 —
+    # 올린 시각을 촬영일이라 말하면 1998년 사진이 2026년 칸에 들어간다.
+    captured_at: Optional[str] = None
+    uploaded_at: str
+    # 영상 길이 (브라우저가 재서 보낸 값)
+    duration_sec: Optional[float] = None
+    event: Optional[AlbumEventRef] = None
+    # 사람이 직접 지목한 사람들만. 얼굴 인식이 없으므로 AI가 채우지 않는다.
+    people: list[PersonRef] = []
+    place: Optional[AlbumPlaceRef] = None
+    visibility: str = "family"
+    owner_id: Optional[str] = None
+    # 촬영일을 카메라가 적었는가. False면 화면이 "날짜를 알 수 없는 사진"으로 묶는다.
+    has_exif: bool = False
+
+
+class AlbumResponse(BaseModel):
+    items: list[AlbumMediaItem] = []
+    # 다음 페이지를 부를 때 그대로 되돌려 보낸다. 없으면 마지막 페이지다.
+    next_cursor: Optional[str] = None
+    # 지금 조건에 맞는 전체 개수 (이 페이지 개수가 아니다)
+    total: int = 0
+    # 연도 필터만 뺀 조건에서 고를 수 있는 연도들 (최신순).
+    # 고른 연도 때문에 나머지가 사라지면 되돌아갈 수 없다.
+    available_years: list[int] = []
+
+
 class EventListItem(BaseModel):
     """타임라인·지도·TV가 함께 쓰는 사건 요약
 

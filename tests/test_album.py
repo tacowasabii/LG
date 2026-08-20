@@ -1,0 +1,456 @@
+"""사진첩 회귀 테스트
+
+    python tests/test_album.py
+
+사진첩은 가족 사진을 가장 많이, 가장 빠르게 내보내는 통로다. 그래서 여기서
+보는 것은 "목록이 나오는가"가 아니라 아래 다섯 가지다.
+
+  - 음성은 오지 않고, 촬영일을 모르는 사진도 빠지지 않는가
+  - 연도·인물·추억 연결·검색 필터가 함께 걸리는가
+  - 인물 필터가 사람이 지목한 태그만 보는가 (AI가 사진을 누구 것으로 정하지 않는다)
+  - 커서로 넘긴 페이지에 겹침도 빠짐도 없는가
+  - 비공개 사진이 목록·개수·연도 목록에서 모두 빠지는가
+
+그래프를 실제로 바꾸므로 끝에서 원래대로 되돌린다.
+
+시드된 그래프가 필요하다:
+    python scripts/seed_from_metadata.py
+"""
+
+import asyncio
+import sys
+from pathlib import Path
+
+ROOT_DIR = Path(__file__).resolve().parent.parent
+sys.path.insert(0, str(ROOT_DIR))
+
+from backend.models.graph_models import (  # noqa: E402
+    MediaNode,
+    MediaType,
+    Visibility,
+)
+from backend.routers.media import get_album  # noqa: E402
+from backend.services import album  # noqa: E402
+from backend.services.graph_manager import graph_manager  # noqa: E402
+
+VIEWER = "P01"  # 김민수 (가족 관리자)
+OTHER = "P03"  # 김하늘
+PRIVATE_MEDIA = "E01_002"  # 1998 부산 여행 사진 하나를 비공개로 돌려 본다
+
+# 테스트가 직접 넣는 기록. 시드에는 없는 상태(추억 미연결·음성)를 만들기 위한 것이다.
+TEMP_UNLINKED = "album_test_unlinked"
+TEMP_AUDIO = "album_test_audio"
+
+
+def _require_seeded_graph():
+    if len(graph_manager.get_events()) < 8:
+        raise AssertionError(
+            "시드된 그래프가 필요합니다. python scripts/seed_from_metadata.py 를 먼저 실행하세요."
+        )
+
+
+def _setup():
+    """시드에 없는 두 가지 상태를 만든다
+
+    미분류 사진: 시드된 사진은 모두 추억에 붙어 있어 "미분류" 필터를 확인할 수 없다.
+    음성:        사진첩에서 빠지는지 보려면 하나라도 있어야 한다.
+    """
+    graph_manager.add_media(
+        MediaNode(
+            id=TEMP_UNLINKED,
+            media_type=MediaType.PHOTO,
+            file_path="/media-files/album_test_unlinked.jpg",
+            original_filename="album_test_unlinked.jpg",
+            exif_date="2019-06-01T10:00:00+09:00",
+            owner_id=VIEWER,
+        )
+    )
+    graph_manager.add_media(
+        MediaNode(
+            id=TEMP_AUDIO,
+            media_type=MediaType.AUDIO,
+            file_path="/media-files/album_test_audio.webm",
+            original_filename="album_test_audio.webm",
+            duration_sec=12.0,
+            owner_id=VIEWER,
+        )
+    )
+
+
+def _restore():
+    """공개 범위를 원래대로 (테스트 중간에도 부른다)"""
+    graph_manager.update_node(
+        PRIVATE_MEDIA,
+        {"visibility": Visibility.FAMILY.value, "allowed_ids": [], "owner_id": None},
+    )
+
+
+def _cleanup():
+    """테스트가 넣은 기록을 걷어낸다 (맨 끝에서 한 번만)"""
+    _restore()
+    graph_manager.delete_node(TEMP_UNLINKED)
+    graph_manager.delete_node(TEMP_AUDIO)
+
+
+def _ids(result):
+    return [item["id"] for item in result["items"]]
+
+
+# --- 무엇이 사진첩에 오는가 ---------------------------------------------------
+
+
+def test_album_has_photos_and_videos_only():
+    """음성은 사진첩에 오지 않는다 (훑어볼 그림이 없다)"""
+    result = album.query(viewer_id=VIEWER, limit=album.MAX_LIMIT)
+    types = {item["media_type"] for item in result["items"]}
+
+    assert types <= {"photo", "video"}, types
+    assert TEMP_AUDIO not in _ids(result), "음성이 사진첩에 들어왔다"
+    assert "video" in types, "영상이 사진첩에서 빠졌다"
+    print("  종류", types, "· 음성 제외 OK")
+
+
+def test_undated_photos_are_kept_and_pushed_last():
+    """촬영일을 모르는 기록도 누락되지 않고, 촬영일 순의 맨 뒤에 선다"""
+    result = album.query(viewer_id=VIEWER, limit=album.MAX_LIMIT)
+    flags = [item["has_exif"] for item in result["items"]]
+    undated = [item for item in result["items"] if not item["has_exif"]]
+
+    assert undated, "촬영일이 없는 기록이 하나도 없어 확인할 수 없다 (시드 영상 확인)"
+    # True들이 먼저, False들이 뒤에 — 섞이면 정렬이 무너진 것이다
+    assert flags == sorted(flags, reverse=True), "촬영일 없는 기록이 중간에 섞였다"
+    for item in undated:
+        # 촬영일을 모를 때도 줄을 세울 값은 준다 (올린 시각)
+        assert item["captured_at"], f"정렬할 값이 없다: {item['id']}"
+    print("  촬영일 미상", len(undated), "건 · 맨 뒤 OK")
+
+
+def test_captured_order_uses_exif_not_upload_time():
+    """정렬 기준은 촬영일이다 (방금 올린 1998년 사진이 맨 앞에 오지 않는다)"""
+    dated = [
+        item
+        for item in album.query(viewer_id=VIEWER, limit=album.MAX_LIMIT)["items"]
+        if item["has_exif"]
+    ]
+    captured = [item["captured_at"] for item in dated]
+
+    assert captured == sorted(captured, reverse=True), "촬영일 최신순이 아니다"
+
+    oldest_first = [
+        item["captured_at"]
+        for item in album.query(viewer_id=VIEWER, sort="captured_asc", limit=album.MAX_LIMIT)[
+            "items"
+        ]
+        if item["has_exif"]
+    ]
+    assert oldest_first == sorted(oldest_first), "오래된순이 아니다"
+    print("  최신순", captured[0][:10], "→", captured[-1][:10])
+
+
+# --- 필터 --------------------------------------------------------------------
+
+
+def test_type_filter():
+    """사진만 · 영상만"""
+    photos = album.query(viewer_id=VIEWER, types="photo", limit=album.MAX_LIMIT)
+    videos = album.query(viewer_id=VIEWER, types="video", limit=album.MAX_LIMIT)
+    both = album.query(viewer_id=VIEWER, limit=album.MAX_LIMIT)
+
+    assert {i["media_type"] for i in photos["items"]} == {"photo"}
+    assert {i["media_type"] for i in videos["items"]} == {"video"}
+    assert photos["total"] + videos["total"] == both["total"]
+    print(f"  사진 {photos['total']} · 영상 {videos['total']}")
+
+
+def test_year_filter_uses_capture_year():
+    """연도는 촬영 연도다. 올린 연도로 걸리면 1998년 사진이 2026년에 들어간다"""
+    result = album.query(viewer_id=VIEWER, year=2015, limit=album.MAX_LIMIT)
+
+    assert result["items"], "2015년 사진이 없다 (시드 확인)"
+    for item in result["items"]:
+        assert item["captured_at"][:4] == "2015", item["captured_at"]
+        assert item["has_exif"], "촬영일을 모르는 기록이 연도 필터에 걸렸다"
+    print("  2015년", result["total"], "건")
+
+
+def test_year_options_survive_a_year_selection():
+    """연도를 고른 뒤에도 다른 연도로 옮겨갈 수 있어야 한다"""
+    all_years = album.query(viewer_id=VIEWER)["available_years"]
+    picked = album.query(viewer_id=VIEWER, year=2015)["available_years"]
+
+    assert picked == all_years, "연도를 고르자 나머지 연도가 사라졌다"
+    assert all_years == sorted(all_years, reverse=True), "연도가 최신순이 아니다"
+    print("  연도", all_years)
+
+
+def test_person_filter_only_uses_human_tags():
+    """인물 필터는 사람이 지목한 태그만 본다 (AI가 사진 주인을 정하지 않는다)"""
+    result = album.query(viewer_id=VIEWER, person_id="P05", limit=album.MAX_LIMIT)
+
+    assert result["items"], "P05가 지목된 사진이 없다 (시드 확인)"
+    for item in result["items"]:
+        assert "P05" in [p["id"] for p in item["people"]], item["id"]
+
+    # 아무도 지목되지 않은 사진은 어떤 인물 필터에도 걸리지 않는다
+    untagged = album.query(viewer_id=VIEWER, q="album_test_unlinked")["items"]
+    assert untagged and untagged[0]["people"] == [], "테스트 사진에 태그가 붙어 있다"
+    assert TEMP_UNLINKED not in _ids(
+        album.query(viewer_id=VIEWER, person_id="P05", limit=album.MAX_LIMIT)
+    ), "태그 없는 사진이 인물 필터에 걸렸다"
+    print("  P05", result["total"], "건 · 태그 없는 사진은 제외 OK")
+
+
+def test_event_status_filter():
+    """추억에 붙은 것 / 아직 안 붙은 것"""
+    linked = album.query(viewer_id=VIEWER, event_status="linked", limit=album.MAX_LIMIT)
+    unlinked = album.query(viewer_id=VIEWER, event_status="unlinked", limit=album.MAX_LIMIT)
+    both = album.query(viewer_id=VIEWER, limit=album.MAX_LIMIT)
+
+    assert all(i["event"] for i in linked["items"]), "추억이 없는 기록이 섞였다"
+    assert all(i["event"] is None for i in unlinked["items"]), "추억이 있는 기록이 섞였다"
+    assert TEMP_UNLINKED in _ids(unlinked), "미분류 사진이 미분류 목록에 없다"
+    assert linked["total"] + unlinked["total"] == both["total"]
+    # 사건에 연결되지 않은 사진도 기본 목록에서 빠지지 않는다
+    assert TEMP_UNLINKED in _ids(both), "미분류 사진이 전체 목록에서 빠졌다"
+    print(f"  연결됨 {linked['total']} · 미분류 {unlinked['total']}")
+
+
+def test_search_covers_filename_event_person_place():
+    """검색은 파일명·추억 제목·인물 이름·장소명을 함께 본다"""
+    sample = album.query(viewer_id=VIEWER, year=1998, limit=album.MAX_LIMIT)["items"][0]
+
+    for label, needle in (
+        ("파일명", sample["original_filename"]),
+        ("추억 제목", sample["event"]["title"] if sample["event"] else None),
+        ("인물", sample["people"][0]["name"] if sample["people"] else None),
+        ("장소", sample["place"]["name"] if sample["place"] else None),
+    ):
+        if not needle:
+            continue
+        hit = album.query(viewer_id=VIEWER, q=needle, limit=album.MAX_LIMIT)
+        assert sample["id"] in _ids(hit), f"{label}으로 찾지 못했다: {needle}"
+
+    assert album.query(viewer_id=VIEWER, q="없을리없는말없음")["total"] == 0
+    print("  파일명 · 추억 · 인물 · 장소 검색 OK")
+
+
+def test_filters_combine():
+    """필터는 함께 걸린다 (하나가 다른 하나를 덮지 않는다)"""
+    combined = album.query(
+        viewer_id=VIEWER,
+        types="photo",
+        year=1998,
+        person_id="P01",
+        event_status="linked",
+        limit=album.MAX_LIMIT,
+    )
+
+    assert combined["items"], "조건에 맞는 사진이 없다 (시드 확인)"
+    for item in combined["items"]:
+        assert item["media_type"] == "photo"
+        assert item["captured_at"][:4] == "1998"
+        assert "P01" in [p["id"] for p in item["people"]]
+        assert item["event"]
+    print("  사진 + 1998 + P01 + 연결됨 =", combined["total"], "건")
+
+
+# --- 페이지 ------------------------------------------------------------------
+
+
+def test_cursor_pages_have_no_overlap_or_gap():
+    """커서로 끝까지 넘겨도 겹침도 빠짐도 없다"""
+    full = _ids(album.query(viewer_id=VIEWER, limit=album.MAX_LIMIT))
+    assert len(full) > 6, "시드가 너무 적어 페이지를 확인할 수 없다"
+
+    walked: list[str] = []
+    cursor = None
+    for _ in range(20):  # 무한 루프 방어
+        page = album.query(viewer_id=VIEWER, limit=5, cursor=cursor)
+        assert page["total"] == len(full), "페이지마다 전체 개수가 달라졌다"
+        walked.extend(_ids(page))
+        cursor = page["next_cursor"]
+        if not cursor:
+            break
+
+    assert cursor is None, "커서가 끝나지 않았다"
+    assert walked == full, "커서로 걸은 순서가 전체 목록과 다르다"
+    assert len(set(walked)) == len(walked), "같은 사진이 두 번 나왔다"
+    print("  5개씩", len(full), "건 완주 · 겹침 없음")
+
+
+def test_limit_is_capped():
+    """한 번에 60개를 넘겨주지 않는다 (500장이어도 원본을 다 부르지 않는다)"""
+    result = album.query(viewer_id=VIEWER, limit=10_000)
+    assert len(result["items"]) <= album.MAX_LIMIT, len(result["items"])
+    print("  limit 상한", album.MAX_LIMIT, "적용 OK")
+
+
+def test_cursor_from_another_sort_is_not_reused():
+    """정렬을 바꾸면 커서를 버리고 처음부터 준다
+
+    같은 id 다음 자리가 정렬에 따라 전혀 달라진다. 조용히 이어 주면 화면에
+    사진이 겹치거나 빠진 채로 쌓인다.
+    """
+    first = album.query(viewer_id=VIEWER, limit=5)
+    restarted = album.query(
+        viewer_id=VIEWER, limit=5, cursor=first["next_cursor"], sort="captured_asc"
+    )
+    fresh = album.query(viewer_id=VIEWER, limit=5, sort="captured_asc")
+
+    assert _ids(restarted) == _ids(fresh), "다른 정렬의 커서를 그대로 이어 붙였다"
+    print("  정렬 바뀐 커서 → 처음부터 OK")
+
+
+# --- 공개 범위 ---------------------------------------------------------------
+
+
+def test_private_media_is_hidden_from_others():
+    """비공개 사진은 목록·개수·연도 목록에서 모두 빠진다"""
+    graph_manager.update_node(
+        PRIVATE_MEDIA,
+        {"visibility": Visibility.PRIVATE.value, "owner_id": VIEWER, "allowed_ids": []},
+    )
+
+    owner = album.query(viewer_id=VIEWER, limit=album.MAX_LIMIT)
+    other = album.query(viewer_id=OTHER, limit=album.MAX_LIMIT)
+
+    assert PRIVATE_MEDIA in _ids(owner), "올린 사람이 자기 사진을 못 본다"
+    assert PRIVATE_MEDIA not in _ids(other), "비공개 사진이 다른 가족에게 보인다"
+    # 개수만 남아도 "무언가 있다"는 사실이 새어 나간다
+    assert other["total"] == owner["total"] - 1, (owner["total"], other["total"])
+
+    # 원본 경로가 응답에 실리지 않았다 — 목록에서 원본 주소를 얻을 길이 없다
+    assert all(PRIVATE_MEDIA not in item["file_path"] for item in other["items"])
+    print(f"  소유자 {owner['total']} · 다른 가족 {other['total']}")
+
+    _restore()
+
+
+def test_viewer_without_id_sees_family_shared_only():
+    """누가 보는지 모르면 가족 전체 공개만 준다"""
+    graph_manager.update_node(
+        PRIVATE_MEDIA,
+        {"visibility": Visibility.PRIVATE.value, "owner_id": VIEWER, "allowed_ids": []},
+    )
+
+    anonymous = album.query(viewer_id=None, limit=album.MAX_LIMIT)
+    assert PRIVATE_MEDIA not in _ids(anonymous), "열람자를 모르는데 비공개 사진을 줬다"
+    print("  열람자 미상 →", anonymous["total"], "건")
+
+    _restore()
+
+
+# --- 라우트 ------------------------------------------------------------------
+
+
+def test_album_route_is_declared_before_media_id():
+    """/album이 /{media_id}보다 먼저 선언돼 있어야 한다
+
+    순서가 뒤바뀌면 FastAPI가 "album"을 media_id로 읽어 404를 준다.
+    라우트 선언 순서는 코드를 읽어서는 놓치기 쉬우므로 여기서 잡는다.
+    """
+    from fastapi.testclient import TestClient
+
+    from backend.main import app
+
+    client = TestClient(app)
+    response = client.get("/api/media/album", params={"viewer_id": VIEWER, "limit": 5})
+
+    assert response.status_code == 200, response.text
+    body = response.json()
+    assert len(body["items"]) == 5, len(body["items"])
+    assert body["total"] >= 5
+    assert body["next_cursor"], "다음 페이지 커서가 없다"
+
+    # 스키마가 사진첩 화면이 필요한 것을 실제로 담고 있는가
+    item = body["items"][0]
+    for key in (
+        "id",
+        "media_type",
+        "file_path",
+        "original_filename",
+        "captured_at",
+        "uploaded_at",
+        "event",
+        "people",
+        "place",
+        "visibility",
+        "has_exif",
+    ):
+        assert key in item, f"응답에 {key}가 없다"
+
+    # 미디어 상세는 그대로 열린다 (사진첩 라우트가 가로채지 않았다)
+    detail = client.get(f"/api/media/{PRIVATE_MEDIA}", params={"viewer_id": VIEWER})
+    assert detail.status_code == 200, detail.text
+    print("  GET /api/media/album 200 ·", body["total"], "건")
+
+
+def test_router_passes_every_filter_through():
+    """라우터가 화면이 보낸 조건을 서비스에 그대로 넘기는가"""
+    result = asyncio.run(
+        get_album(
+            cursor=None,
+            limit=5,
+            types="photo",
+            year=1998,
+            person_id="P01",
+            event_status="linked",
+            sort="captured_asc",
+            q=None,
+            viewer_id=VIEWER,
+        )
+    )
+    direct = album.query(
+        viewer_id=VIEWER,
+        types="photo",
+        year=1998,
+        person_id="P01",
+        event_status="linked",
+        sort="captured_asc",
+        limit=5,
+    )
+    assert result == direct, "라우터를 지나며 조건이 달라졌다"
+    print("  라우터 → 서비스 인자 전달 OK")
+
+
+TESTS = [
+    test_album_has_photos_and_videos_only,
+    test_undated_photos_are_kept_and_pushed_last,
+    test_captured_order_uses_exif_not_upload_time,
+    test_type_filter,
+    test_year_filter_uses_capture_year,
+    test_year_options_survive_a_year_selection,
+    test_person_filter_only_uses_human_tags,
+    test_event_status_filter,
+    test_search_covers_filename_event_person_place,
+    test_filters_combine,
+    test_cursor_pages_have_no_overlap_or_gap,
+    test_limit_is_capped,
+    test_cursor_from_another_sort_is_not_reused,
+    test_private_media_is_hidden_from_others,
+    test_viewer_without_id_sees_family_shared_only,
+    test_album_route_is_declared_before_media_id,
+    test_router_passes_every_filter_through,
+]
+
+
+if __name__ == "__main__":
+    _require_seeded_graph()
+    _setup()
+
+    failures = 0
+    for test in TESTS:
+        try:
+            test()
+            print(f"PASS {test.__name__}")
+        except AssertionError as e:
+            failures += 1
+            print(f"FAIL {test.__name__}: {e}")
+        except Exception as e:
+            failures += 1
+            print(f"ERROR {test.__name__}: {type(e).__name__} {e}")
+
+    _cleanup()
+    print()
+    print(f"{len(TESTS) - failures}/{len(TESTS)} 통과")
+    sys.exit(1 if failures else 0)

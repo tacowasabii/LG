@@ -5,11 +5,11 @@ import {
   Film,
   Heart,
   Home,
+  Images,
   Lock,
   MapPin,
   MessageCircle,
   Mic,
-  Share2,
   Tv,
   Upload,
   Users,
@@ -29,14 +29,18 @@ import { useCurrentUser } from '../lib/currentUser'
  * 예전에는 "확인" 묶음에 확인 요청과 Memory Gap이 있었고, 확인 대기 건수를
  * 강조색 뱃지로 달았다. 둘 다 없앴다. 남의 기억을 확인해 줄 의무가 사라졌고,
  * 밀린 건수를 뱃지로 세우면 그 순간 이 앱은 다시 할 일 목록이 된다.
+ *
+ * 그래프(/graph)는 목록에서 뺐다. 기억을 찾는 길로는 사진첩·타임라인·인물이
+ * 앞서고, 노드와 엣지를 보는 화면은 가족이 쓸 자리가 아니다. 주소와 기능은
+ * 그대로 살아 있다 — 시연과 점검에서 직접 열어 쓴다 (App.tsx의 /graph).
  */
 const navGroups = [
   {
     title: '기억',
     items: [
       { to: '/', icon: Home, label: '홈' },
+      { to: '/album', icon: Images, label: '사진첩' },
       { to: '/map', icon: MapPin, label: '타임라인 · 지도' },
-      { to: '/graph', icon: Share2, label: '그래프' },
       { to: '/family', icon: Users, label: '인물' },
     ],
   },

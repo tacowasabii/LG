@@ -187,6 +187,115 @@ export async function getMediaList(): Promise<MediaItem[]> {
   return fetchJSON(withViewer(`${BASE_URL}/media`));
 }
 
+// --- 사진첩 ---
+
+/**
+ * 사진첩 한 칸.
+ *
+ * MediaItem과 나눠 둔 이유: 사진첩은 사건·인물·장소·공개 범위를 한 목록에서
+ * 그려야 하는데, 반대로 음성 전용 필드(파형·전사문)는 쓰지 않는다.
+ */
+export interface AlbumMediaItem {
+  id: string;
+  media_type: 'photo' | 'video';
+  file_path: string;
+  thumbnail_path?: string | null;
+  original_filename: string;
+  /**
+   * 촬영일. has_exif가 false면 카메라가 적은 날짜가 아니라 올린 시각이다 —
+   * 화면은 그때 "날짜를 알 수 없는 사진"으로 묶는다.
+   */
+  captured_at?: string | null;
+  uploaded_at: string;
+  duration_sec?: number | null;
+  event?: { id: string; title: string } | null;
+  /** 사람이 직접 지목한 사람들만 (얼굴 인식이 없다) */
+  people: Array<{
+    id: string;
+    name: string;
+    relation?: string | null;
+    thumbnail_url?: string | null;
+  }>;
+  place?: { id: string; name: string } | null;
+  visibility: Visibility;
+  owner_id?: string | null;
+  has_exif: boolean;
+}
+
+export interface AlbumResponse {
+  items: AlbumMediaItem[];
+  /** 다음 페이지를 부를 때 그대로 되돌려 보낸다. 없으면 마지막 페이지다 */
+  next_cursor?: string | null;
+  /** 지금 조건에 맞는 전체 개수 (이 페이지 개수가 아니다) */
+  total: number;
+  /** 고를 수 있는 촬영 연도 (최신순) */
+  available_years: number[];
+}
+
+/**
+ * 기록 하나의 상세. 목록에 싣지 않는 것(카메라·좌표·장면 설명)이 여기 있다.
+ *
+ * 사진첩은 상세를 열 때 이걸 부른다 — 목록 60건에 카메라 정보까지 실으면
+ * 훑어보기만 하는 사람도 쓰지 않을 값을 매번 받는다.
+ */
+export interface MediaDetail {
+  id: string;
+  media_type: string;
+  file_path: string;
+  thumbnail_path?: string | null;
+  original_filename: string;
+  created_at: string;
+  exif_date?: string | null;
+  exif_lat?: number | null;
+  exif_lng?: number | null;
+  exif_camera?: string | null;
+  detected_faces: string[];
+  scene_description?: string | null;
+  /** 그 설명을 누가 썼는지: ai_vision(모델이 사진을 보고 씀) | user_input */
+  scene_source?: string | null;
+  confidence: string;
+  linked_events: Array<{ id: string; title: string }>;
+  linked_persons: Array<{ id: string; name: string }>;
+}
+
+/** 볼 수 없는 기록은 404가 온다 (있다는 사실 자체를 알리지 않는다) */
+export async function getMediaDetail(mediaId: string): Promise<MediaDetail> {
+  return fetchJSON(withViewer(`${BASE_URL}/media/${mediaId}`));
+}
+
+export type AlbumSort = 'captured_desc' | 'captured_asc' | 'uploaded_desc';
+export type AlbumEventStatus = 'all' | 'linked' | 'unlinked';
+
+export interface AlbumQuery {
+  cursor?: string | null;
+  limit?: number;
+  /** 'photo' | 'video' — 비우면 둘 다 */
+  types?: string | null;
+  year?: number | null;
+  personId?: string | null;
+  eventStatus?: AlbumEventStatus;
+  sort?: AlbumSort;
+  q?: string | null;
+}
+
+/**
+ * 사진첩 한 페이지. 원본은 부르지 않는다 — 썸네일 경로만 받아 두고 원본은
+ * 상세(Lightbox)를 열 때 처음 불러온다.
+ */
+export async function getAlbum(query: AlbumQuery = {}): Promise<AlbumResponse> {
+  const params = new URLSearchParams();
+  if (query.cursor) params.set('cursor', query.cursor);
+  params.set('limit', String(query.limit ?? 60));
+  if (query.types) params.set('types', query.types);
+  if (query.year != null) params.set('year', String(query.year));
+  if (query.personId) params.set('person_id', query.personId);
+  if (query.eventStatus && query.eventStatus !== 'all') params.set('event_status', query.eventStatus);
+  if (query.sort) params.set('sort', query.sort);
+  if (query.q) params.set('q', query.q);
+
+  return fetchJSON(withViewer(`${BASE_URL}/media/album?${params.toString()}`));
+}
+
 /**
  * 녹음한 음성 업로드.
  * 길이와 파형은 브라우저가 계산해서 함께 보낸다 — 서버에 오디오 디코더를 두지
@@ -1028,19 +1137,62 @@ export interface MemoryDraftGroups {
 }
 
 /**
+ * 서버가 준 초안을 화면이 읽을 수 있는 모양으로 맞춘다.
+ *
+ * 배열이 빠져 있으면 빈 배열로 채운다. 화면은 evidence·related·media를 바로
+ * `.length`로 읽는데, 하나라도 없으면 묶음을 그리는 중에 예외가 나면서 모으기
+ * 화면 전체가 사라진다 — 사용자에게는 "사진을 올렸는데 아무것도 안 뜬다"로
+ * 보인다. 없는 것은 없다고 그리는 것이 화면이 죽는 것보다 낫다.
+ */
+function normalizeDraft(raw: Partial<MemoryDraft> | null | undefined): MemoryDraft {
+  const list = <T,>(value: unknown): T[] => (Array.isArray(value) ? (value as T[]) : []);
+  return {
+    ...(raw as MemoryDraft),
+    title: raw?.title ?? '',
+    description: raw?.description ?? '',
+    media: list<MemoryDraft['media'][number]>(raw?.media),
+    person_ids: list<string>(raw?.person_ids),
+    person_candidates: list<MemoryDraft['person_candidates'][number]>(raw?.person_candidates),
+    evidence: list<MemoryDraft['evidence'][number]>(raw?.evidence),
+    related: list<MemoryDraft['related'][number]>(raw?.related),
+    ai_used: !!raw?.ai_used,
+  };
+}
+
+/**
  * 올린 기록으로 초안을 만든다.
  *
  * 기본은 날짜·장소로 갈라 묶음마다 초안 하나다 — 어떤 사진이 같은 사건인지
  * 고르는 일을 사용자에게 맡기지 않는다. AI가 잘못 갈랐으면 merge로 다시 부른다.
+ *
+ * 묶음이 없는 예전 응답(초안 하나를 그대로 준다)도 받아 준다. 프론트와 백엔드가
+ * 서로 다른 시점에 배포되면 이 응답 모양이 어긋나고, 그때 화면이 죽는 대신
+ * 묶음 하나로 그린다.
  */
 export async function draftMemory(
   mediaIds: string[],
   merge = false,
 ): Promise<MemoryDraftGroups> {
-  return fetchJSON(`${BASE_URL}/memories/draft`, {
-    method: 'POST',
-    body: JSON.stringify({ media_ids: mediaIds, merge }),
-  });
+  const raw = await fetchJSON<Partial<MemoryDraftGroups> & Partial<MemoryDraft>>(
+    `${BASE_URL}/memories/draft`,
+    {
+      method: 'POST',
+      body: JSON.stringify({ media_ids: mediaIds, merge }),
+    },
+  );
+
+  const groups = Array.isArray(raw?.groups)
+    ? raw.groups
+    : // 예전 서버는 묶음 없이 초안 하나를 돌려준다 (media가 그 표시다)
+      Array.isArray(raw?.media)
+      ? [raw as MemoryDraft]
+      : [];
+
+  return {
+    groups: groups.map(normalizeDraft),
+    total: typeof raw?.total === 'number' ? raw.total : groups.length,
+    grouped: !!raw?.grouped,
+  };
 }
 
 export interface MemoryCreateInput {
