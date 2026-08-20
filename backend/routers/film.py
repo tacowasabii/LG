@@ -8,8 +8,10 @@ from backend.models.schemas import (
     AnniversaryItem,
     FilmRequest,
     FilmResponse,
+    MotionReady,
+    MotionStatusResponse,
 )
-from backend.services import film_composer
+from backend.services import film_composer, motion_clips
 from backend.services.permissions import current_actor
 
 router = APIRouter()
@@ -39,6 +41,48 @@ async def compose_film(
         )
 
     return FilmResponse(**board)
+
+
+@router.get("/motion", response_model=MotionStatusResponse)
+async def motion_status(media_ids: str = ""):
+    """맡긴 미세 모션 클립이 준비됐는지
+
+    화면이 주기적으로 묻는다. POST /api/film 을 다시 부르지 않는 이유는 그쪽이
+    내레이션을 위해 모델을 호출하기 때문이다 — 되묻는 값이 응답 시간과 돈으로
+    돌아온다. 여기는 파일 목록만 읽는다.
+
+        GET /api/film/motion?media_ids=E01_001,E01_002
+    """
+    wanted = [x.strip() for x in media_ids.split(",") if x.strip()]
+    clips = motion_clips.manifest()
+    failed = motion_clips.failures()
+    in_flight = set(motion_clips.pending_ids())
+
+    if wanted:
+        clips = {k: v for k, v in clips.items() if k in wanted}
+        pending = [media_id for media_id in wanted if media_id in in_flight]
+        failed = {k: v for k, v in failed.items() if k in wanted}
+    else:
+        pending = sorted(in_flight)
+
+    ready = {
+        media_id: MotionReady(
+            file=clip["file"],
+            poster=clip.get("poster"),
+            # 라벨은 서버가 정한다 — 화면이 조립하면 갈라진다
+            label=film_composer.generated_label(clip),
+        )
+        for media_id, clip in clips.items()
+        if clip.get("file")
+    }
+
+    return MotionStatusResponse(
+        ready=ready,
+        pending=pending,
+        failed=failed,
+        enabled=motion_clips.enabled(),
+        attempts_left=motion_clips.attempts_left(),
+    )
 
 
 @router.get("/anniversaries", response_model=list[AnniversaryItem])

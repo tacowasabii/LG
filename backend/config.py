@@ -32,6 +32,13 @@ STATE_DIR = Path(os.getenv("STATE_DIR", str(DATA_DIR)))
 
 MEDIA_DIR = STATE_DIR / "media"
 GRAPH_FILE = STATE_DIR / "graph.json"
+# 런타임에 만든 미세 모션 클립의 목록과 지출 기록. data/ 는 배포에서 읽기
+# 전용이라(이미지에 구워져 있다) 쓰는 것은 반드시 이쪽이어야 한다.
+MOTION_RUNTIME_MANIFEST_FILE = STATE_DIR / "motion_manifest.json"
+MOTION_LEDGER_FILE = STATE_DIR / "motion_spend.json"
+# 사건마다 고른 대표 사진. 한 번 고른 것을 지켜야 한다 — 고를 때마다 달라지면
+# 매번 다른 사진을 만들어 지출이 늘어난다 (cover_picker).
+MOTION_COVERS_FILE = STATE_DIR / "motion_covers.json"
 EXPORT_DIR = STATE_DIR / "exports"
 SPACE_FILE = STATE_DIR / "family_space.json"
 TRUST_REPORT_FILE = STATE_DIR / "trust_report.json"
@@ -127,6 +134,36 @@ FRIENDLI_TIMEOUT = float(os.getenv("FRIENDLI_TIMEOUT", "120"))
 LLM_ANSWER_PROVIDER = os.getenv("LLM_ANSWER_PROVIDER", "exaone").strip().lower()
 LLM_PLAN_PROVIDER = os.getenv("LLM_PLAN_PROVIDER", "bedrock").strip().lower()
 LLM_EXTRACT_PROVIDER = os.getenv("LLM_EXTRACT_PROVIDER", "bedrock").strip().lower()
+
+
+# --- 미세 모션 클립 ---
+# Film을 만들 때 클립이 없는 사진을 그 자리에서 만들지 여부.
+#
+# 켜면 돈이 나간다. 그리고 이 API에는 인증이 없어서(CORS는 브라우저만 막는다)
+# 주소를 아는 누구나 생성을 일으킬 수 있다. 그래서 상한을 함께 둔다 —
+# MOTION_AUTOGEN_MAX 회를 넘으면 더 만들지 않고, 클립이 없는 사진은 원래대로
+# CSS 카메라 움직임으로 돈다. 세는 값은 STATE_DIR에 남아 재시작에도 유지된다.
+#
+# FAL_KEY가 없거나 ffmpeg가 없으면 이 값과 무관하게 꺼진 것처럼 동작한다.
+MOTION_AUTOGEN = os.getenv("MOTION_AUTOGEN", "false").lower() == "true"
+# 480p 한 건이 약 $0.2다. 기본 50건 = 약 $10.
+MOTION_AUTOGEN_MAX = int(os.getenv("MOTION_AUTOGEN_MAX", "50"))
+# 사건 하나에서 움직이게 만들 대표 사진 수의 상한.
+#
+# 사진이 이 수보다 적으면 전부 만든다. 많으면 대표를 골라 그만큼만 만든다 —
+# 사진 백 장인 앨범에서 전부 만들면 지출이 한 번에 튄다.
+MOTION_COVERS_PER_EVENT = int(os.getenv("MOTION_COVERS_PER_EVENT", "3"))
+
+# 생성·후처리 기본값. 왜 이 값인지는 README "미세 모션 클립" 절에 있다.
+MOTION_RESOLUTION = os.getenv("MOTION_RESOLUTION", "480p")
+MOTION_SOURCE_SECONDS = int(os.getenv("MOTION_SOURCE_SECONDS", "5"))
+MOTION_USE_SECONDS = float(os.getenv("MOTION_USE_SECONDS", "2.0"))
+# crossfade | pingpong | none
+MOTION_LOOP_MODE = os.getenv("MOTION_LOOP_MODE", "none")
+MOTION_CROSSFADE = float(os.getenv("MOTION_CROSSFADE", "0.5"))
+
+# fal API 키. 없으면 런타임 생성이 꺼진다 (미리 만들어 커밋한 클립은 그대로 돈다).
+FAL_KEY = os.getenv("FAL_KEY", "").strip()
 
 
 # --- 저장소 ---

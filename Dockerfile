@@ -3,8 +3,11 @@ FROM python:3.12-slim
 WORKDIR /app
 
 # 시스템 의존성
+# ffmpeg는 미세 모션 클립을 자르고 루프로 만드는 데 쓴다 (MOTION_AUTOGEN).
+# 끄고 쓸 거면 필요 없지만, 없는 상태로 켜면 생성이 조용히 전부 실패한다.
 RUN apt-get update && apt-get install -y --no-install-recommends \
     gcc \
+    ffmpeg \
     && rm -rf /var/lib/apt/lists/*
 
 # Python 의존성

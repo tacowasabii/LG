@@ -25,6 +25,7 @@ import {
   FilmStoryboard,
   composeFilm,
   getAnniversaries,
+  getMotionStatus,
   mediaUrl,
 } from '../lib/api'
 import { AUDIENCE_DESC, AUDIENCE_LABEL, Audience, FilmLength } from '../lib/filmOptions'
@@ -119,6 +120,67 @@ export default function FilmPage() {
 
   const scenes = board?.scenes ?? []
   const totalSec = board?.total_sec ?? 0
+  const motionPending = board?.motion_pending ?? []
+
+  /*
+    아직 만들고 있는 클립을 기다린다.
+
+    서버는 클립이 없는 사진을 그 자리에서 만들기 시작하고 바로 응답한다
+    (한 장에 40초쯤 걸린다). 여기서 잠시 뒤 되물어, 준비된 것만 그 장면에
+    바꿔 끼운다 — 화면을 처음부터 다시 그리지 않는다.
+
+    composeFilm을 다시 부르지 않는 이유는 그쪽이 내레이션을 위해 모델을
+    호출하기 때문이다. 되묻는 값이 응답 시간과 돈으로 돌아온다.
+
+    실패한 것은 서버가 failed로 알려주고 다시 맡지 않는다. 그것까지 빠지면
+    기다릴 것이 없어져 되묻기가 멈춘다.
+  */
+  useEffect(() => {
+    if (motionPending.length === 0) return
+
+    let cancelled = false
+    const timer = window.setInterval(async () => {
+      try {
+        const status = await getMotionStatus(motionPending)
+        if (cancelled) return
+
+        const arrived = Object.keys(status.ready)
+        const settled = new Set([...arrived, ...Object.keys(status.failed)])
+        if (settled.size === 0) return
+
+        setBoard((prev) => {
+          if (!prev) return prev
+          return {
+            ...prev,
+            scenes: prev.scenes.map((scene) => {
+              const clip = status.ready[scene.media_id]
+              if (!clip) return scene
+              return {
+                ...scene,
+                motion_url: clip.file,
+                thumb: clip.poster || scene.thumb,
+                // 라벨과 카메라 움직임도 서버가 준 대로 바꾼다. 클립이 도는
+                // 장면에 CSS 움직임을 겹쳐 두면 어지럽고, 라벨이 "느린 줌 인"
+                // 으로 남으면 화면이 하지 않는 일을 했다고 적는 셈이다.
+                motion: null,
+                ai_effects: [clip.label],
+              }
+            }),
+            motion_pending: prev.motion_pending?.filter((id) => !settled.has(id)) ?? [],
+          }
+        })
+      } catch (e) {
+        console.error(e)
+      }
+    }, 8000)
+
+    return () => {
+      cancelled = true
+      window.clearInterval(timer)
+    }
+    // motionPending의 내용이 바뀔 때만 다시 건다 (배열 정체성이 아니라 값 기준)
+  }, [motionPending.join(',')])
+
 
   useEffect(() => {
     if (!playing) return
@@ -389,6 +451,15 @@ export default function FilmPage() {
                 </button>
               )}
             </div>
+            {motionPending.length > 0 && (
+              /* 만들고 있다는 사실을 밝힌다. 조용히 기다리게 하면 사진이 왜
+                 안 움직이는지 알 수 없고, 준비되면 그 자리에서 바뀐다. */
+              <p className="t-caption m-0 mt-2">
+                사진 {motionPending.length}장의 미세 움직임을 만들고 있습니다. 한 장에 40초쯤
+                걸리고, 준비되면 그 장면이 움직이는 영상으로 바뀝니다. 지금은 카메라
+                움직임으로 재생됩니다.
+              </p>
+            )}
             {board.omitted_scenes > 0 && (
               <p className="t-caption m-0 mt-2">
                 {board.requested_sec}초에 맞추려고 장면 {board.omitted_scenes}개를 뺐습니다. 더 긴

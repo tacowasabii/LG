@@ -21,3 +21,7 @@ psycopg-pool==3.2.3
 
 # Bedrock (자격증명이 있을 때만 실제로 쓰인다)
 boto3==1.43.75
+
+# 미세 모션 클립 생성 (MOTION_AUTOGEN=true 일 때만 실제로 호출한다).
+# 끄고 쓰면 import되지 않지만, 배포에서 켜려면 이미지에 있어야 한다.
+fal-client==1.0.1

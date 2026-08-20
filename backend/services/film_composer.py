@@ -17,12 +17,12 @@
 
 from __future__ import annotations
 
-import json
 from datetime import date
+from pathlib import Path
 from typing import Optional
 
-from backend.config import MOTION_MANIFEST_FILE
-from backend.services import llm_client, visibility
+from backend.config import MEDIA_DIR, MOTION_COVERS_PER_EVENT
+from backend.services import cover_picker, llm_client, motion_clips, visibility
 from backend.services.graph_manager import graph_manager
 from backend.models.graph_models import MediaType, NodeType
 
@@ -75,22 +75,41 @@ ALLOWED_EFFECTS = frozenset(
 )
 
 
-def motion_clips() -> dict:
-    """미리 만들어 둔 미세 모션 클립 목록 (media_id -> 클립 정보)
+def generated_label(clip: dict) -> str:
+    """생성 클립을 재생하는 장면의 AI 라벨
 
-    scripts/build_motion_covers.py가 data/motion/manifest.json에 쓰고 여기서 읽는다.
-    파일이 없는 것은 정상이다 — 아직 만들지 않았다는 뜻이고, 그때는 사진에
-    카메라 움직임만 걸려 지금까지와 똑같이 동작한다.
-
-    캐시하지 않는다. 항목이 열 개 남짓이라 읽는 값이 싸고, 캐시하면 클립을 새로
-    만든 뒤 서버를 재시작해야 화면에 나타난다 — 만드는 쪽이 로컬 스크립트라
-    그 함정에 걸리기 쉽다.
+    화면이 나중에 클립을 바꿔 끼울 때도 이 값을 받아 쓴다. 라벨을 화면에서
+    조립하면 서버가 붙이는 것과 갈라지고, 그게 정확히 예전에 표시와 적용이
+    어긋났던 원인이다.
     """
-    try:
-        clips = json.loads(MOTION_MANIFEST_FILE.read_text(encoding="utf-8"))
-    except (OSError, ValueError):
-        return {}
-    return clips if isinstance(clips, dict) else {}
+    label = GENERATED_MOTION_LABEL
+    if clip.get("subject_preserved"):
+        label += SUBJECT_PRESERVED_NOTE
+    return label
+
+
+def _photo_file(photo: dict) -> Path:
+    """서빙되는 사진의 실제 경로
+
+    file_path는 URL(/media-files/…)이라 그대로는 열 수 없다. 이름만 떼어
+    MEDIA_DIR에서 찾는다 — 시드가 넣은 것이든 사용자가 올린 것이든 거기 있다.
+    """
+    return MEDIA_DIR / Path(photo.get("file_path", "")).name
+
+
+def _request_clip(photo: dict, event: dict, place_name: Optional[str]) -> bool:
+    """이 사진의 클립을 만들어 달라고 맡긴다 (즉시 돌아온다)
+
+    무엇이 움직일지는 사진 설명·사건 제목·장소 이름에서 고른다. 그래프에는
+    메타데이터의 tags가 남지 않아서(시드가 옮기지 않는다) 문장에서 찾는다.
+    """
+    prompt = motion_clips.motion_prompt([
+        photo.get("scene_description"),
+        event.get("title"),
+        event.get("description"),
+        place_name,
+    ])
+    return motion_clips.request(photo["id"], _photo_file(photo), prompt)
 
 
 async def compose(
@@ -127,7 +146,22 @@ async def compose(
     place_name = place.get("name") if place else None
 
     scenes: list[dict] = []
-    clips = motion_clips()
+    clips = motion_clips.manifest()
+
+    # 어느 사진을 움직이게 만들지 먼저 정한다.
+    #
+    # 사진이 상한보다 적으면 전부 만든다 — 미세 모션은 정적으로 보이는 사진도
+    # 살리므로 세 장뿐인 사건에서 골라낼 이유가 없다. 상한은 사진 백 장인
+    # 앨범 때문에 있다 (한 장에 약 $0.2).
+    #
+    # 이미 클립이 있는 사진이 그 자리를 차지한다. 미리 만들어 둔 것이 있으면
+    # 그만큼 정원이 줄어 같은 사건에 또 만들지 않는다.
+    covers: set[str] = set()
+    already = sum(1 for photo in photos if photo["id"] in clips)
+    room = MOTION_COVERS_PER_EVENT - already
+    if motion_clips.enabled() and room > 0:
+        candidates = [photo for photo in photos if photo["id"] not in clips]
+        covers = set(await cover_picker.pick(event, candidates, place_name, limit=room))
 
     # 첫 장면은 언제·어디인지 밝힌다. 이야기가 시작되는 자리다.
     for index, photo in enumerate(photos):
@@ -144,9 +178,7 @@ async def compose(
             # 화면 안에서 이미 무언가 움직이는데 프레임까지 밀면 어지럽다.
             motion = None
             motion_url = clip["file"]
-            label = GENERATED_MOTION_LABEL
-            if clip.get("subject_preserved"):
-                label += SUBJECT_PRESERVED_NOTE
+            label = generated_label(clip)
             # 클립의 첫 프레임을 정지 이미지로 쓴다. 자동재생이 막힌 환경(iOS
             # 저전력 모드)에서 보이는 것이 이것이고, 썸네일(300x300 크롭)보다
             # 클립과 어긋나지 않는다.
@@ -156,6 +188,10 @@ async def compose(
             # 순서대로 돌려 써서 같은 효과가 연달아 붙지 않게 한다.
             motion, label = CAMERA_MOTIONS[index % len(CAMERA_MOTIONS)]
             motion_url = None
+            # 대표로 뽑힌 사진만 만들어 달라고 맡긴다. 즉시 돌아오고, 준비되면
+            # 화면이 되물어 바꿔 끼운다 — 40초를 응답에서 기다리게 하지 않는다.
+            if photo["id"] in covers:
+                _request_clip(photo, event, place_name)
 
         scenes.append({
             "media_id": photo["id"],
@@ -195,12 +231,19 @@ async def compose(
     fitted = _fit(scenes, length_sec)
     narration = await _narration(event, memories, persons, place_name, audience)
 
+    # 지금 만들고 있는 것 중 이 화면에 실제로 나오는 장면만 알린다. 방금 맡긴
+    # 것과 앞선 요청으로 이미 돌고 있는 것이 모두 여기 들어온다.
+    in_flight = set(motion_clips.pending_ids())
+    pending = [s["media_id"] for s in fitted if s["media_id"] in in_flight]
+
     return {
         "event_id": event_id,
         "title": _title(event, memories),
         "subtitle": " · ".join([p for p in (date_label, place_name) if p]),
         "narration": narration,
         "scenes": fitted,
+        # 아직 만들고 있는 사진. 화면은 이게 비어 있지 않으면 잠시 뒤 되묻는다.
+        "motion_pending": pending,
         "total_sec": sum(s["duration_sec"] for s in fitted),
         "audience": audience,
         "requested_sec": length_sec,

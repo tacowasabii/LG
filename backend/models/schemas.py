@@ -528,6 +528,34 @@ class FilmResponse(BaseModel):
     requested_sec: int = 45
     # 길이에 맞추려고 뺀 장면 수 — 몇 장면이 빠졌는지 화면이 밝힐 수 있게
     omitted_scenes: int = 0
+    # 지금 미세 모션 클립을 만들고 있는 사진들. 비어 있지 않으면 화면이 잠시 뒤
+    # GET /api/film/motion 으로 되묻고, 준비된 것을 그 자리에서 바꿔 끼운다.
+    motion_pending: list[str] = []
+
+
+class MotionReady(BaseModel):
+    """준비된 클립 하나. 화면이 장면을 이 값들로 바꿔 끼운다.
+
+    라벨을 함께 준다. 화면이 문구를 조립하면 서버가 붙이는 것과 갈라지고,
+    그게 예전에 표시와 적용이 어긋났던 원인이다.
+    """
+    file: str
+    poster: Optional[str] = None
+    label: str
+
+
+class MotionStatusResponse(BaseModel):
+    """미세 모션 클립이 준비됐는지 (화면이 주기적으로 묻는다)"""
+    # media_id -> 준비된 클립. 준비된 것만 담긴다.
+    ready: dict[str, MotionReady] = {}
+    # 아직 만들고 있는 사진
+    pending: list[str] = []
+    # 만들다 실패한 사진과 이유. 화면은 이걸 보고 되묻기를 멈춘다.
+    failed: dict[str, str] = {}
+    # 런타임 생성이 켜져 있는가 (키·ffmpeg·상한을 모두 통과했는가)
+    enabled: bool = False
+    # 남은 생성 횟수. 상한은 인증 없는 API에서 잔액을 지키는 장치다.
+    attempts_left: int = 0
 
 
 class AnniversaryItem(BaseModel):
@@ -561,6 +589,9 @@ class TVSlide(BaseModel):
     motion_poster: Optional[str] = None
     # 이 클립이 인물 영역을 원본으로 되돌렸는가. 화면이 라벨에 밝힌다.
     subject_preserved: bool = False
+    # 이 슬라이드에 적을 AI 라벨. 서버가 정한다 (film_composer.generated_label) —
+    # 화면이 문구를 조립하면 서버가 붙이는 것과 조용히 갈라진다.
+    motion_label: Optional[str] = None
 
 
 class TVJourneyResponse(BaseModel):

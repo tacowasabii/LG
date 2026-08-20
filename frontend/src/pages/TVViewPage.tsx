@@ -495,12 +495,14 @@ export default function TVViewPage() {
 
   // 만들어 둔 클립이 있고 움직임을 끄지 않았을 때만 재생한다
   const playClip = Boolean(slide.motion_url) && !reducedMotion
+  /* 생성 클립의 라벨은 서버가 준다 (motion_label). 여기서 문구를 조립하면
+     서버가 붙이는 것과 조용히 갈라진다 — 그게 예전에 Film에서 표시와 적용이
+     어긋났던 원인이다. 카메라 움직임과 "움직임 끔"은 화면이 정하는 상태라
+     여기서 적는다. */
   const motionLabel = reducedMotion
     ? '움직임 끔 · 원본 사진 그대로'
     : playClip
-      ? slide.subject_preserved
-        ? 'AI 생성 미세 움직임 · 인물은 원본'
-        : 'AI 생성 미세 움직임'
+      ? slide.motion_label || 'AI 생성 미세 움직임'
       : 'AI 카메라 움직임 · 원본 사진 그대로'
   const extraCaption = captionRemainder(slide.caption ?? '', slide.event_title, slide.date)
 

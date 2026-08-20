@@ -5,7 +5,7 @@ from __future__ import annotations
 import uuid
 from typing import Optional
 
-from backend.services import film_composer, llm_client
+from backend.services import film_composer, llm_client, motion_clips
 from backend.models.graph_models import NodeType
 from backend.services.graph_manager import graph_manager
 
@@ -91,10 +91,14 @@ def _parse_query(query: str) -> dict:
 
 
 def _motion_fields(media_id: str, clips: dict) -> dict:
-    """이 사진에 미리 만들어 둔 클립이 있으면 슬라이드에 실어 준다
+    """이 사진에 만들어 둔 클립이 있으면 슬라이드에 실어 준다
 
-    Film과 같은 매니페스트를 읽는다 (film_composer.motion_clips). 만들어 둔 것을
-    한 화면에서만 쓰면, 거실에서 보는 화면이 가장 좋은 재료를 못 쓰게 된다.
+    Film과 같은 목록을 읽는다 (motion_clips.manifest). 만들어 둔 것을 한 화면에서만
+    쓰면, 거실에서 보는 화면이 가장 좋은 재료를 못 쓰게 된다. 미리 만들어 커밋한
+    것과 Film에서 그때 만든 것이 모두 여기 들어온다.
+
+    TV는 만들지 않는다. 거실 화면은 리모컨으로 넘기는 자리라 40초를 기다릴 수
+    없고, 넘기는 것만으로 돈이 나가면 안 된다. Film이 만든 것을 쓰기만 한다.
 
     항목이 없는 사진은 빈 값이 되고 화면은 지금까지처럼 카메라 움직임만 건다.
     """
@@ -105,14 +109,16 @@ def _motion_fields(media_id: str, clips: dict) -> dict:
         "motion_url": clip.get("file"),
         "motion_poster": clip.get("poster"),
         "subject_preserved": bool(clip.get("subject_preserved")),
+        # 라벨도 서버가 준다. Film과 같은 함수를 써서 두 화면의 문구가 갈라지지 않게.
+        "motion_label": film_composer.generated_label(clip),
     }
 
 
 def _build_slides(conditions: dict, style: str) -> list[dict]:
     """조건에 맞는 슬라이드 목록 생성"""
     slides = []
-    # 매니페스트는 파일 하나라 한 번만 읽는다 (film_composer가 캐시한다)
-    clips = film_composer.motion_clips()
+    # 목록은 파일 두 개(커밋된 것 + 런타임)라 슬라이드마다 읽지 않고 한 번만 읽는다
+    clips = motion_clips.manifest()
 
     # 타이틀 슬라이드
     slides.append({

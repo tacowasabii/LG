@@ -731,8 +731,14 @@ export interface TVSlide {
   motion_url?: string | null;
   /** 클립이 못 뜰 때 보여줄 정지 그림 */
   motion_poster?: string | null;
-  /** 인물 영역을 원본으로 되돌린 클립인가. 라벨에 밝힌다 */
+  /** 인물 영역을 원본으로 되돌린 클립인가 */
   subject_preserved?: boolean;
+  /**
+   * 이 슬라이드에 적을 AI 라벨. 서버가 정한다
+   * (backend/services/film_composer.generated_label).
+   * 화면이 문구를 조립하면 서버가 붙이는 것과 조용히 갈라진다.
+   */
+  motion_label?: string | null;
 }
 
 export interface TVJourney {
@@ -918,6 +924,29 @@ export interface FilmStoryboard {
   requested_sec: number;
   /** 길이에 맞추려고 뺀 장면 수 */
   omitted_scenes: number;
+  /**
+   * 지금 미세 모션 클립을 만들고 있는 사진들.
+   * 비어 있지 않으면 화면이 getMotionStatus로 되묻고 준비된 것을 바꿔 끼운다.
+   */
+  motion_pending?: string[];
+}
+
+export interface MotionReady {
+  file: string;
+  poster?: string | null;
+  /** AI 라벨. 서버가 정한다 — 화면이 문구를 조립하면 서버와 갈라진다 */
+  label: string;
+}
+
+export interface MotionStatus {
+  /** media_id → 준비된 클립. 준비된 것만 담긴다 */
+  ready: Record<string, MotionReady>;
+  pending: string[];
+  /** 만들다 실패한 사진과 이유 — 화면은 이걸 보고 되묻기를 멈춘다 */
+  failed: Record<string, string>;
+  /** 런타임 생성이 켜져 있는가 (키·ffmpeg·상한을 모두 통과했는가) */
+  enabled: boolean;
+  attempts_left: number;
 }
 
 export interface Anniversary {
@@ -941,6 +970,19 @@ export async function composeFilm(
 
 export async function getAnniversaries(): Promise<Anniversary[]> {
   return fetchJSON(`${BASE_URL}/film/anniversaries`);
+}
+
+/**
+ * 맡긴 미세 모션 클립이 준비됐는지 묻는다.
+ *
+ * composeFilm을 다시 부르지 않는다 — 그쪽은 내레이션을 위해 모델을 호출해서,
+ * 되묻는 값이 응답 시간과 돈으로 돌아온다. 이 호출은 파일 목록만 읽는다.
+ */
+export async function getMotionStatus(mediaIds: string[]): Promise<MotionStatus> {
+  const query = mediaIds.length
+    ? '?media_ids=' + encodeURIComponent(mediaIds.join(','))
+    : '';
+  return fetchJSON(`${BASE_URL}/film/motion${query}`);
 }
 
 
