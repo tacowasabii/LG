@@ -44,7 +44,7 @@ from backend.models.graph_models import (
     RelationType,
     SourceType,
 )
-from backend.services import llm_client, visibility
+from backend.services import llm_client, memory_context, visibility
 from backend.services.graph_manager import graph_manager
 
 
@@ -514,11 +514,14 @@ def question_for_media(media_id: str) -> Optional[str]:
     return None
 
 
-def _memory_view(memory: dict) -> dict:
+def _memory_view(memory: dict, visible_media_ids: Optional[set] = None) -> dict:
     """기억 하나를 화면 모양으로
 
     원문(content)과 AI가 다듬은 문장(polished)을 함께 내려준다. 화면은 다듬은
     쪽을 보여주되 원문을 되짚을 수 있게 둔다 — 사람이 말한 그대로가 자산이다.
+
+    맥락(context)도 함께 내려준다. 원문 아래에 "이 기억에서 발견된 맥락"으로
+    붙는 파생값이고, 원문을 대신하지 않는다 (services/memory_context.py).
     """
     media = []
     for media_id in memory.get("media_ids") or []:
@@ -546,6 +549,8 @@ def _memory_view(memory: dict) -> dict:
         "created_at": memory.get("created_at"),
         "contributor": _person_ref(memory.get("contributor_id")),
         "media": media,
+        # 이 기억에서 뽑아낸 맥락 (없으면 None). 원문을 대신하지 않는다.
+        "context": memory_context.view(memory.get("context"), visible_media_ids),
     }
 
 
@@ -572,6 +577,8 @@ def detail(event_id: str, viewer_id: Optional[str] = None) -> Optional[dict]:
     items = memories_of(event_id, viewer_id)
     first = author_memory(event_id, items)
     state = state_of(event_id, viewer_id) or {}
+    # 맥락이 가리키는 사진도 이 사람이 볼 수 있는 것만 내려간다
+    visible_media_ids = {m["id"] for m in media}
 
     return {
         "id": event["id"],
@@ -610,9 +617,11 @@ def detail(event_id: str, viewer_id: Optional[str] = None) -> Optional[dict]:
             }
             for m in media
         ],
-        "author_memory": _memory_view(first) if first else None,
+        "author_memory": _memory_view(first, visible_media_ids) if first else None,
         "contributions": [
-            _memory_view(m) for m in items if m.get("id") != (first or {}).get("id")
+            _memory_view(m, visible_media_ids)
+            for m in items
+            if m.get("id") != (first or {}).get("id")
         ],
         "state": state.get("state", MemoryState.ALONE.value),
         "varied": state.get("varied", False),
@@ -654,6 +663,7 @@ def feed(viewer_id: Optional[str] = None, limit: int = 30) -> list[dict]:
             [n for n in connected if n.get("node_type") == NodeType.MEDIA], viewer_id
         )
         photos = [m for m in media if m.get("media_type") != "audio"]
+        visible_media_ids = {m["id"] for m in media}
         place = graph_manager.get_node(event.get("location_id") or "")
         if place and place.get("node_type") != NodeType.PLACE:
             place = None
@@ -681,9 +691,11 @@ def feed(viewer_id: Optional[str] = None, limit: int = 30) -> list[dict]:
                 if m.get("thumbnail_path") or m.get("file_path")
             ],
             "media_count": len(media),
-            "author_memory": _memory_view(first) if first else None,
+            "author_memory": _memory_view(first, visible_media_ids) if first else None,
             "contributions": [
-                _memory_view(m) for m in memories if m.get("id") != (first or {}).get("id")
+                _memory_view(m, visible_media_ids)
+                for m in memories
+                if m.get("id") != (first or {}).get("id")
             ],
             "state": state["state"],
             "varied": state["varied"],
@@ -772,6 +784,34 @@ async def polish(raw: str) -> tuple[str, bool]:
     return (cleaned or _tidy_fallback(raw)), bool(cleaned)
 
 
+async def extract_context(event_id: str, memory_id: str) -> Optional[dict]:
+    """저장된 기억에서 맥락을 뽑아 그 기억에 붙인다 (원문은 그대로 둔다)
+
+    순서를 바꾸지 않는다. 문장을 먼저 저장하고 그 다음에 맥락을 뽑는다 — 모델
+    호출이 실패하든 형식이 어긋나든 가족이 남긴 말은 이미 그래프에 있다.
+
+    사건은 건드리지 않는다. 제목·날짜·장소·참여자는 여기서 바뀌지 않고, 사진을
+    새로 잇지도 않는다. 맥락은 기억 노드 안에만 들어간다
+    (services/memory_context.py의 첫 주석이 그 이유를 적어 두었다).
+
+    Returns:
+        붙인 맥락. 뽑을 것이 없거나 모델을 부를 수 없으면 None.
+    """
+    memory = graph_manager.get_node(memory_id)
+    if not memory or memory.get("node_type") != NodeType.MEMORY:
+        return None
+
+    context = await memory_context.extract(
+        memory.get("content") or "", memory.get("contributor_id")
+    )
+    if not context:
+        return None
+
+    context = memory_context.resolve_media(context, event_id, memory)
+    graph_manager.update_node(memory_id, {"context": context})
+    return context
+
+
 def _story_fallback(title: str, entries: list[dict]) -> str:
     """모델 없이 여러 기억을 잇는다
 
@@ -827,6 +867,21 @@ async def compose_together_story(event_id: str, viewer_id: Optional[str] = None)
     if place.get("name"):
         facts.append(f"장소: {place['name']}")
 
+    # 원문을 맥락으로 바꿔치우지 않는다. 원문(위 entries)에 맥락과 사진 설명을
+    # 더해 함께 넘긴다 — 맥락만 주면 모델은 사람이 실제로 쓴 말투와 세부를 잃고,
+    # 원문만 주면 여러 기억이 같은 장면을 말하고 있다는 것을 읽지 못한다.
+    connected = graph_manager.get_connected_nodes(event_id)
+    visible_media = visibility.filter_media(
+        [n for n in connected if n.get("node_type") == NodeType.MEDIA], viewer_id
+    )
+    contexts = memory_context.from_memories(items, {m["id"] for m in visible_media})
+    context_lines = "\n".join(memory_context.prompt_line(c) for c in contexts)
+    scene_lines = "\n".join(
+        f"- {m['id']}: {m['scene_description']}"
+        for m in visible_media
+        if m.get("scene_description")
+    )
+
     story = None
     ai_used = False
 
@@ -848,12 +903,21 @@ async def compose_together_story(event_id: str, viewer_id: Optional[str] = None)
                         "3. 서로 다르게 기억하는 부분은 '누구는 ~로, 누구는 ~로 기억한다'처럼"
                         " 양쪽을 모두 남겨.\n"
                         "4. 주어진 기억에 없는 사실을 만들지 마.\n"
-                        "5. 3~5문장, 담담한 한국어 서술로. 제목이나 머리말 없이 본문만."
+                        "5. [기억 맥락]은 가족의 기억에서 뽑은 것이다. 사진에서 확인되지"
+                        " 않은 것은 사진의 내용으로 쓰지 말고 '누구는 ~를 기억한다'로 써.\n"
+                        "6. 3~5문장, 담담한 한국어 서술로. 제목이나 머리말 없이 본문만."
                     ),
                 },
                 {
                     "role": "user",
-                    "content": "[사건]\n" + "\n".join(facts) + "\n\n[가족이 남긴 기억]\n" + lines,
+                    "content": (
+                        "[사건]\n"
+                        + "\n".join(facts)
+                        + "\n\n[가족이 남긴 기억]\n"
+                        + lines
+                        + (f"\n\n[기억 맥락]\n{context_lines}" if context_lines else "")
+                        + (f"\n\n[연결된 사진의 장면 설명]\n{scene_lines}" if scene_lines else "")
+                    ),
                 },
             ],
             max_tokens=700,

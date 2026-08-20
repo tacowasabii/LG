@@ -263,6 +263,23 @@ class MemoryNode:
     differs: bool = False
     # 이 기억과 함께 올린 사진·영상 (EVIDENCED_BY 엣지와 함께 저장한다)
     media_ids: list = field(default_factory=list)
+    # 이 문장에서 뽑아낸 작은 "기억 맥락" (선택). 원문(content)은 손대지 않는다 —
+    # 여기 들어오는 것은 파생값이고, 사건의 제목·날짜·장소·정체성은 이 값으로
+    # 바뀌지 않는다 (services/memory_context.py).
+    #
+    #   {"speaker_id": "P02", "subject_person_ids": ["P03"],
+    #    "scene": "부산 바다", "action": "물장구치던",
+    #    "highlight": "가장 재미있게 기억하는 순간",
+    #    "confidence": "explicit" | "inferred",
+    #    "unmatched": ["큰엄마"],            그래프에 없어서 잇지 못한 호칭
+    #    "media_ids": ["E01_001"],           이 맥락이 가리키는 원본
+    #    "media_basis": "attached" | "scene" | "person" | None,
+    #    "visual_treatment": "subject-focus" | None}
+    #
+    # 별도 노드로 떼어 두지 않은 이유: 맥락은 기억에 딸린 값이라 기억을 지우면
+    # 함께 사라져야 한다. 노드로 두면 거둔 말의 맥락이 그래프에 남고 Film 자막에서
+    # 계속 읽힌다.
+    context: Optional[dict] = None
     created_at: str = field(default_factory=lambda: datetime.now().isoformat())
 
 

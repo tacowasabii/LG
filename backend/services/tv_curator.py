@@ -5,7 +5,13 @@ from __future__ import annotations
 import uuid
 from typing import Optional
 
-from backend.services import film_composer, film_music, llm_client, motion_clips
+from backend.services import (
+    film_composer,
+    film_music,
+    llm_client,
+    memory_context,
+    motion_clips,
+)
 from backend.models.graph_models import NodeType
 from backend.services.graph_manager import graph_manager
 
@@ -152,11 +158,55 @@ def _motion_fields(media_id: str, clips: dict) -> dict:
     }
 
 
+def _context_fields(event: Optional[dict], media_id: str, cache: dict) -> dict:
+    """이 슬라이드에 얹을 기억 맥락 (Film과 같은 문구를 쓴다)
+
+    거실 화면에는 가족이 남긴 긴 문장을 그대로 띄우지 않는다. 3m 거리에서 읽을 수
+    있는 것은 한 줄이고, 그 한 줄이 "엄마가 기억하는 부산 바다"다. 원문은 앱에서
+    읽는다.
+
+    사건마다 한 번만 읽는다 (cache). 슬라이드 스무 장이 같은 사건을 가리키는
+    경우가 흔해서, 슬라이드마다 기억을 다시 읽으면 목록 하나에 그래프를 수십 번
+    훑는다.
+
+    이 사진을 가리키는 맥락이 없으면 사건의 대표 맥락을 올리되, 출처 문구에서
+    "이 사진의 장면은 아닙니다"라고 밝힌다 — 자막이 사진 설명으로 읽히면
+    사진에 없는 장면을 사실처럼 말하는 것이 된다.
+    """
+    if not event:
+        return {}
+
+    event_id = event.get("id")
+    if event_id not in cache:
+        cache[event_id] = memory_context.contexts_of(event_id)
+    contexts = cache[event_id]
+    if not contexts:
+        return {}
+
+    matched = memory_context.for_media(contexts, media_id)
+    context = matched or memory_context.primary(contexts)
+    if not context:
+        return {}
+
+    return {
+        "context_caption": memory_context.caption(context),
+        "context_contributor": memory_context.speaker_name(context),
+        "context_source": (
+            memory_context.source_note(context)
+            if matched
+            else memory_context.event_note(context)
+        ),
+        "context_media_ids": list(context.get("media_ids") or []) if matched else [],
+    }
+
+
 def _build_slides(conditions: dict, style: str) -> list[dict]:
     """조건에 맞는 슬라이드 목록 생성"""
     slides = []
     # 목록은 파일 두 개(커밋된 것 + 런타임)라 슬라이드마다 읽지 않고 한 번만 읽는다
     clips = motion_clips.manifest()
+    # 사건별 기억 맥락. 슬라이드를 만드는 동안 한 번씩만 읽는다.
+    contexts_by_event: dict = {}
 
     # 타이틀 슬라이드
     slides.append({
@@ -223,6 +273,7 @@ def _build_slides(conditions: dict, style: str) -> list[dict]:
             "event_title": event.get("title") if event else None,
             "date": media.get("exif_date", media.get("created_at", "")),
             **_motion_fields(media["id"], clips),
+            **_context_fields(event, media["id"], contexts_by_event),
         })
 
     # 매칭된 미디어가 없으면 전체에서 최신 순으로
@@ -246,6 +297,7 @@ def _build_slides(conditions: dict, style: str) -> list[dict]:
                 "event_title": event.get("title") if event else None,
                 "date": media.get("exif_date", media.get("created_at", "")),
                 **_motion_fields(media["id"], clips),
+                **_context_fields(event, media["id"], contexts_by_event),
             })
 
     return slides
@@ -303,6 +355,33 @@ def _generate_caption(media: dict, event: Optional[dict]) -> str:
     return " - ".join(parts) if parts else media.get("original_filename", "")
 
 
+def _journey_contexts(slides: list[dict], limit: int = 3) -> list[dict]:
+    """이 여정에 담긴 사건들의 기억 맥락 (중복 없이, 나온 순서대로)
+
+    내레이션이 쓸 재료다. 슬라이드에 실은 자막(context_caption)만으로는 무엇을
+    기억한다는 것인지 모델에게 전해지지 않는다 — 자막은 한 줄로 줄인 것이고,
+    여기서는 장면·대상·행동과 "사진에서 확인됐는지"까지 넘긴다.
+    """
+    picked: list[dict] = []
+    seen: set[str] = set()
+    events: set[str] = set()
+
+    for slide in slides:
+        event_id = slide.get("event_id")
+        if not event_id or event_id in events:
+            continue
+        events.add(event_id)
+        for context in memory_context.contexts_of(event_id):
+            key = context.get("memory_id") or ""
+            if key in seen:
+                continue
+            seen.add(key)
+            picked.append(context)
+            if len(picked) >= limit:
+                return picked
+    return picked
+
+
 async def _generate_narration(query: str, slides: list[dict]) -> str:
     """EXAONE으로 내레이션 텍스트 생성"""
     if not slides or len(slides) <= 1:
@@ -313,22 +392,60 @@ async def _generate_narration(query: str, slides: list[dict]) -> str:
         if s.get("caption"):
             slide_summary.append(s["caption"])
 
-    if not llm_client.is_enabled():
-        return _simulate_narration(query, slide_summary)
+    # 가족이 더한 기억에서 뽑은 맥락. Film과 같은 값을 쓴다 (memory_context) —
+    # 거실에서 듣는 이야기와 앱에서 보는 이야기가 갈라지지 않게.
+    contexts = _journey_contexts(slides)
 
+    if not llm_client.is_enabled():
+        return _simulate_narration(query, slide_summary, contexts)
+
+    context_lines = "\n".join(memory_context.prompt_line(c) for c in contexts)
     messages = [
-        {"role": "system", "content": "추억 사진 슬라이드쇼의 따뜻한 내레이션을 작성해. 2~3문장으로 짧게."},
-        {"role": "user", "content": f"주제: {query}\n사진들: {', '.join(slide_summary)}"},
+        {
+            "role": "system",
+            "content": (
+                "추억 사진 슬라이드쇼의 따뜻한 내레이션을 작성해. 2~3문장으로 짧게.\n"
+                "[기억 맥락]은 가족이 기억하는 관점이다. [사진에서 확인되지 않음]이"
+                " 붙은 것은 사진에 그 장면이 있다고 쓰지 말고, '하늘이가 물장구치던"
+                " 순간을 엄마는 가장 좋아했어요'처럼 기억의 주인을 밝혀서 써.\n"
+                "주어진 것에 없는 사실을 만들지 마."
+            ),
+        },
+        {
+            "role": "user",
+            "content": f"주제: {query}\n사진들: {', '.join(slide_summary)}"
+            + (f"\n\n[기억 맥락]\n{context_lines}" if context_lines else ""),
+        },
     ]
 
     narration = await llm_client.complete(messages, max_tokens=256)
     if narration is None:
-        return _simulate_narration(query, slide_summary)
+        return _simulate_narration(query, slide_summary, contexts)
     return narration
 
 
-def _simulate_narration(query: str, slide_summary: list[str]) -> str:
-    """내레이션 시뮬레이션"""
+def _simulate_narration(
+    query: str,
+    slide_summary: list[str],
+    contexts: Optional[list[dict]] = None,
+) -> str:
+    """내레이션 시뮬레이션
+
+    맥락이 있으면 그 한 줄을 붙인다. 모델이 없어도 가족이 남긴 관점이 거실
+    화면에서 사라지지 않아야 하고, 문장의 주어는 기억한 사람이다
+    (memory_context.narration_line).
+    """
+    lines = [
+        memory_context.narration_line(context) for context in (contexts or [])[:2]
+    ]
+    tail = " ".join(line for line in lines if line)
+
     if slide_summary:
-        return f"'{query}'에 대한 우리 가족의 소중한 기억들입니다. 함께한 순간들을 되돌아보며, 그때의 따뜻함을 다시 느껴보세요."
-    return "우리 가족의 소중한 순간들을 모아봤어요."
+        head = (
+            f"'{query}'에 대한 우리 가족의 소중한 기억들입니다."
+            " 함께한 순간들을 되돌아보며, 그때의 따뜻함을 다시 느껴보세요."
+        )
+    else:
+        head = "우리 가족의 소중한 순간들을 모아봤어요."
+
+    return f"{head} {tail}".strip() if tail else head

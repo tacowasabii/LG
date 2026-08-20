@@ -430,6 +430,7 @@ JSON(NetworkX)은 마지막 하나만 남깁니다. Postgres 쪽이 옳습니다
 python tests/test_chat_search.py        # 검색 15개
 python tests/test_chat_graph.py         # 질의 계획 8개
 python tests/test_memories.py           # 추억 게시·기억 더하기·기억 삭제 10개
+python tests/test_memory_context.py     # 더한 기억에서 뽑은 맥락 -> Film·TV 11개
 python tests/test_events_and_voice.py   # 사건 요약·음성·화자 귀속 11개
 python tests/test_film.py               # Memory Film 12개
 python tests/test_motion_clips.py       # 미세 모션 클립 15개 (새 사건만·대표 선정·상한·TV)

@@ -13,6 +13,7 @@ import {
 } from '../lib/api'
 import AudioClip from '../components/AudioClip'
 import MemoryComposer from '../components/MemoryComposer'
+import MemoryContextNote from '../components/MemoryContextNote'
 import { STATE_CONFIG } from '../components/StatusPill'
 import { Page, PageHeader } from '../components/Page'
 import { invalidateEvents } from '../lib/useGraphData'
@@ -94,6 +95,13 @@ function MemoryBlock({
       {polished && !showRaw && (
         <p className="t-caption m-0 mt-1">AI가 읽기 좋게 정리했습니다. 원문은 그대로 보관됩니다.</p>
       )}
+
+      {/*
+        원문 아래에 맥락을 붙인다 (원문 → 맥락 → 연결된 사진 → 반영 여부).
+        순서가 뒤집히면 사람이 남긴 말이 추출 결과의 각주가 된다.
+      */}
+      <MemoryContextNote context={memory.context} detailed />
+
 
       {visuals.length > 0 && (
         <div className="mt-3 flex flex-wrap gap-2">

@@ -12,6 +12,9 @@
   - 내레이션은 확인된 기록 안에서만 쓴다. LLM이 없으면 사실만 적는다
   - 배경 음악은 무드만 정한다. 소리는 화면이 만들고, 그것이 원본 기록이 아니라는
     사실을 화면이 함께 밝힌다 (film_music)
+  - 가족이 더한 기억에서 뽑은 맥락은 사진 선택·순서·자막·내레이션에만 얹는다
+    (memory_context). 사진에서 확인되지 않은 행동을 사진의 내용으로 적지 않고,
+    없던 장면을 만들지 않는다 — 맥락이 있어도 화면에 나가는 것은 원본 픽셀이다
 
 세대별 옵션(child/adult/elder)은 장면 길이와 내레이션 어투를 바꾼다.
 어르신에게는 전환을 늦추고, 아이에게는 문장을 짧게 한다.
@@ -24,7 +27,14 @@ from pathlib import Path
 from typing import Optional
 
 from backend.config import MEDIA_DIR, MOTION_COVERS_PER_EVENT
-from backend.services import cover_picker, film_music, llm_client, motion_clips, visibility
+from backend.services import (
+    cover_picker,
+    film_music,
+    llm_client,
+    memory_context,
+    motion_clips,
+    visibility,
+)
 from backend.services.graph_manager import graph_manager
 from backend.models.graph_models import MediaType, NodeType
 
@@ -57,6 +67,10 @@ CAMERA_MOTIONS = [
     ("zoom-out", "느린 줌 아웃"),
     ("pan-right", "느린 패닝"),
 ]
+
+# 인물을 중심으로 들어가는 장면이 쓰는 쌍. 목록에서 꺼내 쓴다 — 문구를 여기서
+# 새로 적으면 ALLOWED_EFFECTS와 갈라진다.
+_MOTION_ZOOM_IN = CAMERA_MOTIONS[0]
 
 # 미리 만들어 둔 클립을 재생하는 장면의 라벨. 카메라 움직임과 구분해서 적는다 —
 # 이쪽은 원본에 없던 픽셀이 생긴 것이고, 둘을 같은 문구로 덮으면 "무엇이 원본이고
@@ -143,6 +157,12 @@ async def compose(
     videos = [m for m in media if m.get("media_type") == MediaType.VIDEO]
     audios = [m for m in media if m.get("media_type") == MediaType.AUDIO]
 
+    # 가족이 기억을 더할 때 그 문장에서 뽑아 둔 맥락 (services/memory_context.py).
+    # 없으면 지금까지와 똑같이 동작한다 — 맥락은 얹히는 값이고 전제가 아니다.
+    contexts = memory_context.from_memories(memories, {m["id"] for m in media})
+    # 맥락이 가리키는 사진을 앞으로 옮긴다. 빼지는 않는다 (memory_context.prioritize).
+    photos = memory_context.prioritize(photos, contexts)
+
     pace = AUDIENCE_PACE.get(audience, 1.0)
     date_label = _date_label(event.get("date_start"))
     place_name = place.get("name") if place else None
@@ -176,6 +196,12 @@ async def compose(
             # 목소리가 잘리지 않게 그 장면만 늘린다
             duration = max(duration, int(scene_voice["duration_sec"]) + 1)
 
+        # 이 사진을 가리키는 맥락과, 그 맥락의 인물이 사진에서 있는 자리.
+        # 자리를 아는 것은 저장된 얼굴 위치뿐이고(MediaNode.face_boxes) 없는
+        # 사진에서는 None이다 — 그때는 지금까지와 같은 움직임이 걸린다.
+        context = memory_context.for_media(contexts, photo["id"])
+        focus = memory_context.focus_of(context, photo)
+
         thumb = photo.get("thumbnail_path") or photo.get("file_path", "")
         clip = clips.get(photo["id"])
         if clip and clip.get("file"):
@@ -191,7 +217,13 @@ async def compose(
         else:
             # 클립이 없는 사진은 지금까지처럼 카메라만 움직인다.
             # 순서대로 돌려 써서 같은 효과가 연달아 붙지 않게 한다.
-            motion, label = CAMERA_MOTIONS[index % len(CAMERA_MOTIONS)]
+            #
+            # 맥락의 인물이 어디 있는지 아는 사진은 그 사람을 중심으로 천천히
+            # 들어간다 (focus를 화면이 확대의 중심으로 쓴다). 라벨은 그대로
+            # CAMERA_MOTIONS의 것을 쓴다 — 문구를 새로 만들면 허용 목록과 갈라진다.
+            motion, label = (
+                _MOTION_ZOOM_IN if focus else CAMERA_MOTIONS[index % len(CAMERA_MOTIONS)]
+            )
             motion_url = None
             # 대표로 뽑힌 사진만 만들어 달라고 맡긴다. 즉시 돌아오고, 준비되면
             # 화면이 되물어 바꿔 끼운다 — 40초를 응답에서 기다리게 하지 않는다.
@@ -202,14 +234,24 @@ async def compose(
             "media_id": photo["id"],
             "thumb": thumb,
             "file_path": photo.get("file_path", ""),
-            "subtitle": _subtitle(index, photo, date_label, place_name),
+            "subtitle": _subtitle(index, photo, date_label, place_name, context),
             "note": photo.get("scene_description") or "",
             "duration_sec": duration,
-            "source_label": _source_label(photo),
+            "source_label": _source_label(photo, context),
             "ai_effects": [label],
             "motion": motion,
             "motion_url": motion_url,
             "voice_id": scene_voice["id"] if scene_voice else None,
+            # --- 가족이 더한 기억에서 온 것 (없으면 빈 값) ---
+            "context_caption": memory_context.caption(context) if context else "",
+            "context_source": memory_context.source_note(context) if context else "",
+            "context_contributor": memory_context.speaker_name(context),
+            # 화면이 확대의 중심으로 쓸 지점 (0~1 비율). 원본 픽셀을 옮기는 것뿐이다.
+            "focus": focus,
+            # 나중에 image-to-video를 붙일 자리. 지금 들어가는 값은 인물 중심
+            # 확대(subject-focus)뿐이고, 생성된 표현이 들어가면 그때는 라벨을
+            # 나눠 적는다 (GENERATED_MOTION_LABEL과 같은 방식).
+            "visual_treatment": "subject-focus" if focus else None,
         })
 
     # 원본 영상은 손대지 않고 그대로 끼운다
@@ -234,7 +276,7 @@ async def compose(
         return None
 
     fitted = _fit(scenes, length_sec)
-    narration = await _narration(event, memories, persons, place_name, audience)
+    narration = await _narration(event, memories, persons, place_name, audience, contexts)
     # 무엇을 깔지만 정한다. 소리는 화면이 만든다 (frontend/src/lib/filmMusic.ts).
     # 장면 배수를 함께 넘긴다 — 어르신에게 장면을 늦추면서 음악만 제 속도로 가면
     # 화면과 소리가 갈라진다.
@@ -285,8 +327,23 @@ def _date_label(date_start: Optional[str]) -> Optional[str]:
     return parts[0]
 
 
-def _subtitle(index: int, photo: dict, date_label: Optional[str], place: Optional[str]) -> str:
-    """자막. 첫 장면은 시점·장소를, 이후는 장면 설명을 쓴다"""
+def _subtitle(
+    index: int,
+    photo: dict,
+    date_label: Optional[str],
+    place: Optional[str],
+    context: Optional[dict] = None,
+) -> str:
+    """자막. 첫 장면은 시점·장소를, 이후는 장면 설명을 쓴다
+
+    맥락이 가리키는 사진은 그 맥락을 자막으로 쓴다 ("엄마가 기억하는 부산 바다").
+    언제·어디인지는 이야기 머리에 이미 적혀 있어서(board.subtitle) 첫 장면에서도
+    잃는 것이 없다. 자막 문구는 memory_context가 만든다 — TV도 같은 문구를 쓰고,
+    두 화면이 각자 조립하면 조용히 갈라진다.
+    """
+    if context:
+        return memory_context.caption(context)
+
     if index == 0:
         return " · ".join([p for p in (date_label, place) if p]) or (
             photo.get("scene_description") or ""
@@ -299,11 +356,21 @@ def _subtitle(index: int, photo: dict, date_label: Optional[str], place: Optiona
     return description
 
 
-def _source_label(photo: dict) -> str:
+def _source_label(photo: dict, context: Optional[dict] = None) -> str:
+    """이 장면의 근거. 맥락이 얹혔으면 그것이 누구의 기억인지도 함께 적는다
+
+    "엄마의 기억이 더해진 장면"까지가 이 문구의 몫이다. 사진에 그 장면이 있다고
+    말하지 않는다 — 확인 여부는 memory_context.source_note가 문구 안에서 가른다.
+    """
     exif = photo.get("exif_date")
     if exif:
-        return "원본 사진 · EXIF " + exif[:10]
-    return "원본 사진 · " + (photo.get("original_filename") or photo["id"])
+        label = "원본 사진 · EXIF " + exif[:10]
+    else:
+        label = "원본 사진 · " + (photo.get("original_filename") or photo["id"])
+
+    if context:
+        label += " · " + memory_context.source_note(context)
+    return label
 
 
 def _title(event: dict, memories: list[dict]) -> str:
@@ -332,8 +399,14 @@ async def _narration(
     persons: list[dict],
     place: Optional[str],
     audience: str,
+    contexts: Optional[list[dict]] = None,
 ) -> str:
-    """내레이션. 확인된 기록 안에서만 쓰고, LLM이 없으면 사실만 적는다"""
+    """내레이션. 확인된 기록 안에서만 쓰고, LLM이 없으면 사실만 적는다
+
+    가족이 더한 기억에서 뽑은 맥락도 함께 넘긴다. 원문을 대신하지 않는다 — 원문과
+    맥락을 같이 주는 이유는, 원문만 주면 모델이 어느 장면을 말하는지 놓치고
+    맥락만 주면 사람이 실제로 쓴 말을 잃기 때문이다.
+    """
     facts = [
         f"사건: {event.get('title', '')}",
         f"날짜: {event.get('date_start') or '미상'}",
@@ -345,8 +418,10 @@ async def _narration(
         name = speaker.get("name") if speaker else "가족"
         facts.append(f"{name}의 기억: {memory.get('content', '')}")
 
+    context_lines = "\n".join(memory_context.prompt_line(c) for c in contexts or [])
+
     if not llm_client.is_enabled():
-        return _plain_narration(event, memories, persons, place)
+        return _plain_narration(event, memories, persons, place, contexts)
 
     messages = [
         {
@@ -354,15 +429,23 @@ async def _narration(
             "content": (
                 "가족 기억 영상의 내레이션을 쓴다. 아래 [기록]에 있는 사실만 쓴다.\n"
                 "기록에 없는 감정·장면·대화를 만들어내지 마라. 2~3문장.\n"
+                "[기억 맥락]은 가족이 기억하는 관점이다. [사진에서 확인되지 않음]이"
+                " 붙은 것은 사진에 그 장면이 있다고 쓰지 말고, '엄마는 하늘이가"
+                " 물장구치던 순간을 기억합니다'처럼 기억의 출처만 밝혀라.\n"
                 + AUDIENCE_TONE.get(audience, AUDIENCE_TONE["adult"])
             ),
         },
-        {"role": "user", "content": "[기록]\n" + "\n".join(facts)},
+        {
+            "role": "user",
+            "content": "[기록]\n"
+            + "\n".join(facts)
+            + (f"\n\n[기억 맥락]\n{context_lines}" if context_lines else ""),
+        },
     ]
 
     narration = await llm_client.complete(messages, max_tokens=300)
     if not narration:
-        return _plain_narration(event, memories, persons, place)
+        return _plain_narration(event, memories, persons, place, contexts)
     return narration.strip()
 
 
@@ -371,8 +454,14 @@ def _plain_narration(
     memories: list[dict],
     persons: list[dict],
     place: Optional[str],
+    contexts: Optional[list[dict]] = None,
 ) -> str:
-    """LLM 없이 쓰는 내레이션 — 사실만 잇는다"""
+    """LLM 없이 쓰는 내레이션 — 사실만 잇는다
+
+    맥락이 있으면 그 한 줄도 잇는다. 문장의 주어는 기억한 사람이다
+    (memory_context.narration_line) — 모델이 없을 때 사진에 없는 행동을 사진의
+    내용처럼 적는 일이 가장 조용히 일어난다.
+    """
     parts = []
     date_label = _date_label(event.get("date_start"))
     if date_label:
@@ -392,6 +481,11 @@ def _plain_narration(
         speaker = graph_manager.get_node(memories[0].get("contributor_id") or "")
         name = speaker.get("name") if speaker else "가족"
         sentences.append(f"{name}은 이렇게 기억합니다. “{memories[0].get('content', '')}”")
+
+    for context in (contexts or [])[:2]:
+        line = memory_context.narration_line(context)
+        if line and line not in sentences:
+            sentences.append(line)
 
     return " ".join(sentences)
 

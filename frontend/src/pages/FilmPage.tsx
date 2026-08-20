@@ -372,8 +372,18 @@ export default function FilmPage() {
                   /* index.css의 9초 고정을 장면 길이로 덮는다. 세대별 배속과
                      목소리 길이 때문에 장면은 6~11초로 갈리는데, 애니메이션이
                      9초로 굳어 있으면 짧은 장면은 잘리고 긴 장면은 끝에서
-                     멈춰 선다 — 움직임이 있다고 적어 둔 동안 정지 화면이다. */
-                  style={{ animationDuration: currentScene.duration_sec + 's' }}
+                     멈춰 선다 — 움직임이 있다고 적어 둔 동안 정지 화면이다.
+
+                     focus가 오면 그 지점을 확대의 중심으로 삼는다. 가족이 더한
+                     기억이 가리키는 인물이 사진에서 있는 자리이고, 어디인지는
+                     서버가 정한다 (backend/services/memory_context.focus_of).
+                     자르지 않는다 — 같은 원본을 다른 중심으로 확대할 뿐이다. */
+                  style={{
+                    animationDuration: currentScene.duration_sec + 's',
+                    transformOrigin: currentScene.focus
+                      ? `${currentScene.focus.x * 100}% ${currentScene.focus.y * 100}%`
+                      : undefined,
+                  }}
                 />
               )}
               <div

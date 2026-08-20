@@ -660,6 +660,24 @@ export default function TVViewPage() {
           )}
 
           {/*
+           * 가족이 더한 기억에서 온 한 줄 (backend/services/memory_context.py).
+           * 거실은 3m 거리라 긴 문장이 읽히지 않는다 — 원문은 앱에서 읽고 여기는
+           * 자막 한 줄과 출처만 올린다.
+           *
+           * 출처 문구는 서버가 적은 것을 그대로 쓴다. 이 사진의 장면이 아니면
+           * 그렇게 적혀 오고, 화면이 그 판단을 대신하면 사진에 없는 장면이
+           * 사진 설명으로 읽힌다.
+           */}
+          {slide.context_caption && (
+            <div className="mt-[1.2vh]">
+              <p className="tv-heading m-0 max-w-[70vw] text-paper">{slide.context_caption}</p>
+              {slide.context_source && (
+                <p className="tv-caption m-0 mt-[0.4vh] text-paper/55">{slide.context_source}</p>
+              )}
+            </div>
+          )}
+
+          {/*
            * 음성은 재생 화면에서 자막으로만 보여준다. 3m 거리에서 재생 버튼을
            * 리모컨으로 찾아 누르게 만들지 않는다. 듣고 만지는 것은 근거 화면에서.
            */}

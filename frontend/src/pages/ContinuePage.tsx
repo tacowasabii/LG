@@ -4,6 +4,7 @@ import { Heart, Plus } from 'lucide-react'
 import { MemoryFeedItem, echoMemory, getMemoryFeed, mediaUrl } from '../lib/api'
 import { STATE_CONFIG } from '../components/StatusPill'
 import MemoryComposer from '../components/MemoryComposer'
+import MemoryContextNote from '../components/MemoryContextNote'
 import { Page, PageHeader } from '../components/Page'
 import { invalidateEvents } from '../lib/useGraphData'
 
@@ -178,6 +179,7 @@ export default function ContinuePage() {
                     <p className="t-body-sm m-0 text-ink-700">
                       {item.author_memory.polished || item.author_memory.content}
                     </p>
+                    <MemoryContextNote context={item.author_memory.context} />
                   </div>
                 )}
 
@@ -193,6 +195,8 @@ export default function ContinuePage() {
                         <p className="t-body-sm m-0 text-ink-700">
                           {memory.polished || memory.content}
                         </p>
+                        {/* 원문 아래에 한 줄. 목록에서는 반영 여부까지 적지 않는다 */}
+                        <MemoryContextNote context={memory.context} />
                       </div>
                     ))}
                     {item.contributions.length > 2 && (

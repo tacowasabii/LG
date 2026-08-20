@@ -548,6 +548,20 @@ class FilmScene(BaseModel):
     motion_url: Optional[str] = None
     # 이 장면에 깔리는 실제 가족 음성
     voice_id: Optional[str] = None
+    # --- 가족이 더한 기억에서 온 맥락 (services/memory_context.py) ---
+    # 이 사진을 가리키는 맥락의 자막. 없으면 빈 문자열이고, 있으면 subtitle과 같다.
+    context_caption: str = ""
+    # 그 맥락이 누구의 기억에서 왔는지와, 사진에서 확인된 것인지. 화면은 이 문구를
+    # 조립하지 않는다 — 확인 여부를 화면이 판단하면 서버가 정한 것과 갈라진다.
+    context_source: str = ""
+    context_contributor: Optional[str] = None
+    # 화면이 확대의 중심으로 쓸 지점 (0~1 비율, {"x":.., "y":..}).
+    # 사진에 저장된 얼굴 위치에서 나온다 (MediaNode.face_boxes) — 잘라내거나
+    # 새로 만드는 것이 아니라 원본을 확대하는 중심만 옮긴다.
+    focus: Optional[dict] = None
+    # 나중에 image-to-video를 붙일 자리. 지금은 subject-focus(인물 중심 확대)뿐이고,
+    # 생성된 표현이 들어가면 그때는 ai_effects에 "AI 생성" 라벨이 함께 붙는다.
+    visual_treatment: Optional[str] = None
 
 
 class FilmMusic(BaseModel):
@@ -651,6 +665,16 @@ class TVSlide(BaseModel):
     # 이 슬라이드에 적을 AI 라벨. 서버가 정한다 (film_composer.generated_label) —
     # 화면이 문구를 조립하면 서버가 붙이는 것과 조용히 갈라진다.
     motion_label: Optional[str] = None
+    # --- 가족이 더한 기억에서 온 맥락 (services/memory_context.py) ---
+    # 거실 화면에는 긴 댓글을 그대로 띄우지 않는다. 짧은 자막 한 줄과 그 출처만
+    # 올린다 ("엄마가 기억하는 부산 바다" · "엄마의 기억에서").
+    context_caption: str = ""
+    context_contributor: Optional[str] = None
+    # 이 자막이 어디서 왔는지. 사진에서 확인된 장면인지 아닌지가 이 문구에서
+    # 갈린다 (memory_context.source_note) — 화면이 판단하지 않는다.
+    context_source: str = ""
+    # 그 맥락이 가리키는 원본. 비어 있으면 이 사진이 아니라 같은 사건의 기억이다.
+    context_media_ids: list[str] = []
 
 
 class TVJourneyResponse(BaseModel):

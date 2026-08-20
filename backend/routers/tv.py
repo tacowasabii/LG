@@ -28,6 +28,11 @@ def _slide(raw: dict) -> TVSlide:
         motion_poster=raw.get("motion_poster"),
         subject_preserved=bool(raw.get("subject_preserved")),
         motion_label=raw.get("motion_label"),
+        # 가족이 더한 기억에서 온 맥락 (services/memory_context.py)
+        context_caption=raw.get("context_caption", ""),
+        context_contributor=raw.get("context_contributor"),
+        context_source=raw.get("context_source", ""),
+        context_media_ids=raw.get("context_media_ids") or [],
     )
 
 

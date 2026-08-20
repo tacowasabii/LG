@@ -788,6 +788,16 @@ export interface TVSlide {
    * 화면이 문구를 조립하면 서버가 붙이는 것과 조용히 갈라진다.
    */
   motion_label?: string | null;
+  /**
+   * 가족이 더한 기억에서 온 짧은 자막 (backend/services/memory_context.py).
+   * 거실 화면에 긴 문장을 띄우지 않는다 — 원문은 앱에서 읽는다.
+   */
+  context_caption?: string;
+  context_contributor?: string | null;
+  /** 그 자막의 출처. "이 사진의 장면은 아닙니다"까지 서버가 적는다 */
+  context_source?: string;
+  /** 맥락이 가리키는 원본. 비어 있으면 이 사진이 아니라 같은 사건의 기억이다 */
+  context_media_ids?: string[];
 }
 
 export interface TVJourney {
@@ -969,6 +979,28 @@ export interface FilmScene {
   /** 미리 만들어 둔 미세 모션 클립. 있으면 사진 대신 이걸 재생한다 */
   motion_url?: string | null;
   voice_id?: string | null;
+  /**
+   * 가족이 더한 기억에서 온 자막 (backend/services/memory_context.py).
+   * 있으면 subtitle과 같은 값이고, 없으면 빈 문자열이다.
+   */
+  context_caption?: string;
+  /**
+   * 그 자막이 누구의 기억에서 왔는지와, 사진에서 확인된 것인지.
+   * 화면이 조립하지 않는다 — 확인 여부를 화면이 판단하면 서버와 갈라진다.
+   * source_label 안에도 같은 문구가 들어 있다.
+   */
+  context_source?: string;
+  context_contributor?: string | null;
+  /**
+   * 확대의 중심으로 쓸 지점 (0~1 비율). 맥락의 인물이 사진에서 있는 자리다
+   * (MediaNode.face_boxes). 잘라내지 않는다 — transform-origin만 옮긴다.
+   */
+  focus?: { x: number; y: number } | null;
+  /**
+   * 지금은 'subject-focus'(인물 중심 확대)뿐이다. 나중에 image-to-video가 붙으면
+   * 그때는 ai_effects에 "AI 생성" 라벨이 함께 온다.
+   */
+  visual_treatment?: string | null;
 }
 
 export interface FilmMusic {
@@ -1183,6 +1215,39 @@ export interface MemoryMediaRef {
   question?: string | null;
 }
 
+/**
+ * 기억 한 줄에서 뽑아낸 작은 맥락 (backend/services/memory_context.py)
+ *
+ * 원문을 대신하지 않는다. 화면은 원문을 먼저 보여주고 그 아래에 "이 기억에서
+ * 발견된 맥락"으로 붙인다 — 사람이 말한 그대로가 자산이고 이건 파생값이다.
+ *
+ * 문구(caption · source_note)는 서버가 만든다. 같은 문구가 상세 화면 · Film ·
+ * TV 세 곳에 나오는데 각자 조립하면 조용히 갈라진다.
+ */
+export interface MemoryContextInfo {
+  speaker?: PersonRef | null;
+  /** 이 기억이 누구에 대한 말인가 (그래프에 있는 사람만) */
+  subjects: PersonRef[];
+  scene?: string | null;
+  action?: string | null;
+  highlight?: string | null;
+  /** explicit = 원문에 그대로 있었다, inferred = 미루어 짚었다 */
+  confidence: string;
+  /** 가족 공간에 없어서 잇지 못한 호칭 */
+  unmatched: string[];
+  /** 이 맥락이 가리키는 원본 (근거가 없으면 비어 있다 — 억지로 잇지 않는다) */
+  media_ids: string[];
+  /** attached = 함께 올린 기록, scene = 사진 설명에서 확인, person = 인물만 확인 */
+  media_basis?: string | null;
+  /** 사진에서 확인된 장면인가. 아니면 화면은 기억의 출처만 밝힌다 */
+  shows_action: boolean;
+  caption: string;
+  source_note: string;
+  visual_treatment?: string | null;
+  used_in_film: boolean;
+  used_in_tv: boolean;
+}
+
 /** 기억 한 줄 (최초 작성자의 것이든 가족이 더한 것이든 같은 모양) */
 export interface MemoryEntry {
   id: string;
@@ -1198,6 +1263,8 @@ export interface MemoryEntry {
   created_at?: string | null;
   contributor?: PersonRef | null;
   media: MemoryMediaRef[];
+  /** 이 문장에서 발견된 맥락 (없을 수 있다). 원문 아래에 붙는다 */
+  context?: MemoryContextInfo | null;
 }
 
 export interface MemoryFeedItem {
@@ -1452,6 +1519,8 @@ export async function addMemoryContribution(
   memory_id: string;
   polished?: string | null;
   polished_by_ai: boolean;
+  /** 이 문장에서 발견된 맥락. 없으면 null (모델을 못 불렀거나 뽑을 것이 없었다) */
+  context?: MemoryContextInfo | null;
   message: string;
 }> {
   return fetchJSON(`${BASE_URL}/memories/${eventId}/memory`, {

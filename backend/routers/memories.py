@@ -25,7 +25,13 @@ from backend.models.schemas import (
     MemoryDraftRequest,
     MemoryMediaRequest,
 )
-from backend.services import memories, memory_drafter, permissions, visibility
+from backend.services import (
+    memories,
+    memory_context,
+    memory_drafter,
+    permissions,
+    visibility,
+)
 from backend.services.permissions import current_actor
 
 router = APIRouter()
@@ -194,11 +200,18 @@ async def add_memory(
     if not memory:
         raise HTTPException(status_code=404, detail="추억 또는 인물을 찾을 수 없습니다.")
 
+    # 문장을 먼저 저장한 뒤에 맥락을 뽑는다. 모델이 실패해도 가족이 남긴 말은
+    # 이미 그래프에 있고, 사건의 제목·날짜·장소는 여기서 바뀌지 않는다.
+    context = await memories.extract_context(event_id, memory["id"])
+
     return {
         "event_id": event_id,
         "memory_id": memory["id"],
         "polished": memory.get("polished"),
         "polished_by_ai": polished_by_ai,
+        # 이 문장에서 발견된 맥락 (없을 수 있다). Memory Film·TV의 자막과
+        # 내레이션이 같은 값을 쓴다 (services/memory_context.py).
+        "context": memory_context.view(context),
         "state": memories.state_of(event_id, person_id),
         "message": "기억을 더했어요. 원래 기록은 그대로 있습니다.",
     }
