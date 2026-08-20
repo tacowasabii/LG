@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { Link, useParams } from 'react-router-dom'
-import { Heart, Plus, Sparkles, Trash2 } from 'lucide-react'
+import { Heart, Plus, Sparkles } from 'lucide-react'
 import {
   MemoryDetail,
   MemoryEntry,
@@ -9,9 +9,9 @@ import {
   echoMemory,
   getMemoryDetail,
   mediaUrl,
-  readDetail,
 } from '../lib/api'
 import AudioClip from '../components/AudioClip'
+import MemoryDeleteButton from '../components/MemoryDeleteButton'
 import MemoryComposer from '../components/MemoryComposer'
 import MemoryContextNote from '../components/MemoryContextNote'
 import { STATE_CONFIG } from '../components/StatusPill'
@@ -48,30 +48,9 @@ function MemoryBlock({
   onDelete: (memoryId: string) => Promise<void>
 }) {
   const [showRaw, setShowRaw] = useState(false)
-  const [confirming, setConfirming] = useState(false)
-  const [busy, setBusy] = useState(false)
-  const [failed, setFailed] = useState<string | null>(null)
   const polished = memory.polished && memory.polished !== memory.content ? memory.polished : null
   const audios = memory.media.filter((m) => m.media_type === 'audio')
   const visuals = memory.media.filter((m) => m.media_type !== 'audio')
-
-  /*
-    남의 기억이면 서버가 403으로 막고 이유를 함께 보낸다 ("이 기억은 박서연님이
-    올렸습니다…"). 그 문장을 그대로 적는다 — 단추를 미리 감추면 왜 못 지우는지
-    말할 자리가 없어지고, 권한 규칙이 화면과 서버 두 곳에 생긴다.
-  */
-  const remove = async () => {
-    setBusy(true)
-    setFailed(null)
-    try {
-      await onDelete(memory.id)
-    } catch (e) {
-      setFailed(readDetail(e, '지우지 못했습니다.'))
-      setConfirming(false)
-    } finally {
-      setBusy(false)
-    }
-  }
 
   return (
     <div className="rounded bg-ink-50 px-5 py-4">
@@ -149,57 +128,7 @@ function MemoryBlock({
         </div>
       )}
 
-      {/*
-        지우기는 조용한 자리에 둔다. 기억을 읽는 화면에서 가장 눈에 띄는 것이
-        지우기여서는 안 된다 — 그래서 밑줄 글자 하나이고, 색도 쓰지 않는다.
-
-        누르면 그 자리에서 한 번 더 묻는다. 되돌릴 수 없는 일이고, 무엇이 남는지도
-        묻는 문장에 함께 적는다 (사진첩의 여러 장 지우기와 같은 방식이다).
-      */}
-      {!confirming ? (
-        <div className="mt-3 flex items-center justify-end">
-          <button
-            onClick={() => {
-              setConfirming(true)
-              setFailed(null)
-            }}
-            className="btn-link flex items-center gap-1 text-[11px]"
-          >
-            <Trash2 size={12} />
-            지우기
-          </button>
-        </div>
-      ) : (
-        <div className="mt-3 rounded px-4 py-3" style={{ background: 'var(--critical-soft)' }}>
-          <p className="t-body-sm m-0" style={{ color: 'var(--critical-ink)' }}>
-            이 기억을 지웁니다. 되돌릴 수 없습니다.
-          </p>
-          <p className="t-caption m-0 mt-1" style={{ color: 'var(--critical-ink)' }}>
-            {memory.media.length > 0
-              ? `함께 올린 기록 ${memory.media.length}개는 이 추억에 남습니다 — 원본은 사진첩에서 지웁니다.`
-              : '문장만 지워집니다. 이 추억의 다른 기억은 그대로 있습니다.'}
-          </p>
-          <div className="mt-3 flex items-center gap-3">
-            <button
-              onClick={remove}
-              disabled={busy}
-              className="cursor-pointer rounded border-0 px-4 py-2 text-[13px] disabled:opacity-40"
-              style={{ background: 'var(--critical-ink)', color: 'var(--paper)' }}
-            >
-              {busy ? '지우는 중…' : '정말 지웁니다'}
-            </button>
-            <button onClick={() => setConfirming(false)} disabled={busy} className="btn-quiet">
-              취소
-            </button>
-          </div>
-        </div>
-      )}
-
-      {failed && (
-        <p className="t-body-sm m-0 mt-2" style={{ color: 'var(--critical-ink)' }}>
-          {failed}
-        </p>
-      )}
+      <MemoryDeleteButton memory={memory} onDelete={onDelete} />
     </div>
   )
 }

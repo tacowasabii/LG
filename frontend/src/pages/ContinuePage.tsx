@@ -1,10 +1,17 @@
 import { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { Heart, Plus } from 'lucide-react'
-import { MemoryFeedItem, echoMemory, getMemoryFeed, mediaUrl } from '../lib/api'
+import {
+  MemoryFeedItem,
+  deleteMemoryEntry,
+  echoMemory,
+  getMemoryFeed,
+  mediaUrl,
+} from '../lib/api'
 import { STATE_CONFIG } from '../components/StatusPill'
 import MemoryComposer from '../components/MemoryComposer'
 import MemoryContextNote from '../components/MemoryContextNote'
+import MemoryDeleteButton from '../components/MemoryDeleteButton'
 import { Page, PageHeader } from '../components/Page'
 import { invalidateEvents } from '../lib/useGraphData'
 
@@ -32,6 +39,12 @@ export default function ContinuePage() {
   const [composing, setComposing] = useState<string | null>(null)
   const [expanded, setExpanded] = useState<Record<string, boolean>>({})
   const [error, setError] = useState<string | null>(null)
+  /*
+    방금 지운 뒤 서버가 밝힌 것. 어느 추억에서 지웠는지까지 들고 있어야 그 카드
+    안에 적을 수 있다 — 목록 맨 위에 한 줄 띄우면 카드 열 개 중 어느 것에서
+    일어난 일인지 알 수 없다.
+  */
+  const [removed, setRemoved] = useState<{ eventId: string; message: string } | null>(null)
 
   const load = () =>
     getMemoryFeed()
@@ -73,6 +86,25 @@ export default function ContinuePage() {
     } finally {
       setBusy(null)
     }
+  }
+
+  /**
+   * 목록에서 기억 하나를 지운다.
+   *
+   * 지운 뒤 목록을 다시 받아온다. 문장 하나가 빠지면 최초 작성자의 기억 · 상태
+   * 알약 · 다르게 기억한다는 안내가 함께 움직이므로, 카드에서 그 줄만 빼서
+   * 맞추려 들면 서버와 어긋난다 (나도 기억나요는 응답 하나로 끝나서 갈아 끼운다).
+   *
+   * 오류는 삼키지 않고 그대로 올려보낸다 — 누른 기억 블록이 자기 자리에서 이유를
+   * 보여줘야 한다.
+   */
+  const removeMemory = async (eventId: string, memoryId: string) => {
+    setError(null)
+    const result = await deleteMemoryEntry(eventId, memoryId)
+    setRemoved({ eventId, message: result.message })
+    // 홈·지도·TV가 세는 기억 수와 상태에서도 즉시 빠져야 한다
+    invalidateEvents()
+    await load()
   }
 
   if (loading) {
@@ -180,6 +212,10 @@ export default function ContinuePage() {
                       {item.author_memory.polished || item.author_memory.content}
                     </p>
                     <MemoryContextNote context={item.author_memory.context} />
+                    <MemoryDeleteButton
+                      memory={item.author_memory}
+                      onDelete={(memoryId) => removeMemory(item.event_id, memoryId)}
+                    />
                   </div>
                 )}
 
@@ -197,6 +233,10 @@ export default function ContinuePage() {
                         </p>
                         {/* 원문 아래에 한 줄. 목록에서는 반영 여부까지 적지 않는다 */}
                         <MemoryContextNote context={memory.context} />
+                        <MemoryDeleteButton
+                          memory={memory}
+                          onDelete={(memoryId) => removeMemory(item.event_id, memoryId)}
+                        />
                       </div>
                     ))}
                     {item.contributions.length > 2 && (
@@ -215,6 +255,17 @@ export default function ContinuePage() {
                       </button>
                     )}
                   </div>
+                )}
+
+                {/*
+                  지운 뒤에 서버가 밝힌 것을 그 카드 안에 적는다. "지웠습니다" 한
+                  마디로 끝내면 함께 올린 목소리까지 사라진 줄 알고, 함께 기억한
+                  이야기가 왜 없어졌는지도 모른다.
+                */}
+                {removed?.eventId === item.event_id && (
+                  <p className="t-body-sm m-0 mt-3" style={{ color: 'var(--critical-ink)' }}>
+                    {removed.message}
+                  </p>
                 )}
 
                 {/* 서로 다르게 기억하는 경우 — 고칠 것이 아니라 알리는 것이다 */}
