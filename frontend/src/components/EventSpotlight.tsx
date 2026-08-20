@@ -437,6 +437,7 @@ export default function EventSpotlight({ eventId, onClose }: Props) {
                           duration_sec: item.duration_sec || 0,
                           transcript: item.transcript,
                           waveform: item.waveform || [],
+                          question: item.question,
                         }}
                       />
                     ))}

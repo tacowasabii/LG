@@ -102,6 +102,7 @@ function MemoryBlock({ memory, accent }: { memory: MemoryEntry; accent?: boolean
                 transcript: item.transcript,
                 waveform: item.waveform || [],
                 recorded_at: (memory.created_at || '').slice(0, 10),
+                question: item.question,
               }}
             />
           ))}
@@ -279,6 +280,7 @@ export default function MemoryDetailPage() {
                 duration_sec: item.duration_sec || 0,
                 transcript: item.transcript,
                 waveform: item.waveform || [],
+                question: item.question,
               }}
             />
           ))}

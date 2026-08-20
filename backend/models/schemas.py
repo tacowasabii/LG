@@ -103,6 +103,9 @@ class MediaListItem(BaseModel):
     speaker_name: Optional[str] = None
     event_id: Optional[str] = None
     event_title: Optional[str] = None
+    # 인터뷰로 남긴 목소리가 답한 질문. 이 음성을 근거로 삼은 기억에 함께 남아
+    # 있다 — 질문 없이는 "모르겠어요" 한 마디가 무슨 이야기인지 읽을 수 없다.
+    question: Optional[str] = None
     # 이 기록이 어디서 왔는지: exif | user_input | ai_vision | ai_stt | interview
     source: Optional[str] = None
 

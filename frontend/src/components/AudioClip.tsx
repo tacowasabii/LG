@@ -5,7 +5,8 @@
  * 파일이 지워졌거나 아직 업로드되지 않은 클립에서도 조판이 흔들리지 않게 한다.
  *
  * 전사문을 접어 두지 않는다. 목소리가 이 제품의 핵심 자산이고, 무엇을 말한
- * 기록인지 읽지 않고는 재생할 가치를 판단할 수 없다.
+ * 기록인지 읽지 않고는 재생할 가치를 판단할 수 없다. 인터뷰 녹음은 그 답을 부른
+ * 질문도 함께 밝힌다 — 답만 있으면 "모르겠어요" 한 마디는 읽을 수 없다.
  *
  * AI가 만들어낸 목소리는 이 컴포넌트로 재생하지 않는다. 여기 오는 것은 언제나
  * 가족이 실제로 남긴 원본이고, 화자와 출처를 항상 함께 밝힌다.
@@ -199,10 +200,27 @@ export default function AudioClip({ clip, dark = false, compact = false }: Props
         })}
       </div>
 
+      {/*
+        무슨 질문에 답한 목소리인지. 답만 보여주면 "모르겠어요" 한 마디가 무슨
+        이야기인지 읽을 수 없다 — 채팅 답변 아래 붙는 클립에서 특히 그렇다.
+        답보다 앞에 두고 한 단계 여리게 둔다. 이 자리의 주인은 가족의 말이다.
+      */}
+      {clip.question && (
+        <p
+          className="t-caption m-0 mt-3.5"
+          style={{
+            color: dark ? 'rgba(250,250,247,0.5)' : 'var(--ink-300)',
+            textWrap: 'pretty',
+          }}
+        >
+          질문 “{clip.question}”
+        </p>
+      )}
+
       {clip.transcript ? (
         <>
           <p
-            className="t-body-sm m-0 mt-3.5"
+            className={`t-body-sm m-0 ${clip.question ? 'mt-1.5' : 'mt-3.5'}`}
             style={{
               color: dark ? 'rgba(250,250,247,0.8)' : 'var(--ink-500)',
               textWrap: 'pretty',
@@ -223,7 +241,7 @@ export default function AudioClip({ clip, dark = false, compact = false }: Props
         </>
       ) : (
         <p
-          className="t-caption m-0 mt-3.5"
+          className={`t-caption m-0 ${clip.question ? 'mt-1.5' : 'mt-3.5'}`}
           style={{ color: dark ? 'rgba(250,250,247,0.45)' : 'var(--ink-300)' }}
         >
           아직 글로 옮기지 않았습니다. 목소리는 그대로 남아 있습니다.

@@ -30,6 +30,7 @@ from backend.models.graph_models import (
     Confidence,
     Edge,
     EventNode,
+    MediaType,
     MemoryKind,
     MemoryNode,
     MemoryState,
@@ -385,6 +386,21 @@ def toggle_echo(event_id: str, person_id: str) -> Optional[dict]:
 # --- 화면이 쓰는 모양 --------------------------------------------------------
 
 
+def question_for_media(media_id: str) -> Optional[str]:
+    """이 음성이 답한 질문
+
+    질문은 음성 노드가 아니라 그 음성을 근거로 삼은 기억(EVIDENCED_BY)에 남아
+    있다. 인터뷰로 남긴 목소리는 언제나 어떤 질문의 답이고, 질문을 빼면
+    "모르겠어요" 한 마디가 무슨 이야기인지 읽을 수 없다.
+
+    음성을 목록으로 내려주는 곳(미디어 목록·추억 상세)이 함께 쓴다.
+    """
+    for node in graph_manager.get_connected_nodes(media_id):
+        if node.get("node_type") == NodeType.MEMORY and node.get("question"):
+            return node["question"]
+    return None
+
+
 def _memory_view(memory: dict) -> dict:
     """기억 하나를 화면 모양으로
 
@@ -404,6 +420,7 @@ def _memory_view(memory: dict) -> dict:
             "duration_sec": node.get("duration_sec"),
             "transcript": node.get("transcript"),
             "waveform": node.get("waveform") or [],
+            "question": question_for_media(node["id"]),
         })
 
     return {
@@ -471,6 +488,12 @@ def detail(event_id: str, viewer_id: Optional[str] = None) -> Optional[dict]:
                 "transcript": m.get("transcript"),
                 "waveform": m.get("waveform") or [],
                 "speaker_id": m.get("speaker_id"),
+                # 인터뷰 녹음이면 무슨 질문에 답한 것인지 (음성만 해당)
+                "question": (
+                    question_for_media(m["id"])
+                    if m.get("media_type") == MediaType.AUDIO
+                    else None
+                ),
             }
             for m in media
         ],

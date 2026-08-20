@@ -38,25 +38,25 @@ from backend.services.interview_engine import _asked_question  # noqa: E402
 def test_answer_is_paired_with_the_question_it_answered():
     """N번째 답변에 N번째 질문이 짝지어진다
 
-    process_answer가 answers에 답을 먼저 담고 나서 그래프에 쓴다. 그래서 짝은
-    questions[len(answers) - 1]이다. 한 칸 어긋나면 기억의 뜻이 바뀐다.
+    지금까지 받은 답이 n개면 이번 답은 n+1번째이고 짝은 questions[n]이다.
+    한 칸 어긋나면 기억의 뜻이 바뀐다.
     """
     session = {
         "questions": ["해수욕장에서 뭘 하고 노셨어요?", "그때 누구와 함께 갔어요?"],
-        "answers": ["모르겠어요"],
+        "answers": [],
     }
     assert _asked_question(session) == "해수욕장에서 뭘 하고 노셨어요?"
 
-    session["answers"].append("가족 모두 갔어요")
+    session["answers"].append("모르겠어요")
     assert _asked_question(session) == "그때 누구와 함께 갔어요?"
 
 
 def test_missing_question_is_left_empty_not_guessed():
     """짝을 찾을 수 없으면 비워 둔다 (엉뚱한 질문을 붙이지 않는다)"""
-    assert _asked_question({"questions": [], "answers": ["모르겠어요"]}) is None
+    assert _asked_question({"questions": [], "answers": []}) is None
     assert _asked_question({}) is None
-    # 답이 질문보다 많은 어긋난 세션
-    assert _asked_question({"questions": ["A"], "answers": ["a", "b"]}) is None
+    # 질문보다 답이 많은 어긋난 세션
+    assert _asked_question({"questions": ["A"], "answers": ["a"]}) is None
 
 
 def test_memory_context_carries_its_question():

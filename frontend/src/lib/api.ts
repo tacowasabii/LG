@@ -115,6 +115,8 @@ export interface MediaItem {
   speaker_name?: string | null;
   event_id?: string | null;
   event_title?: string | null;
+  /** 인터뷰로 남긴 목소리가 답한 질문 */
+  question?: string | null;
 }
 
 /**
@@ -135,6 +137,11 @@ export interface VoiceClip {
   transcript_source?: string | null;
   recorded_at?: string | null;
   waveform: number[];
+  /**
+   * 이 목소리가 답한 질문 (AI 인터뷰 녹음).
+   * 답만 보여주면 "모르겠어요" 한 마디가 무슨 이야기인지 읽을 수 없다.
+   */
+  question?: string | null;
 }
 
 /** 음성 미디어를 재생용 클립 모양으로 */
@@ -151,6 +158,7 @@ export function toVoiceClip(item: MediaItem): VoiceClip {
     transcript_source: item.transcript_source,
     recorded_at: (item.created_at || '').slice(0, 10),
     waveform: item.waveform || [],
+    question: item.question,
   };
 }
 
@@ -1105,6 +1113,8 @@ export interface MemoryMediaRef {
   transcript?: string | null;
   waveform?: number[];
   speaker_id?: string | null;
+  /** 인터뷰 녹음이면 그 목소리가 답한 질문 (음성만 채워진다) */
+  question?: string | null;
 }
 
 /** 기억 한 줄 (최초 작성자의 것이든 가족이 더한 것이든 같은 모양) */

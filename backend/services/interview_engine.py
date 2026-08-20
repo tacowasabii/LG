@@ -157,12 +157,19 @@ async def process_answer(
             "message": "세션을 찾을 수 없습니다.",
         }
 
+    # 이 답변이 답한 질문. answers에 담기 전에 짚어 둔다 (아래 _asked_question)
+    asked = _asked_question(session)
+
     # 답변 저장
     session["answers"].append(answer)
 
     # 답변에서 정보 추출 → Memory 노드 생성 + 사건에 잇기
     updated_nodes = await _process_answer_to_graph(
-        session, answer, speaker_id=speaker_id, audio_media_id=audio_media_id
+        session,
+        answer,
+        speaker_id=speaker_id,
+        audio_media_id=audio_media_id,
+        question=asked,
     )
     session["updated_nodes"].extend(updated_nodes)
     # 방금 답변에서 무엇을 알아냈는지. 화면이 그대로 보여 준다 — 그래프가
@@ -455,15 +462,14 @@ def _simulate_question(
 
 
 def _asked_question(session: dict) -> Optional[str]:
-    """방금 받은 답변이 답한 질문
+    """이번에 받은 답변이 답한 질문 (answers에 담기 전에 부른다)
 
-    process_answer가 answers에 답을 먼저 담으므로, 마지막 답의 짝은
-    questions[len(answers) - 1]이다. 세션이 어긋난 경우(질문보다 답이 많은
-    경우)에는 짐작하지 않고 비워 둔다 — 엉뚱한 질문을 짝지으면 기억의 뜻이
-    바뀐다.
+    지금까지 받은 답이 n개면 이번 답은 n+1번째이고, 그 짝은 questions[n]이다.
+    세션이 어긋나 짝이 없으면 짐작하지 않고 비워 둔다 — 엉뚱한 질문을 짝지으면
+    기억의 뜻이 바뀐다.
     """
     questions = session.get("questions") or []
-    index = len(session.get("answers") or []) - 1
+    index = len(session.get("answers") or [])
     if 0 <= index < len(questions):
         return questions[index]
     return None
@@ -474,6 +480,7 @@ async def _process_answer_to_graph(
     answer: str,
     speaker_id: Optional[str] = None,
     audio_media_id: Optional[str] = None,
+    question: Optional[str] = None,
 ) -> list[str]:
     """답변을 구조화하여 Graph에 저장
 
@@ -483,6 +490,8 @@ async def _process_answer_to_graph(
 
     speaker_id는 화면에서 고른 "지금 답하는 사람"이다. Gap이 지목한 인물보다
     우선한다 — 실제로 말한 사람이 누구인지는 화면 앞에 있는 가족만 안다.
+
+    question은 이 답을 부른 질문이다. 짧은 답은 질문 없이는 뜻이 없다.
     """
     updated_nodes = []
 
@@ -496,7 +505,7 @@ async def _process_answer_to_graph(
     # 그것을 근거로 잡아도 무엇을 모른다는 것인지 말할 수 없다.
     memory = MemoryNode(
         content=answer,
-        question=_asked_question(session),
+        question=question,
         source_type=SourceType.INTERVIEW,
         contributor_id=contributor_id,
         confidence=Confidence.CONFIRMED,

@@ -17,7 +17,7 @@ from backend.models.graph_models import (
 from backend.services.media_analyzer import analyze_media, generate_thumbnail
 from backend.services.event_resolver import autotag_media_persons, set_media_persons
 from backend.services.graph_manager import graph_manager
-from backend.services import album, geocoder, permissions, visibility
+from backend.services import album, geocoder, memories, permissions, visibility
 from backend.services.permissions import current_actor
 
 router = APIRouter()
@@ -276,22 +276,27 @@ async def list_media(
 
 
 def _to_list_item(node: dict) -> MediaListItem:
-    """미디어 노드를 목록 항목으로. 음성은 화자·사건까지 붙여 내려준다
+    """미디어 노드를 목록 항목으로. 음성은 화자·사건·질문까지 붙여 내려준다
 
-    음성 재생 화면(홈·인물·채팅·TV)이 "누가 언제 어느 사건에서 말했는지"를
-    함께 보여줘야 하므로, 목록 한 번으로 그릴 수 있게 여기서 풀어 준다.
+    음성 재생 화면(홈·인물·채팅·TV)이 "누가 언제 어느 사건에서 무슨 질문에
+    답했는지"를 함께 보여줘야 하므로, 목록 한 번으로 그릴 수 있게 여기서 풀어
+    준다.
     """
     is_audio = node.get("media_type") == MediaType.AUDIO
 
     speaker_name = None
     event_id = None
     event_title = None
+    question = None
 
     if is_audio:
         speaker_id = node.get("speaker_id")
         if speaker_id:
             speaker = graph_manager.get_node(speaker_id)
             speaker_name = speaker.get("name") if speaker else None
+
+        # 무슨 질문에 답한 목소리인지 (질문은 그 답을 남긴 기억에 있다)
+        question = memories.question_for_media(node["id"])
 
         for neighbor in graph_manager.get_connected_nodes(node["id"]):
             if neighbor.get("node_type") == NodeType.EVENT:
@@ -315,6 +320,7 @@ def _to_list_item(node: dict) -> MediaListItem:
         speaker_name=speaker_name,
         event_id=event_id,
         event_title=event_title,
+        question=question,
         source=node.get("source"),
     )
 

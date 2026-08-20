@@ -247,6 +247,50 @@ def test_interview_links_voice_as_evidence():
         _cleanup()
 
 
+def test_voice_list_carries_the_question_it_answered():
+    """음성 목록이 그 목소리가 답한 질문을 함께 내려준다
+
+    질문은 음성 노드가 아니라 그 답을 남긴 기억에 있다 (EVIDENCED_BY). 답만
+    보여주면 "모르겠어요" 한 마디가 무슨 이야기인지 읽을 수 없다 — 채팅 답변
+    아래 붙는 클립에서 특히 그렇다.
+    """
+    voice = _make_voice_node()
+    session = {
+        "contributor_id": None,
+        "target_node": graph_manager.get_node(EVENT),
+        "answers": [],
+    }
+
+    updated = asyncio.run(
+        interview_engine._process_answer_to_graph(
+            session,
+            "모르겠어요",
+            speaker_id=SPEAKER,
+            audio_media_id=voice.id,
+            question="광안리 해수욕장에서 뭘 하고 노셨어요?",
+        )
+    )
+    _created.append(updated[0])
+
+    try:
+        item = _to_list_item(graph_manager.get_node(voice.id))
+        assert item.question == "광안리 해수욕장에서 뭘 하고 노셨어요?", (
+            f"질문이 실려 오지 않음: {item.question!r}"
+        )
+        print("  음성 목록에 질문 실림 OK")
+    finally:
+        _cleanup()
+
+
+def test_photo_list_item_has_no_question():
+    """사진에는 질문이 붙지 않는다 (음성만 답이다)"""
+    photo = graph_manager.get_node("MED001") or next(
+        (m for m in graph_manager.get_media_nodes() if m.get("media_type") == "photo"), None
+    )
+    assert photo, "시드에 사진이 없다"
+    assert _to_list_item(photo).question is None
+
+
 def test_unknown_speaker_falls_back_to_question_target():
     """없는 사람 id가 와도 기억을 잃지 않는다
 
@@ -315,8 +359,10 @@ TESTS = [
     test_voice_list_filters_by_speaker,
     test_waveform_parser_rejects_garbage,
     test_photo_list_item_has_no_voice_fields,
+    test_photo_list_item_has_no_question,
     test_interview_attributes_answer_to_selected_speaker,
     test_interview_links_voice_as_evidence,
+    test_voice_list_carries_the_question_it_answered,
     test_unknown_speaker_falls_back_to_question_target,
     test_http_endpoints_serialize,
 ]
