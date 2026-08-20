@@ -563,6 +563,9 @@ class MotionStatusResponse(BaseModel):
     enabled: bool = False
     # 남은 생성 횟수. 상한은 인증 없는 API에서 잔액을 지키는 장치다.
     attempts_left: int = 0
+    # 앞으로 생긴 사건만 만드는가. 켜져 있는데 아무것도 안 만들어지면 이 값이
+    # 먼저 볼 자리다 — 기존 사건은 기준선에 있어서 대상이 아니다.
+    new_events_only: bool = False
 
 
 class AnniversaryItem(BaseModel):

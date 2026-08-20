@@ -76,16 +76,38 @@ class _Sandbox:
         return False
 
 
-def test_default_is_off():
-    """설정하지 않은 사람에게서는 돈이 나가지 않는다"""
+def test_off_by_default_and_needs_every_condition():
+    """설정하지 않은 사람에게서는 돈이 나가지 않는다
+
+    로드된 설정값(config.MOTION_AUTOGEN)을 보지 않는다 — 그러면 정당하게 켠
+    순간 이 테스트가 깨진다. 환경변수가 없을 때의 기본값과, 조건 하나만
+    빠져도 꺼지는지를 본다.
+    """
     import os
 
     from backend import config
 
-    assert config.MOTION_AUTOGEN is False, "MOTION_AUTOGEN 기본값이 켜져 있다"
-    if not os.getenv("FAL_KEY"):
+    # 환경변수가 없으면 꺼짐 (config.py가 읽는 기본값과 같은 식)
+    assert os.getenv("MOTION_AUTOGEN", "false").lower() != "true" or config.MOTION_AUTOGEN
+    saved_env = os.environ.pop("MOTION_AUTOGEN", None)
+    try:
+        assert os.getenv("MOTION_AUTOGEN", "false").lower() == "false", "기본값이 꺼짐이 아니다"
+    finally:
+        if saved_env is not None:
+            os.environ["MOTION_AUTOGEN"] = saved_env
+
+    # 조건 하나만 빠져도 꺼진다 — 키가 없으면 켜 두어도 부르지 않는다
+    saved_flag, saved_key = config.MOTION_AUTOGEN, os.environ.pop("FAL_KEY", None)
+    try:
+        config.MOTION_AUTOGEN = True
         assert motion_clips.enabled() is False, "키가 없는데 켜져 있다고 한다"
-    print("  기본값 꺼짐 OK")
+        config.MOTION_AUTOGEN = False
+        assert motion_clips.enabled() is False, "꺼져 있는데 켜져 있다고 한다"
+    finally:
+        config.MOTION_AUTOGEN = saved_flag
+        if saved_key is not None:
+            os.environ["FAL_KEY"] = saved_key
+    print("  기본값 꺼짐 · 조건 하나만 빠져도 꺼짐 OK")
 
 
 def test_disabled_requests_nothing():
@@ -245,6 +267,62 @@ def test_cover_choice_is_remembered_when_choosing_is_needed():
     print("  선택 기억 OK (정원이 남으면 남은 자리만 채운다)")
 
 
+def test_only_new_events_are_generated():
+    """기능을 켠 뒤에 생긴 사건만 만든다
+
+    이미 쌓여 있던 앨범 전체를 한꺼번에 만들면 지출이 한 번에 튄다. 기준선을
+    파일에 적어 두는 것이 요점이다 — id 모양이나 만든 시각으로 가르면
+    재시드·이관에서 조용히 달라진다.
+    """
+    from backend.config import MOTION_BASELINE_FILE
+    from backend.services.graph_manager import graph_manager
+
+    saved = MOTION_BASELINE_FILE.read_bytes() if MOTION_BASELINE_FILE.exists() else None
+    try:
+        MOTION_BASELINE_FILE.unlink(missing_ok=True)
+        # 처음 물으면 지금 있는 사건이 기준선이 된다
+        base = motion_clips.baseline_event_ids()
+        existing = {event["id"] for event in graph_manager.get_events()}
+        assert base == existing, (sorted(base), sorted(existing))
+        assert MOTION_BASELINE_FILE.exists(), "기준선을 적어 두지 않았다"
+
+        for event_id in sorted(existing)[:3]:
+            assert motion_clips.is_new_event(event_id) is False, event_id
+        assert motion_clips.is_new_event("event_아직없던것") is True
+
+        # 두 번째부터는 파일을 읽는다 (그래프가 늘어도 기준선은 그대로)
+        assert motion_clips.baseline_event_ids() == base
+    finally:
+        if saved is None:
+            MOTION_BASELINE_FILE.unlink(missing_ok=True)
+        else:
+            MOTION_BASELINE_FILE.write_bytes(saved)
+    print(f"  기준선 {len(existing)}개 제외 · 새 id는 대상 OK")
+
+
+def test_existing_events_request_nothing_even_when_on():
+    """켜져 있어도 기존 사건에서는 아무것도 맡기지 않는다"""
+    from backend.config import MOTION_BASELINE_FILE
+
+    saved = MOTION_BASELINE_FILE.read_bytes() if MOTION_BASELINE_FILE.exists() else None
+    taken: list[str] = []
+    original = motion_clips.request
+    try:
+        with _Sandbox(enabled=True):
+            motion_clips.request = lambda mid, path, prompt: (taken.append(mid) or True)
+            board = asyncio.run(film_composer.compose(EVENT, length_sec=60))
+        assert board, "스토리보드가 비었다"
+        assert taken == [], f"기존 사건인데 맡겼다: {taken}"
+        assert board["motion_pending"] == [], board["motion_pending"]
+    finally:
+        motion_clips.request = original
+        if saved is None:
+            MOTION_BASELINE_FILE.unlink(missing_ok=True)
+        else:
+            MOTION_BASELINE_FILE.write_bytes(saved)
+    print("  기존 사건 → 맡김 없음 OK")
+
+
 def test_film_works_without_any_clip():
     """클립이 하나도 없어도 화면은 예전처럼 돈다"""
     with _Sandbox(enabled=False):
@@ -354,7 +432,7 @@ def test_tv_serves_clips_but_never_makes_them():
 
 
 TESTS = [
-    test_default_is_off,
+    test_off_by_default_and_needs_every_condition,
     test_disabled_requests_nothing,
     test_existing_clip_is_not_rebuilt,
     test_cap_stops_requests,
@@ -362,6 +440,8 @@ TESTS = [
     test_failure_is_not_retried,
     test_all_photos_are_covers_when_they_fit,
     test_cover_choice_is_remembered_when_choosing_is_needed,
+    test_only_new_events_are_generated,
+    test_existing_events_request_nothing_even_when_on,
     test_prompt_comes_from_words_not_a_model,
     test_film_works_without_any_clip,
     test_label_is_decided_by_the_server,

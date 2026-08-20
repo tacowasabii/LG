@@ -957,6 +957,8 @@ export interface MotionStatus {
   /** 런타임 생성이 켜져 있는가 (키·ffmpeg·상한을 모두 통과했는가) */
   enabled: boolean;
   attempts_left: number;
+  /** 앞으로 생긴 사건만 만드는가 (기존 사건은 기준선에 있어 대상이 아니다) */
+  new_events_only?: boolean;
 }
 
 export interface Anniversary {

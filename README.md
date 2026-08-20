@@ -188,9 +188,19 @@ Memory Film의 사진은 기본적으로 CSS 카메라 움직임(느린 줌·패
 
 ```bash
 MOTION_AUTOGEN=true
-MOTION_AUTOGEN_MAX=50         # 누적 상한. 50건 = 약 $10
-MOTION_COVERS_PER_EVENT=3     # 사건 하나에서 만들 사진 수의 상한
+MOTION_AUTOGEN_MAX=50          # 누적 상한. 50건 = 약 $10
+MOTION_COVERS_PER_EVENT=3      # 사건 하나에서 만들 사진 수의 상한
+MOTION_AUTOGEN_NEW_ONLY=true   # 앞으로 생기는 사건만 (기본)
 ```
+
+**기존 사건은 만들지 않습니다.** 켠 시점의 사건 목록이
+`STATE_DIR/motion_baseline.json`에 기준선으로 적히고, 그 뒤에 만들어진 사건만
+자동 생성 대상이 됩니다 — 이미 쌓여 있던 앨범 전체를 한꺼번에 만들면 지출이 한
+번에 튀기 때문입니다. 기존 사건에 클립을 넣으려면 아래 "미리 만들기"로 합니다.
+
+기준선을 파일에 적어 두는 것이 요점입니다. id 모양(시드가 붙이는 `E01` 같은
+규칙)이나 만든 시각으로 가르면 재시드·이관에서 조용히 달라집니다. 전부를
+대상으로 하려면 `MOTION_AUTOGEN_NEW_ONLY=false`로 둡니다.
 
 **사진이 상한보다 적으면 전부 만듭니다.** 미세 모션은 파도가 치거나 머리카락·
 옷자락이 살짝 흔들리는 정도라, 정적으로 보이는 사진도 만들면 살아납니다. 세
@@ -214,9 +224,9 @@ MOTION_COVERS_PER_EVENT=3     # 사건 하나에서 만들 사진 수의 상한
 - **모델이 없으면 앞에서부터 채웁니다.** 목록이 시간순이라 아무 기준이 없는 것은
   아닙니다 — 키를 설정하지 않은 사람의 화면도 같은 방식으로 동작해야 합니다
 
-지금 데이터셋(사건 8개 · 사진 24장, 사건마다 3장)에서는 상한 3에 모두 들어가서
-**전부가 대표**가 되고, 모델은 호출되지 않습니다. 이미 커밋·생성된 3장을 빼면
-**새로 만들 것은 21장($4.20)** 이며, 8개 사건을 다 열었을 때의 값입니다.
+지금 데이터셋(사건 8개 · 사진 24장, 사건마다 3장)은 **전부 기준선에 들어가므로
+자동 생성되지 않습니다.** 새로 만든 추억은 사진이 3장 이하면 전부가 대표가 되고
+모델은 호출되지 않습니다 — 넘칠 때만 고르는 일이 생깁니다.
 
 한 장에 40초쯤 걸리므로 **응답에서 기다리지 않습니다.** 서버는 맡기고 바로
 응답하면서 `motion_pending`에 만들고 있는 사진을 담아 주고, 화면은
@@ -353,7 +363,7 @@ python tests/test_chat_graph.py         # 질의 계획 8개
 python tests/test_memories.py           # 추억 게시·기억 더하기 6개
 python tests/test_events_and_voice.py   # 사건 요약·음성·화자 귀속 11개
 python tests/test_film.py               # Memory Film 12개
-python tests/test_motion_clips.py       # 미세 모션 클립 13개 (대표 선정·상한·캐시·TV)
+python tests/test_motion_clips.py       # 미세 모션 클립 15개 (새 사건만·대표 선정·상한·TV)
 python tests/test_family_visibility.py  # 가족 공간·초대 참여·공개 범위 18개
 python tests/test_permissions.py        # 역할 가드 11개
 python tests/test_interview_extraction.py # 답변에서 인물·장소·시점 추출

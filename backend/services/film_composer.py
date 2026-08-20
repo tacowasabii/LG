@@ -156,10 +156,13 @@ async def compose(
     #
     # 이미 클립이 있는 사진이 그 자리를 차지한다. 미리 만들어 둔 것이 있으면
     # 그만큼 정원이 줄어 같은 사건에 또 만들지 않는다.
+    #
+    # 기본값에서는 기능을 켠 뒤에 생긴 사건만 만든다. 이미 쌓여 있던 앨범 전체를
+    # 한꺼번에 만들면 지출이 한 번에 튄다 — 그쪽은 스크립트로 미리 만든다.
     covers: set[str] = set()
     already = sum(1 for photo in photos if photo["id"] in clips)
     room = MOTION_COVERS_PER_EVENT - already
-    if motion_clips.enabled() and room > 0:
+    if motion_clips.enabled() and motion_clips.is_new_event(event_id) and room > 0:
         candidates = [photo for photo in photos if photo["id"] not in clips]
         covers = set(await cover_picker.pick(event, candidates, place_name, limit=room))
 

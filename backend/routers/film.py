@@ -4,6 +4,8 @@ from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException
 
+from backend.config import MOTION_AUTOGEN_NEW_ONLY
+
 from backend.models.schemas import (
     AnniversaryItem,
     FilmRequest,
@@ -82,6 +84,7 @@ async def motion_status(media_ids: str = ""):
         failed=failed,
         enabled=motion_clips.enabled(),
         attempts_left=motion_clips.attempts_left(),
+        new_events_only=MOTION_AUTOGEN_NEW_ONLY,
     )
 
 

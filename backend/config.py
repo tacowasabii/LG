@@ -39,6 +39,8 @@ MOTION_LEDGER_FILE = STATE_DIR / "motion_spend.json"
 # 사건마다 고른 대표 사진. 한 번 고른 것을 지켜야 한다 — 고를 때마다 달라지면
 # 매번 다른 사진을 만들어 지출이 늘어난다 (cover_picker).
 MOTION_COVERS_FILE = STATE_DIR / "motion_covers.json"
+# 자동 생성에서 빼 둘 사건 (기능을 켠 시점에 이미 있던 것). 처음 물을 때 적힌다.
+MOTION_BASELINE_FILE = STATE_DIR / "motion_baseline.json"
 EXPORT_DIR = STATE_DIR / "exports"
 SPACE_FILE = STATE_DIR / "family_space.json"
 TRUST_REPORT_FILE = STATE_DIR / "trust_report.json"
@@ -153,6 +155,16 @@ MOTION_AUTOGEN_MAX = int(os.getenv("MOTION_AUTOGEN_MAX", "50"))
 # 사진이 이 수보다 적으면 전부 만든다. 많으면 대표를 골라 그만큼만 만든다 —
 # 사진 백 장인 앨범에서 전부 만들면 지출이 한 번에 튄다.
 MOTION_COVERS_PER_EVENT = int(os.getenv("MOTION_COVERS_PER_EVENT", "3"))
+
+# 앞으로 생기는 사건만 만들지 여부.
+#
+# 켜면(기본) 기능을 처음 쓰는 시점의 사건 목록을 기준선으로 적어 두고, 그 뒤에
+# 만들어진 사건만 자동 생성한다. 이미 쌓인 앨범 전체를 한꺼번에 만들면 지출이
+# 한 번에 튀기 때문이다 — 기존 사건에 클립을 넣으려면 스크립트로 미리 만든다
+# (scripts/build_motion_covers.py).
+#
+# false로 두면 기존 사건도 대상이 된다.
+MOTION_AUTOGEN_NEW_ONLY = os.getenv("MOTION_AUTOGEN_NEW_ONLY", "true").lower() == "true"
 
 # 생성·후처리 기본값. 왜 이 값인지는 README "미세 모션 클립" 절에 있다.
 MOTION_RESOLUTION = os.getenv("MOTION_RESOLUTION", "480p")

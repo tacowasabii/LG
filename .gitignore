@@ -25,6 +25,7 @@ data/motion/compare/
 data/motion_manifest.json
 data/motion_spend.json
 data/motion_covers.json
+data/motion_baseline.json
 # 내보낸 아카이브와 가족 공간 설정 (실행 중 만들어진다)
 data/exports/
 data/family_space.json
