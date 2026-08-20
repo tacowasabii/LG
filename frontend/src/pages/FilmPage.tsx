@@ -16,7 +16,7 @@
  */
 
 import { useEffect, useState } from 'react'
-import { Link } from 'react-router-dom'
+import { Link, useSearchParams } from 'react-router-dom'
 import {
   Anniversary,
   FilmStoryboard,
@@ -39,7 +39,16 @@ const MOTIONS = ['motion-zoom-in', 'motion-pan-left', 'motion-zoom-out', 'motion
 export default function FilmPage() {
   const { events } = useEvents()
   const { clips } = useVoiceClips()
-  const [eventId, setEventId] = useState<string | null>(null)
+  const [searchParams] = useSearchParams()
+  /*
+    ?event=E01로 들어오면 그 사건으로 시작한다. 타임라인·지도에서 사건을 크게
+    보다가 "한 편의 이야기로 보기"를 누르는 길이다 — 여기서 사건을 다시 고르게
+    하면 방금 보던 사건을 이름으로 찾아야 한다.
+
+    들어온 뒤 칩으로 다른 사건을 고르면 주소는 그대로 둔다. 이 값은 시작점일
+    뿐이고, 주소를 따라 고쳐 쓰면 뒤로 가기가 사건 선택을 되짚는 기록이 된다.
+  */
+  const [eventId, setEventId] = useState<string | null>(searchParams.get('event'))
   const [length, setLength] = useState<FilmLength>(45)
   const [audience, setAudience] = useState<Audience>('adult')
   const [board, setBoard] = useState<FilmStoryboard | null>(null)

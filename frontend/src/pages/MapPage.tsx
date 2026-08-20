@@ -8,6 +8,10 @@
  * 필터는 카드 안에 가두지 않고 화면 폭을 가로지르는 띠로 깔았다. 조건이 무엇이
  * 걸려 있는지가 결과 목록보다 먼저 읽혀야 하고, 띠는 그 역할에 카드보다 조용하다.
  *
+ * 목록의 카드와 지도의 점은 같은 사건을 가리키므로, 어느 쪽을 눌러도 같은 자리로
+ * 간다 — EventSpotlight가 그 사건의 사진을 Memory Film처럼 크게 띄우고 그날에
+ * 남은 기록을 함께 보여준다. 카드에 걸린 썸네일 세 장은 미리보기일 뿐이다.
+ *
  * 사건·장소·참여자·확인 상태는 GET /api/graph/events에서 온다.
  * 남은 교체 지점: KoreaMap -> 지도 SDK 컴포넌트 (좌표 변환 규칙은 그대로 쓴다)
  */
@@ -21,6 +25,7 @@ import { useCurrentUser } from '../lib/currentUser'
 import KoreaMap, { MapPoint, isInBounds } from '../components/KoreaMap'
 import { STATE_CONFIG } from '../components/StatusPill'
 import { Page, PageHeader } from '../components/Page'
+import EventSpotlight from '../components/EventSpotlight'
 
 const DECADES = [
   { label: '1990년대', from: 1990, to: 1999 },
@@ -35,6 +40,18 @@ export default function MapPage() {
   const [personIds, setPersonIds] = useState<string[]>([])
   const [decades, setDecades] = useState<string[]>([])
   const [selectedId, setSelectedId] = useState<string | null>(null)
+  /*
+    크게 열어 둔 사건. 예전에는 사건을 눌러도 테두리 색만 바뀌었다 — 카드의
+    썸네일 세 장이 그 사건에 남은 사진 전부인 것처럼 읽혔고, 누른 사람이
+    기대한 "이 사건 보기"가 아무 데도 닿지 않았다.
+  */
+  const [openId, setOpenId] = useState<string | null>(null)
+
+  // 사건 하나를 연다. 목록에서 눌렀든 지도의 점을 눌렀든 같은 자리로 간다.
+  const openEvent = (id: string) => {
+    setSelectedId(id)
+    setOpenId(id)
+  }
 
   const filtered = useMemo(() => {
     // 오래된 것부터 — 지도의 이동 경로가 연도순으로 이어져야 한다
@@ -157,10 +174,11 @@ export default function MapPage() {
             <span className="t-mono text-[11px] text-ink-300">{points.length}곳</span>
           </div>
           <div className="mt-3">
-            <KoreaMap points={points} selectedId={selectedId} onSelect={setSelectedId} />
+            <KoreaMap points={points} selectedId={selectedId} onSelect={openEvent} />
           </div>
           <p className="t-caption mt-2.5">
-            점 크기는 그 장소에 남은 기록 수입니다. 점선은 연도순 이동입니다.
+            점 크기는 그 장소에 남은 기록 수입니다. 점선은 연도순 이동입니다. 점을 누르면
+            그 사건의 사진을 크게 봅니다.
           </p>
           {offMap.length > 0 && (
             <p className="t-caption mt-1.5" style={{ color: 'var(--ink-400)' }}>
@@ -172,6 +190,15 @@ export default function MapPage() {
         </div>
 
         <div className="flex flex-col gap-3">
+          {!loading && filtered.length > 0 && (
+            <div className="flex items-baseline justify-between">
+              <p className="t-eyebrow m-0">사건</p>
+              <span className="t-caption">
+                누르면 그 사건의 사진을 크게 보고 남은 기록을 함께 읽습니다
+              </span>
+            </div>
+          )}
+
           {loading ? (
             <p className="t-body-sm py-12 text-center text-ink-300">불러오는 중…</p>
           ) : filtered.length === 0 ? (
@@ -185,10 +212,17 @@ export default function MapPage() {
             const active = selectedId === event.id
 
             return (
-              <div
+              /*
+                버튼으로 둔다. 예전에는 onClick을 얹은 div였는데, 누를 수 있는
+                것이 키보드와 스크린 리더에는 없는 것과 같았다.
+              */
+              <button
                 key={event.id}
-                onClick={() => setSelectedId(event.id)}
-                className="cursor-pointer rounded-lg px-6 py-5 transition-colors duration-150 ease-out"
+                type="button"
+                onClick={() => openEvent(event.id)}
+                aria-label={`${event.title} 크게 보기`}
+                className="block w-full cursor-pointer rounded-lg px-6 py-5 text-left
+                           transition-colors duration-150 ease-out"
                 style={{
                   background: 'var(--paper-pure)',
                   border: `1px solid ${active ? 'var(--accent)' : 'var(--border)'}`,
@@ -231,8 +265,16 @@ export default function MapPage() {
                   {event.voice_count > 0 && (
                     <span className="t-caption text-accent-ink">음성 {event.voice_count}개</span>
                   )}
+                  {/* 카드에 걸린 썸네일은 세 장까지다. 그 뒤가 더 있으면 밝힌다 —
+                      세 장이 전부인 것으로 읽히면 눌러 볼 이유가 없어진다.
+                      media_count에는 음성도 들어 있어 voice_count를 뺀다. */}
+                  {event.media_count - event.voice_count > event.media_thumbs.length && (
+                    <span className="t-caption text-ink-300">
+                      사진 · 영상 {event.media_count - event.voice_count}개
+                    </span>
+                  )}
                 </div>
-              </div>
+              </button>
             )
           })}
 
@@ -262,6 +304,8 @@ export default function MapPage() {
           )}
         </div>
       </div>
+
+      {openId && <EventSpotlight eventId={openId} onClose={() => setOpenId(null)} />}
     </Page>
   )
 }
