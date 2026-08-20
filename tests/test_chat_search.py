@@ -194,14 +194,24 @@ def test_media_context_includes_scene_description():
 
 
 def test_badge_window_is_not_wasted_on_unciteable_nodes():
-    """뱃지로 만들 수 없는 노드(place 등)가 상위에 와도 근거 5개를 채운다"""
+    """뱃지로 만들 수 없는 노드(place 등)가 상위에 와도 근거 창을 채운다
+
+    인물은 상한 밖에 있다. 답변이 부른 이름이 근거에서 밀려나면 읽는 사람이
+    확인할 방법이 없어서, 인물은 몇 명이든 전부 담는다 (chat_engine의
+    person_count 처리). 상한이 걸리는 것은 사진·사건·기억이고, 그 다섯 자리를
+    place처럼 인용할 수 없는 노드가 밀어내지 않아야 한다 — 여기서 재는 것은
+    그 다섯 자리다.
+    """
     _require_seeded_graph()
     results = _search_graph("부산 여행 사진 보여줘")
-    citeable = [n for n in results if n.get("node_type") in ("media", "event", "memory", "person")]
+    citeable = [n for n in results if n.get("node_type") in ("media", "event", "memory")]
     expected = min(MAX_SOURCES, len(citeable))
+
     sources = _extract_sources(results)
-    assert len(sources) == expected, (
-        f"근거 {len(sources)}개 (기대 {expected}개). "
+    windowed = [s for s in sources if s.type != "person"]
+
+    assert len(windowed) == expected, (
+        f"인물 밖 근거 {len(windowed)}개 (기대 {expected}개). "
         f"상위5={[n['id'] for n in results[:5]]}"
     )
 

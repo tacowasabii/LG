@@ -188,6 +188,11 @@ class MediaNode:
     # AI analysis results
     detected_faces: list = field(default_factory=list)  # list of person_ids
     scene_description: Optional[str] = None
+    # 그 설명을 누가 썼는지. 노드 전체의 source(사진은 보통 exif)와 다른 축이다 —
+    # 날짜는 카메라가 적었고 설명은 모델이 썼다. transcript_source와 같은 구조.
+    #   ai_vision  : 모델이 사진을 보고 썼다
+    #   user_input : 사람이 적었다
+    scene_source: Optional[str] = None
     confidence: str = Confidence.USER_UNVERIFIED
     source: str = SourceType.EXIF
     # --- 음성/영상 ---

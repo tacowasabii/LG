@@ -164,6 +164,7 @@ async def upload_media(
         exif_lng=media_node.exif_lng,
         detected_faces=media_node.detected_faces,
         scene_description=media_node.scene_description,
+        scene_source=media_node.scene_source,
         linked_event_id=linked_event_id,
         needs_info=needs_info,
         message=(
@@ -335,6 +336,7 @@ async def get_media_detail(
         exif_camera=node.get("exif_camera"),
         detected_faces=node.get("detected_faces", []),
         scene_description=node.get("scene_description"),
+        scene_source=node.get("scene_source"),
         confidence=node.get("confidence", "user_unverified"),
         linked_events=[{"id": e["id"], "title": e.get("title", "")} for e in linked_events],
         linked_persons=[{"id": p["id"], "name": p.get("name", "")} for p in linked_persons],

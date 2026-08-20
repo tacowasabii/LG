@@ -8,7 +8,7 @@
     좌표               EXIF GPS
     장소               좌표에서 가장 가까운 기존 장소 (없으면 좌표만)
     등장인물           지목된 사람 + 기존 기록에서의 동시 등장 추정
-    주요 내용          scene_description (있을 때)
+    주요 내용          scene_description — 모델이 사진을 보고 쓴다 (services/vision.py)
     기존 가족 기록     비슷한 날짜·같은 장소·같은 사람의 사건
 
 네 가지를 지킨다.
@@ -36,7 +36,7 @@ from datetime import datetime
 from typing import Optional
 
 from backend.models.graph_models import MediaType, NodeType
-from backend.services import llm_client
+from backend.services import llm_client, vision
 from backend.services.graph_manager import graph_manager
 
 
@@ -421,6 +421,14 @@ async def draft(media_ids: list[str], author_id: Optional[str] = None) -> dict:
             "ai_used": False,
         }
 
+    # 사진에 무엇이 담겼는지 아직 모르면 여기서 읽는다. 위 표의 "주요 내용"이
+    # 이 값이고, 채우던 경로가 없어져서 늘 비어 있었다 — 초안이 사진을 보지 않고
+    # 제목을 쓰고 있었다. 자격증명이 없으면 조용히 지나간다 (services/vision.py).
+    #
+    # 상한을 준다. 아래에서 실제로 쓰는 설명은 세 개(scenes[:3])이고, 사용자는
+    # 이 함수가 끝나기를 기다리고 있다.
+    await vision.describe_missing(media_nodes, limit=vision.DRAFT_LIMIT)
+
     dates = sorted(
         _day(node.get("exif_date")) for node in media_nodes if node.get("exif_date")
     )
@@ -553,6 +561,9 @@ async def draft(media_ids: list[str], author_id: Optional[str] = None) -> dict:
                 "exif_date": node.get("exif_date"),
                 "exif_lat": node.get("exif_lat"),
                 "exif_lng": node.get("exif_lng"),
+                # 모델이 이 사진에서 읽은 것. 화면이 근거로 펼쳐 보인다.
+                "scene_description": node.get("scene_description"),
+                "scene_source": node.get("scene_source"),
             }
             for node in media_nodes
         ],

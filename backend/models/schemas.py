@@ -34,6 +34,8 @@ class MediaUploadResponse(BaseModel):
     exif_lng: Optional[float] = None
     detected_faces: list[str] = []
     scene_description: Optional[str] = None
+    # 그 설명을 누가 썼는지: ai_vision(모델이 사진을 보고 씀) | user_input
+    scene_source: Optional[str] = None
     # 영상·음성일 때. 브라우저가 재서 보낸 값이다 (서버에 디코더를 두지 않는다)
     duration_sec: Optional[float] = None
     linked_event_id: Optional[str] = None
@@ -87,6 +89,7 @@ class MediaDetail(BaseModel):
     exif_camera: Optional[str] = None
     detected_faces: list[str] = []
     scene_description: Optional[str] = None
+    scene_source: Optional[str] = None
     confidence: str = "user_unverified"
     linked_events: list[dict] = []
     linked_persons: list[dict] = []

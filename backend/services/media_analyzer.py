@@ -128,7 +128,8 @@ def analyze_media(
 
     MVP에서는:
     - 사진: EXIF 추출 (실제)
-    - 얼굴 인식 / 장면 분류: 없다. 사람이 직접 지목한다 (event_resolver.set_media_persons)
+    - 얼굴 인식: 없다. 사람이 직접 지목한다 (event_resolver.set_media_persons)
+    - 장면 설명: 추억 초안을 만들 때 모델이 채운다 (services/vision.py)
     - 음성: 전사는 브라우저가 한다 (frontend/src/lib/transcriber.ts)
     - 영상: 파일 정보만
     """
@@ -153,9 +154,13 @@ def analyze_media(
             node.confidence = Confidence.CONFIRMED
             node.created_at = node.exif_date
 
-    # TODO: AI Vision 연동 시 얼굴 인식, 장면 분류 결과 추가
-    # node.detected_faces = ai_vision.detect_faces(file_path)
-    # node.scene_description = ai_vision.describe_scene(file_path)
+    # 여기서 사진을 모델에 보내지 않는다. 장면 설명은 추억 초안을 만들 때
+    # 채운다 (services/vision.py) — 업로드는 파일을 받는 일이고, 그 응답을
+    # 모델 호출만큼 늦추면 사진 여러 장을 올릴 때 그만큼 밀린다.
+    #
+    # 누가 찍혔는지(detected_faces)는 모델이 정하지 않는다. 사람이 지목한다
+    # (event_resolver.set_media_persons). 가족 구성원 식별은 생체정보이고,
+    # 범용 모델이 틀리면 남의 사진에 엉뚱한 사람이 붙는다.
 
     return node
 

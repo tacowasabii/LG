@@ -218,6 +218,7 @@ DATABASE_URL="postgresql://..." python tests/test_memories.py
 TEST_DATABASE_URL="postgresql://..." python tests/test_store_pg.py   # 8개
 
 # Memory Trust Harness — 정답표로 실제 질의를 돌려 채점
+python scripts/describe_photos.py              # 사진 장면 설명 채우기 (장당 약 8초)
 python scripts/run_trust_harness.py            # 20문항 (LLM 호출, 수 분)
 python scripts/run_trust_harness.py --limit 5  # 앞 5문항만
 ```
