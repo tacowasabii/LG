@@ -365,7 +365,7 @@ export default function InterviewPage() {
           <p className="m-0 text-xl font-semibold text-ink-900">
             AI가 고른 사건에서 시작합니다
           </p>
-          <p className="t-body-sm mx-auto mt-2.5 max-w-[44ch]">
+          <p className="t-body-sm mx-auto mt-2.5 max-w-[33em]">
             기억이 가장 비어 있는 사건을 찾아 질문 {QUESTION_TOTAL}개로 채웁니다. 답변은{' '}
             {current?.name ?? '지금 답하는 사람'}님의 기억으로 저장됩니다.
           </p>

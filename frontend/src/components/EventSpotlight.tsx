@@ -186,7 +186,7 @@ export default function EventSpotlight({ eventId, onClose }: Props) {
             {loading && <p className="t-body-sm m-0 text-white/55">불러오는 중…</p>}
 
             {!loading && error && (
-              <p className="t-body-sm m-0 max-w-[40ch] text-center text-white/70">{error}</p>
+              <p className="t-body-sm m-0 max-w-[30em] text-center text-white/70">{error}</p>
             )}
 
             {!loading && !error && visuals.length === 0 && (

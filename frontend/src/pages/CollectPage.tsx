@@ -329,7 +329,7 @@ export default function CollectPage() {
       </div>
 
       {firstTime && (
-        <p className="t-caption mt-4 max-w-[62ch]">
+        <p className="t-caption mt-4 max-w-[46em]">
           앨범에서 아무 사진이나 고르면 됩니다. 촬영 시점과 좌표를 읽어 같은 사건끼리 묶고,
           묶음마다 초안을 하나씩 세웁니다. 시점이 없는 옛 사진은 따로 모아 두고 아는 것만
           물어봅니다 — 추측해서 채우지 않습니다.
@@ -488,7 +488,7 @@ export default function CollectPage() {
               <p className="m-0 text-[17px] font-semibold text-ink-900">
                 ‘{group.created.title}’이 가족 공간에 올라갔습니다
               </p>
-              <p className="t-body-sm m-0 mt-2 max-w-[62ch]">
+              <p className="t-body-sm m-0 mt-2 max-w-[46em]">
                 다른 가족은 확인할 의무가 없고, 기억나는 것이 있을 때만 자기 기억을 더합니다.
               </p>
               <div className="mt-4 flex flex-wrap gap-3">
@@ -571,7 +571,7 @@ export default function CollectPage() {
               )}
             </div>
 
-            <p className="t-caption m-0 mt-3 max-w-[62ch]">
+            <p className="t-caption m-0 mt-3 max-w-[46em]">
               {draft.ai_used
                 ? 'AI가 읽어낸 사실만으로 썼습니다. 마음에 들지 않으면 고치세요 — 저장하는 것은 고친 결과입니다.'
                 : '모델을 부르지 못해 읽어낸 사실로만 만들었습니다. 문장은 직접 다듬어 주세요.'}

@@ -379,7 +379,7 @@ export default function MemoryDetailPage() {
         <div className="flex flex-wrap items-end justify-between gap-4">
           <div>
             <p className="t-eyebrow m-0 mb-1.5 text-ink-300">함께 기억한 이야기</p>
-            <p className="t-caption m-0 max-w-[52ch]">
+            <p className="t-caption m-0 max-w-[39em]">
               여러 사람의 기억을 AI가 하나의 이야기로 엮습니다. 누가 맞는지는 판단하지 않고,
               서로 다른 부분은 그대로 남깁니다.
             </p>

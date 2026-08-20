@@ -160,7 +160,8 @@ export default function AppLayout() {
                       }
                     >
                       <item.icon size={17} strokeWidth={1.75} className="shrink-0 opacity-80" />
-                      <span className="flex-1">{item.label}</span>
+                      {/* 메뉴 이름은 줄을 넘기지 않는다 — 폭이 고정된 띠다 */}
+                      <span className="flex-1 whitespace-nowrap">{item.label}</span>
                     </NavLink>
                   </li>
                 ))}

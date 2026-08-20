@@ -474,7 +474,7 @@ export default function PrivacyPage() {
         <p className="t-eyebrow m-0" style={{ color: 'var(--critical-ink)' }}>
           목소리 정책
         </p>
-        <p className="t-body mt-3 max-w-[64ch]" style={{ color: 'var(--critical-ink)' }}>
+        <p className="t-body mt-3 max-w-[48em]" style={{ color: 'var(--critical-ink)' }}>
           돌아가신 분의 목소리를 학습해 새로운 문장을 말하게 하지 않습니다. 남아 있는 음성은
           원본 구간과 출처를 표시해 그대로 재생하고, 음성이 없으면 중립적인 AI 내레이터를
           씁니다. 본인이 직접 남기는 목소리 기록은 명시적으로 동의한 경우에만 다룹니다.

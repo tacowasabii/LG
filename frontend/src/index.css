@@ -92,6 +92,26 @@
 }
 
 @layer base {
+  /*
+   * 한글은 어절 단위로만 끊는다.
+   *
+   * 브라우저 기본값(word-break: normal)은 한글을 한 글자마다 끊어도 되는 글자로
+   * 보기 때문에, 줄 끝에서 "쌓입니 / 다."처럼 낱말 중간이 잘린다. 영문은 공백에서
+   * 끊기는데 국문만 음절에서 잘리는 화면이 되고, 읽는 사람은 잘린 자리에서 한 번
+   * 멈춘다. keep-all은 띄어쓰기에서만 끊게 한다.
+   *
+   * 끊을 자리가 없는 긴 토큰(URL·파일 경로·식별자)은 keep-all만 두면 상자를 넘어
+   * 삐져나온다. overflow-wrap: break-word가 그 한 낱말이 한 줄에 들어가지 못할
+   * 때에만 예외로 끊어 준다 — 평소 문장에는 관여하지 않는다.
+   *
+   * 둘 다 상속되는 속성이라 html에 한 번 걸면 화면 전체(TV 레이아웃까지) 적용된다.
+   * 지역적으로 달리 하려면 Tailwind의 break-all·break-words로 덮어쓴다.
+   */
+  html {
+    word-break: keep-all;
+    overflow-wrap: break-word;
+  }
+
   body {
     margin: 0;
     background: var(--paper);
@@ -300,6 +320,7 @@
     background: var(--accent);
     color: var(--accent-fg);
     cursor: pointer;
+    white-space: nowrap;
     transition: background var(--dur-fast) var(--ease-out);
   }
   .btn-primary:hover {
@@ -349,6 +370,7 @@
     padding: 0;
     color: var(--ink-300);
     cursor: pointer;
+    white-space: nowrap;
     text-decoration: underline;
     text-underline-offset: 4px;
   }

@@ -43,11 +43,17 @@ export function PageHeader({
   action,
   large = false,
 }: PageHeaderProps) {
+  /*
+   * 한 줄 설명의 폭은 em으로 잡는다. ch는 숫자 0의 폭이고 한글 한 자는 그보다
+   * 훨씬 넓어서, ch로 잡으면 화면 폭이 남아 있는데도 국문이 의도한 글자 수의
+   * 절반쯤에서 줄을 넘긴다 (홈의 소개 문장이 두 줄로 접혔던 이유다).
+   * 한글 한 자 ≈ 1em이므로 46em은 "한 줄에 한글 46자쯤"으로 읽으면 된다.
+   */
   const head = (
     <div>
       <p className="t-eyebrow m-0 mb-3">{eyebrow}</p>
       <h2 className={large ? 't-display m-0' : 't-title m-0'}>{title}</h2>
-      {lead && <p className="t-lead mt-3 max-w-[52ch]">{lead}</p>}
+      {lead && <p className="t-lead mt-3 max-w-[46em]">{lead}</p>}
     </div>
   )
 

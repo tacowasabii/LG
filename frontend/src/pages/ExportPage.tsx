@@ -218,7 +218,7 @@ export default function ExportPage() {
 
       <div className="mt-10">
         <p className="t-eyebrow m-0 mb-2.5">아카이브에 들어 있는 것</p>
-        <p className="t-body m-0 max-w-[64ch]">
+        <p className="t-body m-0 max-w-[48em]">
           원본 사진·영상은 보정 없이 그대로, 그래프는 표준 JSON, 가족이 남긴 문장은
           memories.md로 들어갑니다. 연대기는 chronicle.html이며 사진을 상대 경로로 가리키므로
           zip을 풀고 브라우저로 열면 그대로 보입니다. 이 서비스 없이도 열립니다.

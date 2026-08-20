@@ -67,7 +67,7 @@ export default function TrustPage() {
           style={{ border: '1px dashed var(--border-strong)' }}
         >
           <p className="m-0 text-[17px] font-semibold text-ink-900">아직 채점하지 않았습니다</p>
-          <p className="t-body-sm mt-2.5 max-w-[60ch]">
+          <p className="t-body-sm mt-2.5 max-w-[45em]">
             정답표 {report?.question_count ?? 0}문항이 준비되어 있습니다. 아래 명령으로 채점하면
             결과가 이 화면에 남습니다. 문항마다 실제 질의를 돌리므로 몇 분 걸립니다.
           </p>
@@ -322,7 +322,7 @@ export default function TrustPage() {
       {/* 모델 비교는 다른 모델을 실제로 돌린 뒤에만 적는다 */}
       <div className="mt-10">
         <p className="t-eyebrow m-0">모델 비교</p>
-        <p className="t-body-sm mt-2 max-w-[70ch]">
+        <p className="t-body-sm mt-2 max-w-[52em]">
           아직 비교하지 않았습니다. 기획안이 정한 방식은 같은 정답표를 다른 모델로 돌려 근거
           회수율과 무근거 문장 비율을 나란히 놓는 것입니다. 다른 모델 키를 넣고{' '}
           <span className="t-mono text-xs">EXAONE_MODEL</span> 을 바꿔 다시 채점하면 이 자리에
