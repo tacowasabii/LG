@@ -14,6 +14,12 @@ from backend.models.schemas import SourceItem
 # 대화 히스토리 저장 (MVP: in-memory)
 _conversations: dict[str, list[dict]] = {}
 
+# 대화별로 마지막에 근거로 쓴 노드. 이어지는 질문은 그 자체로 검색되지 않는다 —
+# "뭘 모르겠다는 거야?"에는 찾을 대상이 하나도 없어서 검색이 빈손으로 돌아오고,
+# 그러면 모델은 "반드시 [검색 결과]를 근거로" 라는 규칙과 방금 자기가 한 말
+# 사이에서 엉킨다. 앞 turn의 근거를 그대로 물려준다.
+_last_results: dict[str, list[dict]] = {}
+
 
 SYSTEM_PROMPT = """너는 "LG HomeStory"의 AI 어시스턴트야.
 사람들의 사진, 영상, 음성, 기억을 연결한 Memory Graph를 기반으로 질문에 답변해.
@@ -30,8 +36,13 @@ SYSTEM_PROMPT = """너는 "LG HomeStory"의 AI 어시스턴트야.
 4. 사람 이름은 [검색 결과]에 [인물]로 들어온 사람만 부른다. 사진 설명이나 기억
    문장에 스쳐 나온 이름을 근거처럼 단정하지 마 — 화면에 근거로 보여주지 않은
    이름을 말하면 읽는 사람이 확인할 방법이 없다.
-5. 따뜻하고 다정한 톤으로 답변해.
-6. 한국어로 답변해.
+5. [기억]에 "(질문 "..."에 대한 답)"이 붙어 있으면 그 기억은 그 질문에 대한 답이다.
+   "모르겠어요"처럼 짧은 답을 옮길 때는 무엇을 모른다고 한 것인지 그 질문을 함께
+   말해 — 답만 옮기면 읽는 사람은 무슨 이야기인지 알 수 없다.
+6. 앞선 답변을 이어받는 질문("뭘 모르겠다는 거야?", "그게 언제야?")은 대화
+   기록에서 무엇을 가리키는지 찾아 그 이야기를 이어서 답해. 다른 주제로 옮기지 마.
+7. 따뜻하고 다정한 톤으로 답변해.
+8. 한국어로 답변해.
 """
 
 
@@ -70,14 +81,48 @@ async def _prepare(
     # 그 사진의 장면 설명을 말해 버린다 (기획안 08장 Asset 권한).
     search_results = visibility.filter_search_results(plan_state["results"], viewer_id)
     missing_entities = plan_state["missing_entities"]
+
+    # 앞 답변에 매달린 질문이면 앞 turn의 근거를 그대로 쓴다 (아래 _is_followup).
+    # 물려받은 것도 지금 보는 사람의 권한으로 다시 걸러야 한다 — 그동안 공개
+    # 범위가 바뀌었을 수 있고, 이 대화를 다른 사람이 이어받을 수도 있다.
+    carried_over = False
+    if not search_results and _is_followup(plan_state):
+        previous = _last_results.get(conversation_id)
+        if previous:
+            search_results = visibility.filter_search_results(previous, viewer_id)
+            carried_over = bool(search_results)
+    if search_results:
+        _last_results[conversation_id] = search_results
+
     context_text = _format_search_results(search_results)
 
     return {
         "conversation_id": conversation_id,
         "search_results": search_results,
         "missing_entities": missing_entities,
-        "messages": _build_messages(query, context_text, conversation_id, missing_entities),
+        "messages": _build_messages(
+            query, context_text, conversation_id, missing_entities, carried_over
+        ),
     }
+
+
+def _is_followup(plan_state: dict) -> bool:
+    """이 질문이 스스로 가리키는 대상 없이 앞 답변에 매달린 질문인가
+
+    질의 계획이 인물·장소·사건·연도를 하나도 뽑지 못한 질문이다 — "뭘 모르겠다는
+    거야?", "그게 언제야?" 처럼. 이런 질문은 앞 turn이 무엇을 말했는지 알아야
+    답할 수 있다.
+
+    계획을 모델이 세우지 못했을 때(폴백)는 판정하지 않는다. 그때는 계획이 늘
+    비어 있어서 없는 대상을 물은 질문("런던 여행 얘기해줘")까지 이어지는 질문으로
+    보고, 엉뚱하게 앞의 부산 근거로 답하게 된다.
+    """
+    if not plan_state.get("planned_by_llm"):
+        return False
+    plan = plan_state.get("plan") or {}
+    if plan.get("year"):
+        return False
+    return not any(plan.get(key) for key in ("persons", "places", "events"))
 
 
 def _finish(query: str, answer: str, llm_used: bool, prep: dict) -> dict:
@@ -227,10 +272,14 @@ def _format_search_results(results: list[dict]) -> str:
             if contributor_id:
                 person = graph_manager.get_node(contributor_id)
                 speaker = person.get("name") if person else None
-            lines.append(
-                f"{i}. [기억] {speaker}: {content}" if speaker
-                else f"{i}. [기억] {content}"
-            )
+            line = f"{i}. [기억] {speaker}: {content}" if speaker else f"{i}. [기억] {content}"
+            # 인터뷰로 남은 기억은 어떤 질문에 대한 답이다. 그 질문을 빼면
+            # "모르겠어요" 같은 짧은 답이 무엇에 대한 것인지 알 수 없어,
+            # "뭘 모르겠다는 거야?"라고 되물었을 때 답이 엉킨다.
+            asked = node.get("question")
+            if asked:
+                line += f' (질문 "{asked}"에 대한 답)'
+            lines.append(line)
 
     return "\n".join(lines)
 
@@ -240,8 +289,14 @@ def _build_messages(
     context: str,
     conversation_id: str,
     missing_entities: Optional[list[str]] = None,
+    carried_over: bool = False,
 ) -> list[dict]:
-    """EXAONE API용 메시지 빌드"""
+    """EXAONE API용 메시지 빌드
+
+    carried_over는 [검색 결과]가 이 질문으로 찾은 것이 아니라 앞 turn에서
+    물려받은 것임을 뜻한다. 밝혀 주지 않으면 모델은 그 근거가 지금 질문에
+    직접 맞아떨어지는 것으로 읽는다.
+    """
     # 오늘 날짜를 주지 않으면 나이·경과연수 계산에서 모델의 학습 시점을 기준으로 삼는다
     system_content = f"{SYSTEM_PROMPT}\n오늘 날짜: {date.today().isoformat()}"
     messages = [{"role": "system", "content": system_content}]
@@ -257,6 +312,14 @@ def _build_messages(
 {context}
 
 위 검색 결과를 참고하여 질문에 답변해주세요. 근거가 되는 이벤트나 미디어가 있으면 언급해주세요."""
+
+    if carried_over:
+        user_message += (
+            "\n\n참고: 이 질문은 앞선 답변을 이어받는 질문입니다. 위 [검색 결과]는 "
+            "앞 질문에서 쓴 근거를 그대로 가져온 것입니다. 대화 기록에서 이 질문이 "
+            "무엇을 가리키는지 찾아, 그 대상에 대해 이어서 답변하세요. "
+            "새 주제로 옮기거나 기록이 없다고 말하지 마세요."
+        )
 
     if missing_entities:
         # 질의 계획이 그래프에 없다고 판정한 대상. 있는 척 답하지 않게 명시한다.

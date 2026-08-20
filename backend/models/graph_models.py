@@ -233,6 +233,10 @@ class MemoryNode:
     id: str = field(default_factory=lambda: _gen_id("memory"))
     node_type: str = field(default=NodeType.MEMORY, init=False)
     content: str = ""
+    # 이 기억이 어떤 질문에 대한 답인가 (인터뷰로 남긴 기억만 채워진다).
+    # 답만 남기면 "모르겠어요" 같은 짧은 답이 무엇에 대한 것인지 사라진다 —
+    # 채팅이 그 기억을 근거로 잡아도 무엇을 모른다는 것인지 말할 수 없었다.
+    question: Optional[str] = None
     source_type: str = SourceType.USER_INPUT
     contributor_id: Optional[str] = None  # person_id
     confidence: str = Confidence.CONFIRMED

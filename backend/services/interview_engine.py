@@ -454,6 +454,21 @@ def _simulate_question(
     return question_pool[idx]
 
 
+def _asked_question(session: dict) -> Optional[str]:
+    """방금 받은 답변이 답한 질문
+
+    process_answer가 answers에 답을 먼저 담으므로, 마지막 답의 짝은
+    questions[len(answers) - 1]이다. 세션이 어긋난 경우(질문보다 답이 많은
+    경우)에는 짐작하지 않고 비워 둔다 — 엉뚱한 질문을 짝지으면 기억의 뜻이
+    바뀐다.
+    """
+    questions = session.get("questions") or []
+    index = len(session.get("answers") or []) - 1
+    if 0 <= index < len(questions):
+        return questions[index]
+    return None
+
+
 async def _process_answer_to_graph(
     session: dict,
     answer: str,
@@ -476,9 +491,12 @@ async def _process_answer_to_graph(
     if speaker_id and graph_manager.get_node(speaker_id):
         contributor_id = speaker_id
 
-    # Memory 노드 생성
+    # Memory 노드 생성. 답과 함께 그 답을 부른 질문도 남긴다 — 짧은 답은
+    # 질문 없이는 뜻이 없다. "모르겠어요"만 그래프에 남으면 나중에 채팅이
+    # 그것을 근거로 잡아도 무엇을 모른다는 것인지 말할 수 없다.
     memory = MemoryNode(
         content=answer,
+        question=_asked_question(session),
         source_type=SourceType.INTERVIEW,
         contributor_id=contributor_id,
         confidence=Confidence.CONFIRMED,
