@@ -188,7 +188,7 @@ export default function JoinPage() {
                 <input
                   value={relation}
                   onChange={(e) => setRelation(e.target.value)}
-                  placeholder="관계 (아빠, 엄마, 친구…)"
+                  placeholder="관계 (아빠, 엄마, 할머니…)"
                   className="field min-w-0 flex-[1_1_180px]"
                 />
               </div>

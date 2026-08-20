@@ -34,15 +34,6 @@ ROLE_KR = {
     "daughter": "딸",
     "son": "아들",
     "grandmother": "할머니",
-    # 가족 밖 관계
-    "friend": "친구",
-    "partner": "연인",
-}
-
-# role -> 관계 분류. 없으면 가족으로 본다.
-ROLE_CATEGORY = {
-    "friend": RelationCategory.FRIEND,
-    "partner": RelationCategory.PARTNER,
 }
 
 
@@ -75,8 +66,8 @@ def seed():
         gm.add_person(person)
     print(f"  ✓ 가족 구성원 {len(persons_data)}명")
 
-    # 사람 사이의 관계 엣지. 가족·친구·연인이 같은 RELATED_TO를 쓰고
-    # category로 구분된다 (스키마가 가족에 묶이지 않음을 보이는 지점).
+    # 사람 사이의 관계 엣지. relation_type에 관계명, category에 분류를 담는다.
+    # 지금은 가족만 있지만 분류가 엣지에 실려 있어 넓힐 때 구조를 바꾸지 않는다.
     person_relations = [
         ("P01", "P02", "부부", RelationCategory.FAMILY),
         ("P01", "P03", "부녀", RelationCategory.FAMILY),
@@ -86,8 +77,6 @@ def seed():
         ("P03", "P04", "남매", RelationCategory.FAMILY),
         ("P05", "P03", "조손", RelationCategory.FAMILY),
         ("P05", "P04", "조손", RelationCategory.FAMILY),
-        ("P03", "P06", "친구", RelationCategory.FRIEND),
-        ("P03", "P07", "연인", RelationCategory.PARTNER),
     ]
     for src, tgt, rel, category in person_relations:
         gm.add_edge(Edge(
@@ -134,13 +123,6 @@ def seed():
     for m in media_data:
         for person_id in m.get("people", []):
             event_participants[m["event_id"]].add(person_id)
-
-    # 사진에 인물 라벨이 없어도 참석은 했을 수 있다.
-    # P06(친구)·P07(연인)은 합성 사진에 등장하지 않으므로 여기서 직접 연결한다.
-    extra_participants = [("P06", "E05"), ("P07", "E07")]
-    for person_id, event_id in extra_participants:
-        if person_id in {p["person_id"] for p in persons_data} and event_id in event_participants:
-            event_participants[event_id].add(person_id)
 
     for event_id, participants in event_participants.items():
         for person_id in participants:

@@ -53,20 +53,19 @@ class RelationType(str, Enum):
     # 이 기억의 근거가 되는 원본 기록 (Memory -> Media).
     # 기획안의 "출처 보존" — 기억 문장에서 원본 음성으로 되짚을 수 있어야 한다.
     EVIDENCED_BY = "evidenced_by"
-    # 사람 사이의 관계. 가족에 한정하지 않는다 (친구·연인도 같은 엣지로 표현).
-    # 구체적인 관계명은 properties.relation_type, 분류는 properties.category.
+    # 사람 사이의 관계. 구체적인 관계명은 properties.relation_type,
+    # 분류는 properties.category.
     RELATED_TO = "related_to"
 
 
 class RelationCategory(str, Enum):
     """사람 사이 관계의 분류
 
-    같은 RELATED_TO 엣지를 쓰되 이 값으로 구분한다. 가족만 다루던 스키마를
-    친구·연인까지 넓히면서 도입했다.
+    같은 RELATED_TO 엣지를 쓰되 이 값으로 구분한다. 지금은 가족만 다룬다.
+    친구·연인처럼 가족 밖 관계로 넓힐 때는 값을 여기에 더하면 된다 —
+    엣지 구조와 category 필드는 그대로 두므로 스키마를 바꾸지 않고 확장된다.
     """
     FAMILY = "family"
-    FRIEND = "friend"
-    PARTNER = "partner"
 
 
 # --- Node Data Classes ---
@@ -80,7 +79,7 @@ class PersonNode:
     id: str = field(default_factory=lambda: _gen_id("person"))
     node_type: str = field(default=NodeType.PERSON, init=False)
     name: str = ""
-    # 아빠, 엄마, 딸, 아들, 할머니 / 친구, 연인 등. 가족에 한정하지 않는다.
+    # 아빠, 엄마, 딸, 아들, 할머니 등.
     relation: str = ""
     birth_year: Optional[int] = None
     # 연도만으로는 나이가 1살까지 어긋난다 (생일 경과 여부를 알 수 없음)

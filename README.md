@@ -2,7 +2,7 @@
 
 > 사람과 사건의 기억을 연결하고, 질문하면 실제 기록을 근거로 답해주는 "대화 가능한 기억 공간"
 >
-> 엔진명: Family Memory Graph · 관계는 가족·친구·연인을 모두 포함합니다
+> 엔진명: Family Memory Graph
 
 2026 LG Promptathon 출품작
 

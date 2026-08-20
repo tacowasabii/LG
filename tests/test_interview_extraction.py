@@ -33,7 +33,7 @@ from backend.services.graph_manager import graph_manager  # noqa: E402
 
 EVENT = "E01"  # 1998 부산 가족여행
 SPEAKER = "P01"  # 김민수 (말하는 사람)
-GUEST = "P06"  # 이서연 (친구 — E01에는 참여자로 없다)
+GUEST = "P05"  # 이정자 (할머니 — E01에는 참여자로 없다)
 
 
 def _require_seeded_graph():

@@ -135,7 +135,7 @@ def test_viewer_cannot_add_person():
         with TestClient(app) as client:
             res = client.post(
                 "/api/graph/person",
-                json={"name": "테스트", "relation": "친구"},
+                json={"name": "테스트", "relation": "이모"},
                 headers=_as(VIEWER),
             )
             assert res.status_code == 403, res.status_code

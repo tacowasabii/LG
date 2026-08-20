@@ -28,17 +28,5 @@
     "name": "이정자",
     "role": "grandmother",
     "birth_date": "1940-11-21"
-  },
-  {
-    "person_id": "P06",
-    "name": "최민지",
-    "role": "friend",
-    "birth_date": "1996-07-30"
-  },
-  {
-    "person_id": "P07",
-    "name": "이준호",
-    "role": "partner",
-    "birth_date": "1994-02-11"
   }
 ]

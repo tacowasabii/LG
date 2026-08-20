@@ -48,10 +48,6 @@ SEARCH_CASES = [
     ("딸", {"P03"}, "한 글자 호칭"),
     ("아들", {"P04"}, "호칭"),
     ("할머니가", {"P05"}, "호칭 + 조사"),
-    # 가족 밖 관계 - 스키마가 가족에 묶이지 않는다
-    ("친구", {"P06"}, "가족 밖 호칭"),
-    ("연인", {"P07"}, "가족 밖 호칭"),
-    ("최민지", {"P06"}, "가족 밖 인물 이름"),
     # 다어절 - 조사가 없는 맨 명사도 개별 검색되어야 한다
     ("부산 여행", {"E01"}, "다어절"),
     ("김하늘 결혼식", {"P03", "E07"}, "이름 + 다어절"),
@@ -226,38 +222,26 @@ def test_memory_context_includes_speaker():
     )
 
 
-def test_relations_are_not_limited_to_family():
-    """사람 사이 관계가 가족에 한정되지 않는다
+def test_relation_edges_carry_category_and_label():
+    """사람 사이 관계 엣지가 분류와 관계명을 함께 담는다
 
-    가족·친구·연인이 같은 RELATED_TO 엣지를 쓰고 category로 구분된다.
+    지금 그래프에는 가족만 있다. 그래도 분류가 엣지에 실려 있어야 나중에
+    가족 밖 관계를 더할 때 엣지 구조를 바꾸지 않는다.
     """
     _require_seeded_graph()
-    categories = {
-        edge["properties"].get("category")
+    edges = [
+        edge
         for edge in graph_manager.get_all_edges()
         if edge["relation"] == RelationType.RELATED_TO
-    }
-    assert RelationCategory.FAMILY in categories, f"가족 관계가 없음: {categories}"
-    assert RelationCategory.FRIEND in categories, f"친구 관계가 없음: {categories}"
-    assert RelationCategory.PARTNER in categories, f"연인 관계가 없음: {categories}"
+    ]
+    assert edges, "사람 사이 관계 엣지가 없음"
 
-    # 관계명(부부/친구/연인)도 함께 보존되어야 화면과 프롬프트에서 쓸 수 있다
-    labels = {
-        edge["properties"].get("relation_type")
-        for edge in graph_manager.get_all_edges()
-        if edge["relation"] == RelationType.RELATED_TO
-    }
-    assert {"부부", "친구", "연인"} <= labels, f"관계명 누락: {sorted(labels)}"
+    categories = {edge["properties"].get("category") for edge in edges}
+    assert categories == {RelationCategory.FAMILY}, f"가족 밖 분류가 섞였음: {categories}"
 
-
-def test_non_family_person_participates_in_event():
-    """가족 밖 인물도 이벤트에 참여자로 연결된다 (사진에 없어도)"""
-    _require_seeded_graph()
-    friend = graph_manager.get_person_detail("P06")
-    assert friend is not None, "P06(친구)이 그래프에 없음"
-    assert friend["relation"] == "친구"
-    event_ids = {e["id"] for e in friend["events"]}
-    assert event_ids, "친구가 어떤 이벤트에도 연결되지 않음"
+    # 관계명(부부/부녀/남매)도 함께 보존되어야 화면과 프롬프트에서 쓸 수 있다
+    labels = {edge["properties"].get("relation_type") for edge in edges}
+    assert {"부부", "부녀", "남매"} <= labels, f"관계명 누락: {sorted(labels)}"
 
 
 def test_person_detail_includes_their_memories():

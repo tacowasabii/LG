@@ -78,7 +78,7 @@ export default function FamilyPage() {
       <PageHeader
         eyebrow="People"
         title="인물"
-        lead="Memory Graph에 등록된 사람들입니다. 가족·친구·연인 모두 포함됩니다."
+        lead="Memory Graph에 등록된 가족입니다."
         action={
           <button onClick={() => setShowForm((v) => !v)} className="btn-quiet">
             인물 추가
@@ -99,7 +99,7 @@ export default function FamilyPage() {
             />
             <input
               type="text"
-              placeholder="관계 (아빠, 엄마, 친구…)"
+              placeholder="관계 (아빠, 엄마, 할머니…)"
               value={formData.relation}
               onChange={(e) => setFormData({ ...formData, relation: e.target.value })}
               className="field field-sm"

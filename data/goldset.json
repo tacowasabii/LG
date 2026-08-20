@@ -63,60 +63,48 @@
     },
     {
       "id": "Q11",
-      "query": "민지는 누구야?",
-      "expect_any": ["P06"],
-      "intent": "fact"
-    },
-    {
-      "id": "Q12",
-      "query": "준호는 누구야?",
-      "expect_any": ["P07"],
-      "intent": "fact"
-    },
-    {
-      "id": "Q13",
       "query": "할머니는 몇 년생이야?",
       "expect_any": ["P05"],
       "intent": "fact"
     },
     {
-      "id": "Q14",
+      "id": "Q12",
       "query": "하늘이 초등학교 입학은 언제야?",
       "expect_any": ["E02"],
       "intent": "fact"
     },
     {
-      "id": "Q15",
+      "id": "Q13",
       "query": "광안리에서 찍은 사진 있어?",
       "expect_any": ["place_E01", "E01", "E01_001", "E01_002", "E01_003"],
       "intent": "photos"
     },
     {
-      "id": "Q16",
+      "id": "Q14",
       "query": "엄마가 기억하는 입학식 이야기 알려줘",
       "expect_any": ["M002", "E02"],
       "intent": "story"
     },
     {
-      "id": "Q17",
+      "id": "Q15",
       "query": "런던 여행은 어땠어?",
       "no_record": true,
       "intent": "fact"
     },
     {
-      "id": "Q18",
+      "id": "Q16",
       "query": "큰엄마는 어디 살아?",
       "no_record": true,
       "intent": "fact"
     },
     {
-      "id": "Q19",
+      "id": "Q17",
       "query": "우리 강아지 이름이 뭐야?",
       "no_record": true,
       "intent": "fact"
     },
     {
-      "id": "Q20",
+      "id": "Q18",
       "query": "2020년에는 무슨 일이 있었어?",
       "no_record": true,
       "note": "2017년과 2021년 사이는 기록이 없는 구간이다",
