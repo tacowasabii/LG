@@ -1,0 +1,26 @@
+{
+  "E01_001": {
+    "file": "/media-files/motion/E01_001.mp4",
+    "poster": "/media-files/motion/E01_001.poster.jpg",
+    "model": "fal-ai/wan/v2.2-a14b/image-to-video",
+    "prompt": "gentle ocean waves lapping the shore, soft sea breeze, static camera, everything else perfectly still",
+    "resolution": "480p",
+    "source_seconds": 5,
+    "used_seconds": 2.0,
+    "loop": "none",
+    "crossfade": null,
+    "subject_preserved": false
+  },
+  "E06_001": {
+    "file": "/media-files/motion/E06_001.mp4",
+    "poster": "/media-files/motion/E06_001.poster.jpg",
+    "model": "fal-ai/wan/v2.2-a14b/image-to-video",
+    "prompt": "campfire flames flickering, embers drifting upward slowly, static camera, everything else perfectly still",
+    "resolution": "480p",
+    "source_seconds": 5,
+    "used_seconds": 2.5,
+    "loop": "none",
+    "crossfade": null,
+    "subject_preserved": true
+  }
+}

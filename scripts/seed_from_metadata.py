@@ -19,6 +19,7 @@ from backend.config import (
     GRAPH_FILE,
     MEDIA_DIR,
     METADATA_DIR,
+    MOTION_DIR,
     PHOTOS_DIR,
     VIDEO_DIR,
 )
@@ -38,6 +39,36 @@ ROLE_KR = {
 }
 
 
+def _copy_motion_clips():
+    """data/motion의 클립을 MEDIA_DIR/motion으로 옮긴다
+
+    사진과 같은 규약이다. 원본은 저장소에 커밋되는 읽기 전용 자산이고, 서빙되는
+    자리(MEDIA_DIR)는 배포에서 볼륨이라 매 부팅에 다시 채워야 한다.
+    manifest.json은 서버가 data/motion에서 직접 읽으므로 옮기지 않는다.
+    *.source.mp4는 자르기 전 중간물이라 서빙하지 않는다 — 옮기면 배포 볼륨에
+    쓰이지 않는 파일이 클립보다 큰 용량으로 쌓인다.
+    """
+    if not MOTION_DIR.exists():
+        return
+
+    dest_dir = MEDIA_DIR / "motion"
+    dest_dir.mkdir(parents=True, exist_ok=True)
+
+    copied = 0
+    for src in MOTION_DIR.iterdir():
+        if not src.is_file() or src.name == "manifest.json":
+            continue
+        if src.name.endswith(".source.mp4"):
+            continue
+        dest = dest_dir / src.name
+        if not dest.exists() or src.stat().st_mtime > dest.stat().st_mtime:
+            shutil.copy2(str(src), str(dest))
+            copied += 1
+
+    if copied:
+        print(f"  ✓ 미세 모션 클립 {copied}개")
+
+
 def seed():
     print("🌱 실제 데이터셋으로 Graph 생성 중...")
 
@@ -47,6 +78,10 @@ def seed():
 
     # 미디어 디렉토리 준비 - photos와 video를 media로 복사/심링크
     MEDIA_DIR.mkdir(parents=True, exist_ok=True)
+
+    # 미세 모션 클립도 사진과 같이 옮긴다. 만들어 두지 않았으면 그냥 넘어간다 —
+    # 그때는 화면이 사진에 CSS 카메라 움직임만 건다 (film_composer.motion_clips).
+    _copy_motion_clips()
 
     # --- Load metadata ---
     persons_data = json.loads((METADATA_DIR / "persons.json").read_text(encoding="utf-8"))

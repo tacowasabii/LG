@@ -5,6 +5,7 @@
 기획안의 "진정성 원칙"이 데이터 구조에서 지켜지는지 본다.
   - 장면마다 원본 기록과 출처 문구가 붙는가
   - 사진에는 허용된 움직임만, 원본 영상에는 아무 효과도 붙지 않는가
+  - 적어 놓은 효과가 화면이 실제로 거는 것과 같은가
   - 요청한 길이를 넘지 않고, 잘라낸 장면 수를 밝히는가
   - 내레이션이 기록에 있는 사실만 쓰는가 (LLM 없이도 성립해야 한다)
 
@@ -55,8 +56,34 @@ def test_photo_effects_are_within_allowed_range():
     assert photo_scenes, "효과가 붙은 장면이 없다"
     for scene in photo_scenes:
         for effect in scene["ai_effects"]:
-            assert effect in film_composer.ALLOWED_MOTIONS, effect
+            assert effect in film_composer.ALLOWED_EFFECTS, effect
     print("  허용된 움직임만 사용:", {e for s in photo_scenes for e in s["ai_effects"]})
+
+
+def test_effect_label_matches_the_motion_actually_applied():
+    """적어 놓은 효과와 화면이 거는 효과가 같아야 한다
+
+    예전에는 서버가 라벨만 정하고 화면이 장면 순서로 CSS를 따로 골라서, 두
+    목록의 순서가 달라 네 경우 모두 어긋나 있었다 — "미세 배경 움직임"이라고
+    적힌 장면에서 실제로는 줌 아웃이 걸렸다. 적힌 것이 사실이 아니면
+    진정성 원칙이 장식이 된다.
+    """
+    board = asyncio.run(film_composer.compose(EVENT))
+    labels = dict(film_composer.CAMERA_MOTIONS)
+
+    for scene in board["scenes"]:
+        if scene["motion_url"]:
+            # 클립을 재생하는 장면에는 카메라 움직임을 겹치지 않는다
+            assert scene["motion"] is None, scene
+            assert scene["ai_effects"], "생성된 움직임을 밝히지 않았다"
+            assert film_composer.GENERATED_MOTION_LABEL in scene["ai_effects"][0], scene
+        elif scene["motion"]:
+            assert scene["motion"] in labels, scene["motion"]
+            assert scene["ai_effects"] == [labels[scene["motion"]]], scene
+        else:
+            # 움직임이 없으면 효과도 없다고 적혀 있어야 한다
+            assert scene["ai_effects"] == [], scene
+    print("  라벨과 적용 효과 일치 OK")
 
 
 def test_video_scenes_have_no_effects():
@@ -162,6 +189,7 @@ def test_http_film_endpoints():
 TESTS = [
     test_scenes_carry_source_and_media_id,
     test_photo_effects_are_within_allowed_range,
+    test_effect_label_matches_the_motion_actually_applied,
     test_video_scenes_have_no_effects,
     test_length_is_respected_and_truncation_is_reported,
     test_audience_changes_pace,

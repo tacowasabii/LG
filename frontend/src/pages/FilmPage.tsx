@@ -12,7 +12,10 @@
  * 장면 구성은 POST /api/film 이 그래프에서 조립한다. 길이와 대상 세대를 넘기면
  * 서버가 장면을 자르고 내레이션을 확인된 기록 안에서만 쓴다.
  *
- * 남은 교체 지점: 미리보기 진행바 -> 실제로 렌더된 영상 플레이어
+ * 사진에 클립(motion_url)이 있으면 그것을 재생하고, 없으면 원본 사진에 CSS
+ * 카메라 움직임을 건다. 어느 쪽인지는 서버가 정하고 AI 라벨에 그대로 적힌다.
+ *
+ * 남은 교체 지점: 미리보기 진행바 -> 장면 전체를 이어 붙인 영상 플레이어
  */
 
 import { useEffect, useState } from 'react'
@@ -33,8 +36,39 @@ import RichText from '../components/RichText'
 const LENGTHS: FilmLength[] = [30, 45, 60]
 const AUDIENCES: Audience[] = ['child', 'adult', 'elder']
 
-/** 장면 순서에 따라 네 가지 움직임을 돌려 쓴다 (기획안 진정성 원칙의 허용 범위) */
-const MOTIONS = ['motion-zoom-in', 'motion-pan-left', 'motion-zoom-out', 'motion-pan-right']
+/**
+ * 서버가 고른 움직임을 CSS 클래스로 옮긴다.
+ *
+ * 무엇을 걸지 화면이 정하지 않는다. 예전에는 여기서 장면 순서로 골랐는데
+ * 서버가 라벨을 붙이는 순서와 달라서, 화면에 적힌 효과와 실제로 걸린 효과가
+ * 네 경우 모두 어긋나 있었다 (backend/services/film_composer.py CAMERA_MOTIONS).
+ */
+const MOTION_CLASS: Record<string, string> = {
+  'zoom-in': 'motion-zoom-in',
+  'pan-left': 'motion-pan-left',
+  'zoom-out': 'motion-zoom-out',
+  'pan-right': 'motion-pan-right',
+}
+
+/**
+ * 움직임을 줄이도록 설정한 사용자에게는 생성된 클립도 재생하지 않는다.
+ *
+ * index.css는 CSS 애니메이션을 prefers-reduced-motion에서 끄지만 영상 재생은
+ * CSS로 멈출 수 없다. 같은 취지를 지키려면 여기서 판단해야 한다.
+ */
+function usePrefersReducedMotion(): boolean {
+  const [reduced, setReduced] = useState(false)
+
+  useEffect(() => {
+    const query = window.matchMedia('(prefers-reduced-motion: reduce)')
+    setReduced(query.matches)
+    const onChange = () => setReduced(query.matches)
+    query.addEventListener('change', onChange)
+    return () => query.removeEventListener('change', onChange)
+  }, [])
+
+  return reduced
+}
 
 export default function FilmPage() {
   const { events } = useEvents()
@@ -57,6 +91,7 @@ export default function FilmPage() {
   const [anniversaries, setAnniversaries] = useState<Anniversary[]>([])
   const [playing, setPlaying] = useState(false)
   const [elapsed, setElapsed] = useState(0)
+  const reducedMotion = usePrefersReducedMotion()
 
   // 사진이 가장 많은 사건에서 시작한다 (이야기가 될 자료가 있는 쪽)
   useEffect(() => {
@@ -221,12 +256,29 @@ export default function FilmPage() {
               className="relative aspect-video overflow-hidden"
               style={{ background: 'var(--ink-900)' }}
             >
-              <img
-                key={currentScene.media_id}
-                src={mediaUrl(currentScene.thumb)}
-                alt=""
-                className={`h-full w-full object-cover ${MOTIONS[currentIndex % 4]}`}
-              />
+              {currentScene.motion_url && !reducedMotion ? (
+                /* 미리 만들어 둔 미세 모션 클립. 실패해도 poster(원본 썸네일)가
+                   남아 화면이 비지 않는다. */
+                <video
+                  key={currentScene.media_id}
+                  src={mediaUrl(currentScene.motion_url)}
+                  poster={mediaUrl(currentScene.thumb)}
+                  className="h-full w-full object-cover"
+                  autoPlay
+                  loop
+                  muted
+                  playsInline
+                />
+              ) : (
+                <img
+                  key={currentScene.media_id}
+                  src={mediaUrl(currentScene.thumb)}
+                  alt=""
+                  className={`h-full w-full object-cover ${
+                    (currentScene.motion && MOTION_CLASS[currentScene.motion]) || ''
+                  }`}
+                />
+              )}
               <div
                 className="absolute inset-0"
                 style={{
@@ -310,7 +362,7 @@ export default function FilmPage() {
               {board.title}
               <span className="t-caption ml-2.5 text-ink-300">{board.subtitle}</span>
             </p>
-            <p className="t-body mt-3 max-w-[60ch]">
+            <p className="t-body mt-3 max-w-[45em]">
               <RichText text={board.narration} />
             </p>
             {board.omitted_scenes > 0 && (

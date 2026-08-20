@@ -5,6 +5,9 @@
 기획안의 "진정성 원칙"을 데이터 구조로 지킨다.
   - 장면마다 원본 기록 id와 출처 문구를 들고 있다 (되짚을 수 있어야 한다)
   - 적용된 효과를 ai_effects에 남긴다. 화면은 이 목록을 반드시 노출한다
+  - 무엇을 걸지는 서버만 정한다 (motion). 화면이 따로 고르면 라벨과 어긋난다
+  - 카메라 움직임과 생성된 움직임은 라벨을 나눈다. 앞은 원본 픽셀을 옮긴 것이고
+    뒤는 없던 픽셀이 생긴 것이라, 같은 문구로 덮으면 구분이 사라진다
   - 원본 영상은 효과를 걸지 않는다 (ai_effects가 빈 배열)
   - 내레이션은 확인된 기록 안에서만 쓴다. LLM이 없으면 사실만 적는다
 
@@ -14,9 +17,11 @@
 
 from __future__ import annotations
 
+import json
 from datetime import date
 from typing import Optional
 
+from backend.config import MOTION_MANIFEST_FILE
 from backend.services import llm_client, visibility
 from backend.services.graph_manager import graph_manager
 from backend.models.graph_models import MediaType, NodeType
@@ -38,8 +43,54 @@ AUDIENCE_TONE = {
     "elder": "천천히 읽히도록 문장을 길게 끊고, 당시 호칭을 그대로 쓴다.",
 }
 
-# 사진에 허용된 움직임. 기획안이 정한 범위를 넘지 않는다.
-ALLOWED_MOTIONS = ["느린 패닝", "느린 줌 인", "미세 배경 움직임", "느린 줌 아웃"]
+# 사진에 걸리는 카메라 움직임. 원본 픽셀을 옮기는 것뿐이고 없던 것을 만들지 않는다.
+#
+# (화면이 적용할 key, 사람이 읽을 라벨) 쌍으로 묶어 둔다. 예전에는 라벨만 여기 있고
+# 실제 효과는 화면이 따로 골랐는데, 두 목록의 순서가 달라서 표시와 적용이 전부
+# 어긋나 있었다 — "미세 배경 움직임"이라 적힌 장면에서 줌 아웃이 걸렸다.
+# 무엇을 걸지 한 자리에서 정해야 ai_effects가 사실이 된다.
+CAMERA_MOTIONS = [
+    ("zoom-in", "느린 줌 인"),
+    ("pan-left", "느린 패닝"),
+    ("zoom-out", "느린 줌 아웃"),
+    ("pan-right", "느린 패닝"),
+]
+
+# 미리 만들어 둔 클립을 재생하는 장면의 라벨. 카메라 움직임과 구분해서 적는다 —
+# 이쪽은 원본에 없던 픽셀이 생긴 것이고, 둘을 같은 문구로 덮으면 "무엇이 원본이고
+# 무엇이 생성인지" 화면에서 읽히게 한다는 진정성 원칙이 무의미해진다.
+#
+# 무엇이 움직이는지까지 적지 않는다. 사진마다 다르고(파도 · 랜턴 불꽃 · 촛불)
+# 틀리게 적으면 없는 것을 밝힌 셈이 된다. 무엇을 넣었는지는 manifest의 prompt에
+# 남아 있고, 화면에서 필요한 구분은 "생성이냐 아니냐"까지다.
+GENERATED_MOTION_LABEL = "AI 생성 미세 움직임"
+# 인물 영역을 원본 픽셀로 되돌린 클립에만 붙인다 (build_motion_covers.py의 마스크)
+SUBJECT_PRESERVED_NOTE = " · 인물은 원본"
+
+# 화면에 나갈 수 있는 효과 문구 전체. Trust Harness와 tests/test_film.py가
+# 이것으로 검사한다 — 라벨을 늘릴 때 허용 목록도 같이 늘어나게 한 자리에 둔다.
+ALLOWED_EFFECTS = frozenset(
+    {label for _, label in CAMERA_MOTIONS}
+    | {GENERATED_MOTION_LABEL, GENERATED_MOTION_LABEL + SUBJECT_PRESERVED_NOTE}
+)
+
+
+def motion_clips() -> dict:
+    """미리 만들어 둔 미세 모션 클립 목록 (media_id -> 클립 정보)
+
+    scripts/build_motion_covers.py가 data/motion/manifest.json에 쓰고 여기서 읽는다.
+    파일이 없는 것은 정상이다 — 아직 만들지 않았다는 뜻이고, 그때는 사진에
+    카메라 움직임만 걸려 지금까지와 똑같이 동작한다.
+
+    캐시하지 않는다. 항목이 열 개 남짓이라 읽는 값이 싸고, 캐시하면 클립을 새로
+    만든 뒤 서버를 재시작해야 화면에 나타난다 — 만드는 쪽이 로컬 스크립트라
+    그 함정에 걸리기 쉽다.
+    """
+    try:
+        clips = json.loads(MOTION_MANIFEST_FILE.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return {}
+    return clips if isinstance(clips, dict) else {}
 
 
 async def compose(
@@ -76,6 +127,7 @@ async def compose(
     place_name = place.get("name") if place else None
 
     scenes: list[dict] = []
+    clips = motion_clips()
 
     # 첫 장면은 언제·어디인지 밝힌다. 이야기가 시작되는 자리다.
     for index, photo in enumerate(photos):
@@ -85,16 +137,37 @@ async def compose(
             # 목소리가 잘리지 않게 그 장면만 늘린다
             duration = max(duration, int(scene_voice["duration_sec"]) + 1)
 
+        thumb = photo.get("thumbnail_path") or photo.get("file_path", "")
+        clip = clips.get(photo["id"])
+        if clip and clip.get("file"):
+            # 미리 만든 클립이 있으면 그것을 재생하고 카메라 움직임은 걸지 않는다.
+            # 화면 안에서 이미 무언가 움직이는데 프레임까지 밀면 어지럽다.
+            motion = None
+            motion_url = clip["file"]
+            label = GENERATED_MOTION_LABEL
+            if clip.get("subject_preserved"):
+                label += SUBJECT_PRESERVED_NOTE
+            # 클립의 첫 프레임을 정지 이미지로 쓴다. 자동재생이 막힌 환경(iOS
+            # 저전력 모드)에서 보이는 것이 이것이고, 썸네일(300x300 크롭)보다
+            # 클립과 어긋나지 않는다.
+            thumb = clip.get("poster") or thumb
+        else:
+            # 클립이 없는 사진은 지금까지처럼 카메라만 움직인다.
+            # 순서대로 돌려 써서 같은 효과가 연달아 붙지 않게 한다.
+            motion, label = CAMERA_MOTIONS[index % len(CAMERA_MOTIONS)]
+            motion_url = None
+
         scenes.append({
             "media_id": photo["id"],
-            "thumb": photo.get("thumbnail_path") or photo.get("file_path", ""),
+            "thumb": thumb,
             "file_path": photo.get("file_path", ""),
             "subtitle": _subtitle(index, photo, date_label, place_name),
             "note": photo.get("scene_description") or "",
             "duration_sec": duration,
             "source_label": _source_label(photo),
-            # 사진에만 움직임을 준다. 순서대로 돌려 써서 같은 효과가 붙지 않게 한다.
-            "ai_effects": [ALLOWED_MOTIONS[index % len(ALLOWED_MOTIONS)]],
+            "ai_effects": [label],
+            "motion": motion,
+            "motion_url": motion_url,
             "voice_id": scene_voice["id"] if scene_voice else None,
         })
 
@@ -108,7 +181,11 @@ async def compose(
             "note": "원본 영상 구간",
             "duration_sec": round(VIDEO_SEC * pace),
             "source_label": "원본 영상 · " + (video.get("original_filename") or video["id"]),
+            # 원본 영상에는 아무 효과도 걸지 않는다. motion을 비워 두지 않으면
+            # 화면이 "원본 그대로"라고 적어 놓고 썸네일을 움직이게 된다.
             "ai_effects": [],
+            "motion": None,
+            "motion_url": None,
             "voice_id": None,
         })
 

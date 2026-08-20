@@ -204,7 +204,7 @@ async def score_media_integrity() -> dict:
             is_video = media.get("media_type") == MediaType.VIDEO
 
             for effect in scene["ai_effects"]:
-                if effect not in film_composer.ALLOWED_MOTIONS:
+                if effect not in film_composer.ALLOWED_EFFECTS:
                     violations.append({
                         "event_id": event["id"],
                         "media_id": scene["media_id"],
