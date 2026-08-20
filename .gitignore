@@ -28,6 +28,9 @@ data/motion_covers.json
 data/motion_baseline.json
 # 내보낸 아카이브와 가족 공간 설정 (실행 중 만들어진다)
 data/exports/
+# 구운 Memory Film. 사람이 스크립트로 만들고(scripts/render_film.py) 필요한 것만
+# 골라 커밋한다 — 전부 담으면 사건마다 수 MB가 쌓인다.
+data/films/*.mp4
 data/family_space.json
 data/profiles/*
 !data/media/.gitkeep
