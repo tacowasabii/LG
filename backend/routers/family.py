@@ -164,8 +164,23 @@ async def set_visibility(
 
 
 @router.get("/media/{media_id}/cascade")
-async def delete_cascade(media_id: str):
-    """이 원본을 지우면 무엇이 함께 사라지는지 (지우기 전에 보여준다)"""
+async def delete_cascade(
+    media_id: str,
+    actor: Optional[dict] = Depends(current_actor),
+):
+    """이 원본을 지우면 무엇이 함께 사라지는지 (지우기 전에 보여준다)
+
+    미리보기도 기록의 내용을 말해 준다 — 어떤 사건에 걸려 있고 누가 무엇을
+    기억했는지. 그래서 볼 수 없는 기록이면 존재도 알리지 않는다 (삭제 응답과
+    같은 방식으로 404).
+    """
+    node = graph_manager.get_node(media_id)
+    if not node or node.get("node_type") != NodeType.MEDIA:
+        raise HTTPException(status_code=404, detail="그런 기록이 없습니다.")
+
+    if not visibility.can_view(node, actor["id"] if actor else None):
+        raise HTTPException(status_code=404, detail="그런 기록이 없습니다.")
+
     preview = family.delete_cascade_preview(media_id)
     if not preview:
         raise HTTPException(status_code=404, detail="그런 기록이 없습니다.")

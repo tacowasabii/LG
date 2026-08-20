@@ -1,6 +1,8 @@
 """Film Router — Memory Film 구성과 기념일 큐레이션"""
 
-from fastapi import APIRouter, HTTPException
+from typing import Optional
+
+from fastapi import APIRouter, Depends, HTTPException
 
 from backend.models.schemas import (
     AnniversaryItem,
@@ -8,12 +10,16 @@ from backend.models.schemas import (
     FilmResponse,
 )
 from backend.services import film_composer
+from backend.services.permissions import current_actor
 
 router = APIRouter()
 
 
 @router.post("", response_model=FilmResponse)
-async def compose_film(request: FilmRequest):
+async def compose_film(
+    request: FilmRequest,
+    actor: Optional[dict] = Depends(current_actor),
+):
     """사건 하나를 30~60초 이야기로 구성
 
     장면마다 원본 기록과 적용된 효과를 함께 내려보낸다. 화면이 그것을 감추지
@@ -23,6 +29,7 @@ async def compose_film(request: FilmRequest):
         request.event_id,
         length_sec=request.length_sec,
         audience=request.audience,
+        viewer_id=actor["id"] if actor else None,
     )
 
     if not board:

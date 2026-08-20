@@ -17,7 +17,7 @@ from __future__ import annotations
 from datetime import date
 from typing import Optional
 
-from backend.services import llm_client
+from backend.services import llm_client, visibility
 from backend.services.graph_manager import graph_manager
 from backend.models.graph_models import MediaType, NodeType
 
@@ -46,15 +46,24 @@ async def compose(
     event_id: str,
     length_sec: int = 45,
     audience: str = "adult",
+    viewer_id: Optional[str] = None,
 ) -> Optional[dict]:
-    """사건 하나로 Film 스토리보드를 만든다"""
+    """사건 하나로 Film 스토리보드를 만든다
+
+    보는 사람이 볼 수 없는 원본은 장면으로도, 내레이션의 근거로도 쓰지 않는다.
+    비공개로 바꾼 사진이 영상에서 다시 나오면 설정이 무의미해진다 (기획안 08장).
+    """
     event = graph_manager.get_node(event_id)
     if not event or event.get("node_type") != NodeType.EVENT:
         return None
 
     connected = graph_manager.get_connected_nodes(event_id)
-    media = [n for n in connected if n.get("node_type") == NodeType.MEDIA]
-    memories = [n for n in connected if n.get("node_type") == NodeType.MEMORY]
+    media = visibility.filter_media(
+        [n for n in connected if n.get("node_type") == NodeType.MEDIA], viewer_id
+    )
+    memories = visibility.filter_memories(
+        [n for n in connected if n.get("node_type") == NodeType.MEMORY], viewer_id
+    )
     persons = [n for n in connected if n.get("node_type") == NodeType.PERSON]
     place = graph_manager.get_node(event.get("location_id") or "")
 

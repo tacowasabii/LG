@@ -45,7 +45,11 @@ async def list_events(
         media = visibility.filter_media(
             [n for n in connected if n.get("node_type") == NodeType.MEDIA], viewer_id
         )
-        memories = [n for n in connected if n.get("node_type") == NodeType.MEMORY]
+        # 기억 문장도 공개 범위를 지난다 (원본만 가리고 문장을 그대로 세면
+        # 개수로 존재가 드러난다)
+        memories = visibility.filter_memories(
+            [n for n in connected if n.get("node_type") == NodeType.MEMORY], viewer_id
+        )
         places = [n for n in connected if n.get("node_type") == NodeType.PLACE]
 
         # 사건의 대표 장소. location_id가 있으면 그것을 우선한다
@@ -96,11 +100,23 @@ async def list_events(
 
 
 @router.get("/event/{event_id}", response_model=EventResponse)
-async def get_event_detail(event_id: str):
-    """이벤트 상세"""
+async def get_event_detail(
+    event_id: str,
+    viewer_id: str = Query(None, description="지금 보는 사람 (공개 범위 적용)"),
+    actor: Optional[dict] = Depends(current_actor),
+):
+    """이벤트 상세
+
+    이 화면이 사건의 사진을 펼쳐 보여주므로, 목록과 같은 판정을 지나야 한다.
+    예전에는 여기만 걸러지지 않아서 비공개로 바꾼 사진이 사건을 펼치면 보였다.
+    """
     detail = graph_manager.get_event_detail(event_id)
     if not detail:
         raise HTTPException(status_code=404, detail="이벤트를 찾을 수 없습니다.")
+
+    viewer = viewer_id or (actor["id"] if actor else None)
+    detail["media"] = visibility.filter_media(detail.get("media", []), viewer)
+    detail["memories"] = visibility.filter_memories(detail.get("memories", []), viewer)
 
     return EventResponse(
         id=detail["id"],
@@ -127,12 +143,15 @@ async def get_event_detail(event_id: str):
 
 
 @router.get("/verify")
-async def verification_inbox():
+async def verification_inbox(
+    viewer_id: str = Query(None, description="지금 보는 사람 (공개 범위 적용)"),
+    actor: Optional[dict] = Depends(current_actor),
+):
     """확인이 필요한 사건 목록 (Verification Inbox)
 
     충돌 > 미확인 > 다중근거 > 확인완료 순으로 정렬된다.
     """
-    items = verification.list_pending()
+    items = verification.list_pending(viewer_id or (actor["id"] if actor else None))
     # 수정 화면이 장소를 새로 적는 대신 그래프에 있는 장소를 고르게 한다.
     # 이름을 받아 만들면 같은 장소가 둘이 되고 지도에 점이 겹친다.
     places = sorted(
@@ -239,6 +258,7 @@ async def get_person_detail(
 
     # 이 사람이 나온 사진이라도 열람 범위 밖이면 보이지 않는다
     detail["media"] = visibility.filter_media(detail.get("media", []), viewer_id)
+    detail["memories"] = visibility.filter_memories(detail.get("memories", []), viewer_id)
 
     return PersonResponse(
         id=detail["id"],

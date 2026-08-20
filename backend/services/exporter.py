@@ -64,7 +64,8 @@ def manifest(viewer_id: Optional[str] = None) -> dict:
     original_paths = [p for m in photos_videos if (p := _local_path(m.get("file_path", "")))]
     audio_paths = [p for m in audios if (p := _local_path(m.get("file_path", "")))]
 
-    memories = graph_manager.get_memories()
+    # 기억 문장도 열람 범위를 지난다. 세어서 개수만 보여 주는 것도 존재를 알린다.
+    memories = visibility.filter_memories(graph_manager.get_memories(), viewer_id)
     events = graph_manager.get_events()
     transcribed = sum(1 for m in audios if m.get("transcript"))
 
@@ -162,7 +163,7 @@ def build(viewer_id: Optional[str] = None, items: Optional[list[str]] = None) ->
             included.append(ITEM_GRAPH)
 
         # 기억 문장은 언제나 넣는다. 이 서비스가 남기는 것 중 가장 오래 남을 것이다.
-        archive.writestr("memories.md", _memories_markdown())
+        archive.writestr("memories.md", _memories_markdown(viewer_id))
 
         if ITEM_CHRONICLE in chosen:
             archive.writestr("chronicle.html", _chronicle_html(viewer_id))
@@ -201,12 +202,19 @@ def _speaker_name(memory: dict) -> str:
     return person.get("name", "가족") if person else "가족"
 
 
-def _memories_markdown() -> str:
+def _memories_markdown(viewer_id: Optional[str]) -> str:
+    """내보내는 사람이 볼 수 있는 기억만 담는다
+
+    사진은 걸러 내면서 그 사진을 설명한 문장을 그대로 담으면, 아카이브가
+    공개 범위를 우회하는 통로가 된다 (기획안 08장).
+    """
     lines = ["# 가족의 기억", "", "가족이 직접 남긴 문장을 그대로 옮겼습니다. 요약하지 않았습니다.", ""]
 
     for event in _event_order():
         connected = graph_manager.get_connected_nodes(event["id"])
-        memories = [n for n in connected if n.get("node_type") == NodeType.MEMORY]
+        memories = visibility.filter_memories(
+            [n for n in connected if n.get("node_type") == NodeType.MEMORY], viewer_id
+        )
         if not memories:
             continue
 
@@ -261,7 +269,9 @@ def _chronicle_html(viewer_id: Optional[str]) -> str:
             and n["id"] in visible_ids
             and n.get("media_type") == MediaType.PHOTO
         ]
-        memories = [n for n in connected if n.get("node_type") == NodeType.MEMORY]
+        memories = visibility.filter_memories(
+            [n for n in connected if n.get("node_type") == NodeType.MEMORY], viewer_id
+        )
         persons = [n for n in connected if n.get("node_type") == NodeType.PERSON]
         place = graph_manager.get_node(event.get("location_id") or "")
 

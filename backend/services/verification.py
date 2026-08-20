@@ -37,6 +37,7 @@ from backend.models.graph_models import (
     VerificationState,
     VerifyAction,
 )
+from backend.services import visibility
 from backend.services.graph_manager import graph_manager
 
 
@@ -242,10 +243,12 @@ def record(
     }
 
 
-def list_pending() -> list[dict]:
+def list_pending(viewer_id: Optional[str] = None) -> list[dict]:
     """확인이 필요한 사건 목록 (Verification Inbox)
 
     확인 완료(CONFIRMED)를 뒤로 보내고, 충돌과 미확인을 앞으로 올린다.
+    기억 문장은 이 사람이 볼 수 있는 것만 담는다 — 확인 화면이 공개 범위를
+    비껴가는 창이 되면 안 된다.
     """
     order = {
         VerificationState.CONFLICTED.value: 0,
@@ -262,7 +265,9 @@ def list_pending() -> list[dict]:
 
         connected = graph_manager.get_connected_nodes(event["id"])
         participants = [n for n in connected if n.get("node_type") == NodeType.PERSON]
-        memories = [n for n in connected if n.get("node_type") == NodeType.MEMORY]
+        memories = visibility.filter_memories(
+            [n for n in connected if n.get("node_type") == NodeType.MEMORY], viewer_id
+        )
 
         # 화면이 수정 폼을 채우려면 지금 값이 필요하다 (제목·날짜·설명·장소)
         place = graph_manager.get_node(event.get("location_id") or "")

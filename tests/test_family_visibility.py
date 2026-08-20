@@ -25,7 +25,15 @@ from pathlib import Path
 ROOT_DIR = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT_DIR))
 
-from backend.models.graph_models import FamilyRole, Visibility  # noqa: E402
+from backend.models.graph_models import (  # noqa: E402
+    Confidence,
+    Edge,
+    FamilyRole,
+    MemoryNode,
+    RelationType,
+    SourceType,
+    Visibility,
+)
 from backend.routers.graph import list_events  # noqa: E402
 from backend.routers.media import list_media  # noqa: E402
 from backend.services import family, visibility  # noqa: E402
@@ -424,6 +432,94 @@ def test_http_family_endpoints():
         _restore()
 
 
+def test_memory_of_private_person_is_hidden_from_others():
+    """비공개를 요청한 사람의 기억 문장은 다른 가족에게 가려진다
+
+    사진만 가리고 그 사람이 남긴 문장을 그대로 보여 주면, 가린 것이 아니라
+    형태만 바꿔 보여 준 것이 된다 (기획안 08장).
+    """
+    try:
+        memories = graph_manager.get_memories()
+        assert memories, "시드 기억이 필요하다"
+
+        hers = [m["id"] for m in memories if m.get("contributor_id") == OTHER]
+        assert hers, f"{OTHER}의 기억이 시드에 없다"
+
+        graph_manager.update_node(OTHER, {"private_request": True})
+
+        mine = {m["id"] for m in visibility.filter_memories(memories, OTHER)}
+        others = {m["id"] for m in visibility.filter_memories(memories, OWNER)}
+
+        for memory_id in hers:
+            assert memory_id in mine, "본인이 자기 기억을 못 본다"
+            assert memory_id not in others, "비공개 요청한 사람의 기억이 남에게 보인다"
+
+        # 다른 사람의 기억은 그대로 보인다
+        assert others, "모든 기억이 사라졌다 — 규칙이 너무 넓다"
+        print(f"  기억 동의 OK: 본인 {len(mine)}개 · 다른 가족 {len(others)}개")
+    finally:
+        _restore()
+
+
+def test_memory_is_hidden_when_all_its_evidence_is_hidden():
+    """근거로 이어진 원본을 볼 수 없으면 그 문장도 가린다"""
+    memory_id = None
+    try:
+        # 기억 하나를 만들어 비공개 기록을 근거로 잇는다
+        memory = MemoryNode(
+            content="그날 무슨 일이 있었는지 여기 적었다.",
+            source_type=SourceType.INTERVIEW,
+            contributor_id=THIRD,
+            confidence=Confidence.CONFIRMED,
+        )
+        graph_manager.add_memory(memory)
+        memory_id = memory.id
+        graph_manager.add_edge(Edge(
+            source=memory_id, target=MEDIA, relation=RelationType.EVIDENCED_BY,
+        ))
+
+        # 근거가 가족 전체 공개인 동안에는 보인다
+        assert [m["id"] for m in visibility.filter_memories(
+            [graph_manager.get_node(memory_id)], OWNER
+        )] == [memory_id]
+
+        # 근거를 비공개로 바꾸면(소유자 OTHER) 다른 사람에게는 문장도 가려진다
+        family.set_media_visibility(MEDIA, visibility=Visibility.PRIVATE.value, owner_id=OTHER)
+        node = graph_manager.get_node(memory_id)
+        assert not visibility.filter_memories([node], OWNER), "가려진 근거의 문장이 보인다"
+        assert visibility.filter_memories([node], OTHER), "근거를 볼 수 있는 사람에게도 가렸다"
+        # 남긴 본인은 언제나 본다
+        assert visibility.filter_memories([node], THIRD), "자기가 남긴 기억을 못 본다"
+        print("  근거 기반 기억 가리기 OK")
+    finally:
+        if memory_id:
+            graph_manager.delete_node(memory_id)
+        _restore()
+
+
+def test_hidden_media_cascade_preview_is_not_readable():
+    """볼 수 없는 기록의 삭제 영향은 조회되지 않는다 (존재도 알리지 않는다)"""
+    from fastapi.testclient import TestClient
+
+    from backend.main import app
+
+    try:
+        family.set_media_visibility(MEDIA, visibility=Visibility.PRIVATE.value, owner_id=OWNER)
+        with TestClient(app) as client:
+            mine = client.get(
+                f"/api/family/media/{MEDIA}/cascade", headers={"X-Viewer-Id": OWNER}
+            )
+            assert mine.status_code == 200, mine.text
+
+            hidden = client.get(
+                f"/api/family/media/{MEDIA}/cascade", headers={"X-Viewer-Id": OTHER}
+            )
+            assert hidden.status_code == 404, hidden.status_code
+        print("  삭제 영향 미리보기 가드 OK")
+    finally:
+        _restore()
+
+
 TESTS = [
     test_members_come_from_graph_persons,
     test_role_change_persists_and_records_join,
@@ -440,6 +536,9 @@ TESTS = [
     test_person_consent_hides_their_records_from_others,
     test_hidden_media_drops_out_of_event_summary,
     test_hidden_media_is_not_used_as_chat_evidence,
+    test_memory_of_private_person_is_hidden_from_others,
+    test_memory_is_hidden_when_all_its_evidence_is_hidden,
+    test_hidden_media_cascade_preview_is_not_readable,
     test_cascade_preview_lists_derived_and_keeps_memories,
     test_missing_media_returns_none,
     test_http_family_endpoints,

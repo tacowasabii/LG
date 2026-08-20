@@ -313,6 +313,38 @@ export async function getEvents(): Promise<EventListItem[]> {
   return fetchJSON(withViewer(`${BASE_URL}/graph/events`));
 }
 
+export interface EventDetail {
+  id: string;
+  title: string;
+  description?: string;
+  date_start?: string | null;
+  date_end?: string | null;
+  location?: { id: string; name: string } | null;
+  confidence: string;
+  participants: Array<{ id: string; name: string; relation: string }>;
+  media: Array<{
+    id: string;
+    file_path: string;
+    thumbnail_path?: string | null;
+    media_type: string;
+  }>;
+  memories: Array<{ id: string; content: string; contributor_id?: string | null }>;
+}
+
+/**
+ * 사건 하나의 상세. 화면이 자기 손으로 fetch하지 않고 이 함수를 쓴다 —
+ * 예전에는 홈이 raw fetch로 '/api/...'를 직접 불러서, 백엔드가 다른 도메인에
+ * 있는 배포(VITE_API_URL)에서는 사진 펼치기가 조용히 실패했다. 열람자도 함께
+ * 나가지 않아 서버가 공개 범위를 적용할 수 없었다.
+ */
+export async function getEventDetail(eventId: string): Promise<EventDetail> {
+  if (STATIC_MODE) {
+    const response = await fetch(`/mock/events/${eventId}.json`);
+    return response.json();
+  }
+  return fetchJSON(withViewer(`${BASE_URL}/graph/event/${eventId}`));
+}
+
 export async function getPersons(): Promise<PersonData[]> {
   return fetchJSON(`${BASE_URL}/graph/persons`);
 }

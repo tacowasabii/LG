@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
 import {
+  getEventDetail,
   getEvents,
   getMediaList,
   getGaps,
@@ -18,7 +19,8 @@ import { useVoiceClips } from '../lib/useGraphData'
 interface EventMedia {
   id: string
   file_path: string
-  thumbnail_path?: string
+  /** 서버는 썸네일이 없으면 null을 준다 (getEventDetail) */
+  thumbnail_path?: string | null
   media_type?: string
 }
 
@@ -48,11 +50,11 @@ export default function HomePage() {
     // 이미 로드했으면 스킵
     if (eventMedia[eventId]) return
     try {
-      const staticMode = import.meta.env.VITE_STATIC_MODE === 'true'
-      const url = staticMode ? `/mock/events/${eventId}.json` : `/api/graph/event/${eventId}`
-      const res = await fetch(url)
-      const data = await res.json()
-      setEventMedia((prev) => ({ ...prev, [eventId]: data.media || [] }))
+      // api 계층을 지나야 배포 주소(VITE_API_URL)와 열람자가 함께 나간다.
+      // 여기서 직접 fetch하면 백엔드가 다른 도메인인 배포에서 조용히 실패하고,
+      // 서버가 공개 범위를 적용할 수도 없다.
+      const detail = await getEventDetail(eventId)
+      setEventMedia((prev) => ({ ...prev, [eventId]: detail.media || [] }))
     } catch (e) {
       console.error(e)
     }

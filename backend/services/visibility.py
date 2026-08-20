@@ -12,6 +12,15 @@
 
 둘 중 하나라도 막으면 가린다. 소유자는 자기 기록을 항상 볼 수 있다.
 
+기억 문장(Memory)도 같은 판정을 지난다. 원본 사진만 가리고 그 사진을 설명한
+인터뷰 문장은 그대로 보여 주면, 가린 것이 아니라 형태만 바꿔 보여 준 것이 된다.
+  - 기억을 남긴 본인은 언제나 본다
+  - 기여자가 비공개를 요청했으면 나머지 가족에게 가린다 (그 사람의 목소리다)
+  - 근거로 이어진 원본(EVIDENCED_BY)이 있는데 그중 볼 수 있는 것이 하나도 없으면
+    가린다. 볼 수 없는 사진의 내용을 문장으로 옮겨 말하는 일을 막는다.
+근거가 아예 없는 기억(대부분의 인터뷰 답변)은 위 두 규칙만 지나면 보인다 —
+근거 없음을 이유로 가리면 기억 대부분이 사라진다.
+
 viewer_id가 없으면(누가 보는지 모르면) 가족 전체 공개만 통과시킨다.
 로그인이 붙기 전까지는 화면이 "지금 보는 사람"을 넘겨 준다.
 
@@ -40,7 +49,7 @@ class ConsentIndex:
     비공개 요청이 하나도 없으면 엣지를 읽지 않는다 (대부분의 경우).
     """
 
-    __slots__ = ("private_persons", "appearing")
+    __slots__ = ("private_persons", "appearing", "_evidence")
 
     def __init__(self) -> None:
         self.private_persons: set[str] = {
@@ -50,6 +59,8 @@ class ConsentIndex:
         }
 
         self.appearing: dict[str, set[str]] = {}
+        # 기억 -> 근거 원본. 기억을 판정할 때만 필요하므로 그때 한 번 만든다.
+        self._evidence: Optional[dict[str, set[str]]] = None
         if not self.private_persons:
             return
 
@@ -60,6 +71,16 @@ class ConsentIndex:
                 # 비공개를 요청하지 않은 사람은 판정에 영향이 없다
                 continue
             self.appearing.setdefault(edge["source"], set()).add(edge["target"])
+
+    def evidence_of(self, memory_id: str) -> set[str]:
+        """이 기억이 근거로 가리키는 원본들 (EVIDENCED_BY)"""
+        if self._evidence is None:
+            index: dict[str, set[str]] = {}
+            for edge in graph_manager.get_all_edges():
+                if edge["relation"] == RelationType.EVIDENCED_BY:
+                    index.setdefault(edge["source"], set()).add(edge["target"])
+            self._evidence = index
+        return self._evidence.get(memory_id, set())
 
     def blocks(self, node: dict, viewer_id: Optional[str]) -> bool:
         """등장 인물의 비공개 요청에 걸리는가
@@ -95,9 +116,14 @@ def can_view(
     if not node:
         return False
 
-    # 사람·사건·장소·기억에는 아직 별도 공개 범위를 두지 않는다.
-    # 가려야 하는 것은 원본 기록(사진·영상·음성)이다.
-    if node.get("node_type") != NodeType.MEDIA:
+    node_type = node.get("node_type")
+
+    if node_type == NodeType.MEMORY:
+        return _can_view_memory(node, viewer_id, index or ConsentIndex())
+
+    # 사람·사건·장소에는 공개 범위를 두지 않는다. 가려야 하는 것은 원본 기록과
+    # 그 기록을 말로 옮긴 기억이다.
+    if node_type != NodeType.MEDIA:
         return True
 
     owner_id = node.get("owner_id")
@@ -124,6 +150,37 @@ def can_view(
     return not (index or ConsentIndex()).blocks(node, viewer_id)
 
 
+def _can_view_memory(
+    memory: dict, viewer_id: Optional[str], index: ConsentIndex
+) -> bool:
+    """기억 문장을 이 사람이 볼 수 있는가
+
+    원본만 가리고 그 원본을 설명한 문장을 그대로 보여 주면 동의를 지킨 것이
+    아니다 (기획안 08장 "삭제·이관"과 "출처 보존"이 같은 곳을 가리킨다).
+    """
+    contributor_id = memory.get("contributor_id")
+
+    # 자기가 남긴 기억은 언제나 본다
+    if viewer_id and contributor_id and contributor_id == viewer_id:
+        return True
+
+    # 기여자가 비공개를 요청했으면 나머지 가족에게 가린다 — 그 사람의 목소리다
+    if contributor_id and contributor_id in index.private_persons:
+        return False
+
+    evidence_ids = index.evidence_of(memory.get("id", ""))
+    if not evidence_ids:
+        # 근거가 없는 기억(대부분의 인터뷰 답변)은 여기서 막지 않는다.
+        # 근거 없음을 이유로 가리면 기억 대부분이 사라진다.
+        return True
+
+    # 근거로 이어진 원본 중 하나라도 볼 수 있으면 문장도 볼 수 있다
+    return any(
+        can_view(graph_manager.get_node(media_id), viewer_id, index)
+        for media_id in evidence_ids
+    )
+
+
 def _filter(nodes: Iterable[dict], viewer_id: Optional[str]) -> list[dict]:
     """색인을 한 번만 만들어 목록 전체를 판정한다"""
     index = ConsentIndex()
@@ -132,6 +189,14 @@ def _filter(nodes: Iterable[dict], viewer_id: Optional[str]) -> list[dict]:
 
 def filter_media(nodes: Iterable[dict], viewer_id: Optional[str]) -> list[dict]:
     """미디어 목록에서 볼 수 없는 것을 걷어낸다"""
+    return _filter(nodes, viewer_id)
+
+
+def filter_memories(nodes: Iterable[dict], viewer_id: Optional[str]) -> list[dict]:
+    """기억 목록에서 볼 수 없는 것을 걷어낸다
+
+    사건 상세 · 인물 상세 · 확인 목록 · 내보내기가 모두 이걸 지난다.
+    """
     return _filter(nodes, viewer_id)
 
 
