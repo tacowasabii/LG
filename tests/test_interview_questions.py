@@ -28,7 +28,11 @@ sys.path.insert(0, str(ROOT_DIR))
 
 from backend.services import interview_engine, kinship  # noqa: E402
 from backend.services.graph_manager import graph_manager  # noqa: E402
-from backend.services.question_picker import pick_target  # noqa: E402
+from backend.services.question_picker import (  # noqa: E402
+    forget_asked,
+    pick_target,
+    remember_asked,
+)
 
 FATHER = "P01"  # 김민수 (아빠, 1970)
 MOTHER = "P02"  # 박서연 (엄마, 1973)
@@ -76,6 +80,32 @@ def test_target_event_includes_the_speaker():
         }
         assert speaker in participants, (speaker, event["id"], participants)
     print("  참여한 사건에서만 고름 OK")
+
+
+def test_repeated_starts_ask_about_different_events():
+    """연달아 시작하면 다른 사건을 묻는다
+
+    화면에서 이런 일이 있었다: "인터뷰 시작하기"를 누를 때마다 1998 부산
+    가족여행이 다시 나왔다. 시드된 그래프는 여덟 사건 모두 날짜·장소·설명·사진이
+    채워져 있어 점수가 같고, 같으면 목록의 첫 사건이 늘 이겼다. 시작만 하고
+    그만두면 그래프도 그대로여서 다음 계산이 같은 답을 냈다.
+    """
+    _require_seeded_graph()
+
+    forget_asked()
+    try:
+        picked = []
+        for _ in range(3):
+            event = pick_target(speaker_id=DAUGHTER)["event"]
+            assert event, "물어볼 사건을 못 골랐다"
+            picked.append(event["id"])
+            # 답하지 않고 다시 시작한 경우다 — 그래프는 그대로다
+            remember_asked(DAUGHTER, event["id"])
+
+        assert len(set(picked)) == 3, picked
+    finally:
+        forget_asked()
+    print("  연속 시작 시 사건 회전 OK:", " → ".join(picked))
 
 
 def test_unknown_speaker_falls_back_to_gap():
@@ -221,6 +251,7 @@ def test_fallback_question_skips_asked_ones():
 TESTS = [
     test_target_is_the_person_who_answers,
     test_target_event_includes_the_speaker,
+    test_repeated_starts_ask_about_different_events,
     test_unknown_speaker_falls_back_to_gap,
     test_context_names_only_the_answering_person,
     test_family_roster_lists_members_and_relations,

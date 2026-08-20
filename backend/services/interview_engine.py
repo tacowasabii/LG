@@ -24,7 +24,7 @@ from backend.models.graph_models import (
     MemoryNode, Edge, RelationType, SourceType, Confidence, NodeType,
 )
 from backend.services.graph_manager import graph_manager
-from backend.services.question_picker import pick_target
+from backend.services.question_picker import pick_target, remember_asked
 
 
 # 인터뷰 세션 저장 (MVP: in-memory)
@@ -85,13 +85,22 @@ async def start_interview(
     if target_id:
         target_node = graph_manager.get_node(target_id)
 
+    # question_picker에 넘긴 사람. 아래에서 contributor_id가 바뀔 수 있으므로
+    # 따로 붙잡아 둔다 — 무엇을 물었는지 적어 둘 때 같은 이름으로 세야 한다.
+    asked_by = contributor_id
+
     if not target_node and target_type == "auto":
         # 물어볼 사건을 하나 고른다 (목록을 만들지 않는다 — question_picker)
-        target = pick_target(speaker_id=contributor_id)
+        target = pick_target(speaker_id=asked_by)
         target_node = target.get("event")
         if not speaker:
             # 누가 답할지 모르는 경우에만 picker가 지목한 인물에게 묻는다
             contributor_id = target.get("person_id")
+
+    # 무엇을 물었는지 남긴다. 시작만 하고 그만둔 경우에도 남겨야 다음에 같은
+    # 사건이 다시 나오지 않는다 — 답을 기다리면 그래프가 자라지 않아 auto가
+    # 같은 점수를 다시 계산하고, 화면은 부산 여행만 되풀이해 물었다.
+    remember_asked(asked_by, (target_node or {}).get("id"))
 
     subject = speaker or (graph_manager.get_node(contributor_id) if contributor_id else None)
     contributor_name = subject.get("name") if subject else None

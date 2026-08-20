@@ -18,7 +18,7 @@ import {
   TranscriberError,
   isTranscriptionSupported,
 } from '../lib/transcriber'
-import { invalidateEvents, invalidateVoiceClips } from '../lib/useGraphData'
+import { invalidateEvents, invalidateVoiceClips, useEvents } from '../lib/useGraphData'
 
 /**
  * AI 기억 인터뷰
@@ -61,7 +61,16 @@ const QUESTION_TOTAL = 5
 
 export default function InterviewPage() {
   const { current } = useCurrentUser()
+  const { events } = useEvents()
   const [sessionId, setSessionId] = useState<string | null>(null)
+  /**
+   * 무엇에 대해 물을지. null이면 AI가 고른다.
+   *
+   * 고르는 자리가 없던 동안 화면은 언제나 auto로 시작했고, 시드된 그래프에서는
+   * 여덟 사건이 모두 채워져 있어 점수가 같았다 — 그래서 목록의 첫 사건(1998
+   * 부산 가족여행)이 매번 나왔다. 이야기하고 싶은 사건은 가족이 안다.
+   */
+  const [targetId, setTargetId] = useState<string | null>(null)
   const [context, setContext] = useState<InterviewStartResult['context']>(null)
   const [qaHistory, setQaHistory] = useState<QA[]>([])
   const [currentQuestion, setCurrentQuestion] = useState<string | null>(null)
@@ -191,7 +200,11 @@ export default function InterviewPage() {
     setLoading(true)
     try {
       // 답하는 사람을 시작할 때 알려 준다 — 질문이 이 사람을 향해야 한다
-      const result = await startInterview('auto', undefined, current?.id)
+      const result = await startInterview(
+        targetId ? 'event' : 'auto',
+        targetId ?? undefined,
+        current?.id,
+      )
       setSessionId(result.session_id)
       setContext(result.context)
       setCurrentQuestion(result.question)
@@ -295,6 +308,8 @@ export default function InterviewPage() {
   const reset = () => {
     setSessionId(null)
     setContext(null)
+    // 방금 이야기한 사건을 그대로 남겨 두면 같은 것을 또 묻게 된다
+    setTargetId(null)
     setQaHistory([])
     setCurrentQuestion(null)
     setIsComplete(false)
@@ -310,6 +325,17 @@ export default function InterviewPage() {
 
   const answered = qaHistory.filter((qa) => qa.answer).length
   const step = Math.min(qaHistory.length, QUESTION_TOTAL)
+  const chosen = targetId ? events.find((e) => e.id === targetId) : undefined
+  /*
+    고른 사건에 이 사람이 참여자로 없다. 없던 자리를 물으면 남는 것은 기억이
+    아니라 들은 이야기다. 고르는 것을 막지는 않는다 — 누가 그 자리에 있었는지는
+    그래프보다 가족이 잘 안다. 대신 무엇이 남을지를 밝힌다.
+  */
+  const absent = !!(
+    chosen &&
+    current &&
+    !chosen.participants.some((person) => person.id === current.id)
+  )
 
   return (
     <Page width={760}>
@@ -359,16 +385,48 @@ export default function InterviewPage() {
 
       {!sessionId ? (
         <div
-          className="mt-8 rounded-lg px-8 py-14 text-center"
+          className="mt-8 rounded-lg px-8 py-11 text-center"
           style={{ border: '1px dashed var(--border-strong)' }}
         >
-          <p className="m-0 text-xl font-semibold text-ink-900">
-            AI가 고른 사건에서 시작합니다
+          {/*
+            무엇을 이야기할지 여기서 정한다. 이 자리가 없던 동안 화면은 늘 AI에게
+            맡겼고, 사건 여덟 개가 모두 채워져 있어 점수가 같은 탓에 첫 사건만
+            반복해서 나왔다. 오늘 이야기하고 싶은 사건은 가족이 안다.
+          */}
+          <p className="t-eyebrow m-0 mb-3 text-ink-300">어떤 사건을 이야기할까요</p>
+          <div className="flex flex-wrap justify-center gap-1.5">
+            <button
+              onClick={() => setTargetId(null)}
+              className={`chip ${targetId === null ? 'chip-on' : ''}`}
+            >
+              AI가 골라 줍니다
+            </button>
+            {events.map((event) => (
+              <button
+                key={event.id}
+                onClick={() => setTargetId(event.id)}
+                className={`chip ${targetId === event.id ? 'chip-on' : ''}`}
+              >
+                {event.title}
+              </button>
+            ))}
+          </div>
+
+          <p className="m-0 mt-8 text-xl font-semibold text-ink-900">
+            {chosen ? chosen.title : 'AI가 고른 사건에서 시작합니다'}
           </p>
           <p className="t-body-sm mx-auto mt-2.5 max-w-[33em]">
-            기억이 가장 비어 있는 사건을 찾아 질문 {QUESTION_TOTAL}개로 채웁니다. 답변은{' '}
-            {current?.name ?? '지금 답하는 사람'}님의 기억으로 저장됩니다.
+            {chosen
+              ? `이 사건을 질문 ${QUESTION_TOTAL}개로 되짚습니다.`
+              : `기억이 가장 비어 있는 사건을 찾아 질문 ${QUESTION_TOTAL}개로 채웁니다.`}{' '}
+            답변은 {current?.name ?? '지금 답하는 사람'}님의 기억으로 저장됩니다.
           </p>
+          {absent && (
+            <p className="t-caption mx-auto mt-2 max-w-[33em]">
+              {current?.name}님은 이 사건의 참여자로 기록되어 있지 않습니다. 함께 있지 않은
+              자리라면 기억이 아니라 들은 이야기가 남습니다.
+            </p>
+          )}
           <button
             onClick={handleStart}
             disabled={loading || !current}
