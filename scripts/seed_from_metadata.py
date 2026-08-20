@@ -69,6 +69,20 @@ def _copy_motion_clips():
         print(f"  ✓ 미세 모션 클립 {copied}개")
 
 
+def _video_posters() -> dict:
+    """영상 첫 장면 목록 (scripts/build_video_posters.py가 만든다)
+
+    없으면 빈 목록이다. 시드가 막히지는 않는다 — 썸네일은 편의고, 영상 자체는
+    올라가야 한다.
+    """
+    manifest_path = VIDEO_DIR / "posters.json"
+    try:
+        data = json.loads(manifest_path.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return {}
+    return data if isinstance(data, dict) else {}
+
+
 def seed():
     print("🌱 실제 데이터셋으로 Graph 생성 중...")
 
@@ -221,12 +235,29 @@ def seed():
             ))
 
     # Video files
+    #
+    # 영상은 첫 장면을 미리 뽑아 저장소에 커밋해 둔다
+    # (scripts/build_video_posters.py). 없으면 썸네일 없이 가는데, 그때
+    # 화면은 <img>에 mp4 주소를 넣어 깨진 사진을 보여 준다 — 만들어 두는 것이
+    # 정상 경로다.
+    posters = _video_posters()
+
     if VIDEO_DIR.exists():
         for vid_file in VIDEO_DIR.iterdir():
             if vid_file.suffix.lower() in (".mp4", ".mov", ".avi"):
                 dest_path = MEDIA_DIR / vid_file.name
                 if not dest_path.exists():
                     shutil.copy2(str(vid_file), str(dest_path))
+
+                poster = posters.get(vid_file.stem, {})
+                thumbnail_path = None
+                if poster.get("thumb"):
+                    thumb_src = VIDEO_DIR / poster["thumb"]
+                    thumb_dest = MEDIA_DIR / poster["thumb"]
+                    if thumb_src.exists():
+                        if not thumb_dest.exists():
+                            shutil.copy2(str(thumb_src), str(thumb_dest))
+                        thumbnail_path = f"/media-files/{poster['thumb']}"
 
                 # 파일명에서 이벤트 ID 추출 (E001.mp4 → E01, E007_01.mp4 → E07)
                 stem = vid_file.stem
@@ -242,8 +273,9 @@ def seed():
                     id=vid_id,
                     media_type=MediaType.VIDEO,
                     file_path=f"/media-files/{vid_file.name}",
-                    thumbnail_path=None,
+                    thumbnail_path=thumbnail_path,
                     original_filename=vid_file.name,
+                    duration_sec=poster.get("duration_sec"),
                     confidence=Confidence.CONFIRMED,
                     source=SourceType.USER_INPUT,
                 )

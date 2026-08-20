@@ -9,12 +9,13 @@
  * 어느 추억에도 안 붙었는지(미분류). 촬영일·추억·인물은 마우스를 올리거나
  * 키보드로 짚었을 때 나온다. 파일명은 그리드에 내지 않는다 (상세에 있다).
  *
- * 원본은 여기서 부르지 않는다. 썸네일이 없는 기록만 원본 경로를 쓰고, 그것도
- * loading="lazy"로 화면에 들어올 때 받는다.
+ * 원본은 여기서 부르지 않는다. 썸네일이 없는 사진만 원본 경로를 쓰고, 그것도
+ * loading="lazy"로 화면에 들어올 때 받는다. 영상은 예외 없이 부르지 않는다 —
+ * mp4는 <img>에 넣어도 그림이 되지 않으므로 받아 오는 만큼 그냥 버려진다.
  */
 
 import { useMemo, useState } from 'react'
-import { Check, ImageOff, Lock, Play, RefreshCw } from 'lucide-react'
+import { Check, Film, ImageOff, Lock, Play, RefreshCw } from 'lucide-react'
 import { AlbumMediaItem, mediaUrl } from '../../lib/api'
 
 /** 촬영일을 모르는 사진들이 모이는 칸 */
@@ -140,8 +141,14 @@ function AlbumTile({
   const [failed, setFailed] = useState(false)
   const [attempt, setAttempt] = useState(0)
 
-  const source = item.thumbnail_path || item.file_path
-  const src = mediaUrl(source) + (attempt > 0 ? `?retry=${attempt}` : '')
+  // 영상에 썸네일이 없으면 그림이 아예 없는 것이다. 원본 주소를 <img>에 넣으면
+  // 브라우저가 mp4를 통째로 받아 온 다음 "그림이 아니다"로 실패한다 — 목록 한
+  // 번에 수십 MB가 나가고 화면에는 깨진 사진만 남는다. 시드 영상의 첫 장면은
+  // 미리 뽑아 두지만 (scripts/build_video_posters.py), 브라우저가 코덱을 못 열어
+  // 포스터 없이 올라온 영상도 있다. 그때는 받아 오지 않고 영상임을 그려 준다.
+  const source =
+    item.thumbnail_path || (item.media_type === 'video' ? null : item.file_path)
+  const src = source ? mediaUrl(source) + (attempt > 0 ? `?retry=${attempt}` : '') : ''
   const duration = formatDuration(item.duration_sec)
   const restricted = item.visibility !== 'family'
 
@@ -168,9 +175,13 @@ function AlbumTile({
         }
         aria-pressed={selecting ? selected : undefined}
       >
-        {failed ? (
+        {!source || failed ? (
           <span className="flex h-full w-full flex-col items-center justify-center gap-1.5 px-3">
-            <ImageOff size={20} strokeWidth={1.5} className="text-ink-300" />
+            {source ? (
+              <ImageOff size={20} strokeWidth={1.5} className="text-ink-300" />
+            ) : (
+              <Film size={20} strokeWidth={1.5} className="text-ink-300" />
+            )}
             <span className="t-caption line-clamp-2 break-all text-center text-[11px]">
               {item.original_filename}
             </span>
@@ -188,7 +199,7 @@ function AlbumTile({
         )}
       </button>
 
-      {failed && (
+      {failed && source && (
         <button
           onClick={() => {
             setFailed(false)
