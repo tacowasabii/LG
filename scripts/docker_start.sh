@@ -11,10 +11,10 @@
 # 묻도록 판단을 시드 스크립트로 옮겼다 (--if-empty).
 set -e
 
-python scripts/seed_from_metadata.py --if-empty
-
-# 프로필 크롭은 사진에서 다시 만들 수 있고, 같은 파일을 덮어쓴다.
-# 볼륨이 새로 붙어 크롭만 사라진 경우에도 여기서 복구된다.
-python scripts/generate_profiles.py
+# 시드와 프로필을 한 프로세스에서 돌린다. 따로 띄우면 backend를 두 번
+# import하고 그때마다 langchain·boto3·psycopg가 딸려 와서, 부팅 전에 같은 스택을
+# 세 번 읽었다 (uvicorn까지). 그 시간이 헬스체크 창을 넘겨 배포가 실패했다.
+# 프로필은 이미 있으면 건너뛴다 — 자세한 사정은 scripts/boot.py 주석에 있다.
+python scripts/boot.py
 
 exec uvicorn backend.main:app --host 0.0.0.0 --port "${PORT:-8000}"
