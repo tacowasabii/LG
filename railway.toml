@@ -4,6 +4,13 @@ dockerfilePath = "Dockerfile"
 
 [deploy]
 healthcheckPath = "/api/health"
-healthcheckTimeout = 30
+# 부팅이 30초를 넘어 배포가 헬스체크에서 실패하고 있었다. uvicorn이 뜨기 전에
+# 파이썬을 두 번 더 띄우고(시드·프로필) 그때마다 langchain·boto3·psycopg를 다시
+# import하는데, 화면과 서비스가 늘면서 그 시간이 창을 넘겼다. 실제 측정에서 세
+# 단계 합계가 두 자릿수 초를 넘겼다.
+#
+# 이 값은 "정상이 될 때까지 기다리는 시간"이라 늘려도 건강한 배포가 느려지지
+# 않는다. 짧게 두면 느린 부팅을 실패로 읽어 컨테이너를 계속 다시 세운다.
+healthcheckTimeout = 300
 restartPolicyType = "ON_FAILURE"
 restartPolicyMaxRetries = 3
