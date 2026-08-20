@@ -75,7 +75,7 @@ const navGroups = [
 ]
 
 export default function AppLayout() {
-  const { current, members, setCurrentId } = useCurrentUser()
+  const { current, members, setCurrentId, error: familyError } = useCurrentUser()
   const [switcherOpen, setSwitcherOpen] = useState(false)
 
   // 확인 대기 건수 — 사건 목록이 확인 상태를 함께 내려준다
@@ -122,7 +122,7 @@ export default function AppLayout() {
             )}
             <span className="min-w-0 flex-1">
               <span className="block truncate text-[13px] font-semibold text-ink-700">
-                {current?.name || '불러오는 중…'}
+                {current?.name || (familyError ? '연결 안 됨' : '불러오는 중…')}
               </span>
               <span className="mt-px block text-[11px] text-ink-300">
                 {current ? current.relation + '으로 사용 중' : ''}
@@ -130,6 +130,19 @@ export default function AppLayout() {
             </span>
             <span className="text-[10px] text-ink-300">{switcherOpen ? '▲' : '▼'}</span>
           </button>
+
+          {/*
+            백엔드에 못 붙으면 여기서 말한다. 예전에는 "불러오는 중…"에 갇혀서
+            서버가 죽은 것처럼 보였고, 원인(주소·CORS)을 찾는 데 한참 걸렸다.
+          */}
+          {familyError && (
+            <p
+              className="m-0 mt-2 px-2 text-[11px] leading-snug"
+              style={{ color: 'var(--critical-ink)' }}
+            >
+              {familyError}
+            </p>
+          )}
 
           {switcherOpen && (
             <ul

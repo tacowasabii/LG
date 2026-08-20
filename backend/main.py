@@ -2,7 +2,12 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 
-from backend.config import MEDIA_DIR
+from backend.config import (
+    ALLOWED_ORIGINS,
+    ALLOWED_ORIGIN_REGEX,
+    DEV_ORIGINS,
+    MEDIA_DIR,
+)
 from backend.routers import (
     media, graph, chat, interview, gaps, tv, film, trust, family, export,
 )
@@ -13,12 +18,15 @@ app = FastAPI(
     version="0.1.0",
 )
 
-# CORS for frontend dev server
+# CORS — 개발 서버 + 배포된 프론트(ALLOWED_ORIGINS) + Vercel 프리뷰(정규식)
+# 배포 주소를 여기 넣지 않으면 브라우저가 요청을 막아 화면이 빈 채로 뜬다.
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:5173", "http://localhost:3000"],
+    allow_origins=DEV_ORIGINS + ALLOWED_ORIGINS,
+    allow_origin_regex=ALLOWED_ORIGIN_REGEX or None,
     allow_credentials=True,
     allow_methods=["*"],
+    # X-Viewer-Id를 포함해 전부 허용한다
     allow_headers=["*"],
 )
 

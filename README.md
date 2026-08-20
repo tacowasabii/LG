@@ -174,53 +174,58 @@ python scripts/run_trust_harness.py --limit 5  # 앞 5문항만
 
 ## 배포 구성
 
-| 서비스 | 플랫폼 | URL |
-|--------|--------|-----|
-| Frontend | Vercel | (자동 배포) |
-| Backend | Railway | sparkling-luck-production-4bd7.up.railway.app |
+프론트(Vercel)와 백엔드(Railway)를 따로 올립니다. **둘을 서로 알려 줘야** 동작합니다 —
+프론트는 백엔드 주소를, 백엔드는 프론트 도메인을 알아야 합니다.
 
-### Vercel (프론트)
-- Root Directory: `frontend`
-- Framework: Vite
-- 환경변수: `.env.production` 참조
+### 1. 백엔드 (Railway)
 
-### Railway (백엔드)
-- 별도 폴더 `prompthon-2026-railway/`에서 `railway up`
-- 또는 Dockerfile 기반 자동 빌드
+1. Railway에서 New Project → Deploy from GitHub repo → 이 저장소 선택
+2. Root Directory는 저장소 루트 그대로 둡니다 (`Dockerfile`이 루트에 있습니다)
+3. Variables에 넣습니다:
 
----
+| 변수 | 값 | 필요성 |
+|------|-----|--------|
+| `ALLOWED_ORIGINS` | `https://<내-앱>.vercel.app` | **필수.** 없으면 브라우저가 요청을 막아 화면이 빈 채로 뜹니다 |
+| `EXAONE_API_KEY` | 발급받은 키 | 없으면 채팅·인터뷰·내레이션이 시뮬레이션 문장으로 동작합니다 |
+| `EXAONE_API_URL`, `EXAONE_MODEL` | `.env.example` 참고 | 키를 넣을 때 함께 |
 
-## 공개 범위
+Vercel 프리뷰 도메인(커밋마다 바뀜)은 `ALLOWED_ORIGIN_REGEX` 기본값
+(`https://.*\.vercel\.app`)으로 함께 허용됩니다.
 
-모든 조회에 `viewer_id`가 함께 나가고, 서버가 그 사람이 볼 수 없는 원본을 뺍니다.
-목록·사건 요약의 썸네일·인물 상세·채팅 근거 검색이 모두 같은 판정을 지납니다
-(`backend/services/visibility.py`).
+빌드가 `scripts/seed_from_metadata.py`를 실행해 그래프를 만듭니다. 배포 후 확인:
 
-| 범위 | 누가 보는가 |
-|------|------------|
-| `family` | 참여한 구성원 모두 (새 기록의 기본값) |
-| `partial` | `allowed_ids`에 있는 사람과 소유자 |
-| `private` | 올린 사람만 |
+```
+GET https://<앱>.up.railway.app/api/health   -> {"status":"ok"}
+GET https://<앱>.up.railway.app/api/family   -> 구성원 목록
+```
 
-여기에 인물 동의가 겹칩니다. 어떤 인물이 비공개를 요청하면 그 사람이 등장하는
-기록이 다른 가족에게 가려집니다. 본인은 계속 봅니다.
+`/api/family`가 404면 예전 코드가 떠 있는 것입니다.
 
-### 역할 가드
+**주의: 업로드한 사진·녹음과 그래프는 컨테이너 파일시스템에 쌓입니다.**
+볼륨을 붙이지 않으면 재배포할 때 초기화됩니다. 발표 중 녹음한 목소리도 사라집니다.
 
-화면이 `X-Viewer-Id` 헤더로 "지금 쓰는 사람"을 알려 주고, 서버가 역할로 쓰기를 막습니다
-(`backend/services/permissions.py`).
+### 2. 프론트 (Vercel)
 
-| 행위 | 필요한 역할 |
-|------|------------|
-| 업로드 · 기억 남기기 · 확인 · 인물 추가 · 사건 수정 | 기록자 이상 (열람자·초대 대기 차단) |
-| 역할 변경 · 초대 발급 | 가족 관리자 (관리자가 아직 없으면 기록자도 가능) |
-| 삭제 · 공개 범위 변경 | 올린 사람 또는 가족 관리자 |
-| 자기 비공개 요청 | 본인 |
+1. Add New → Project → 이 저장소 Import
+2. **Root Directory: `frontend`** (이걸 빼면 빌드가 실패합니다)
+3. Framework Preset은 Vite로 자동 감지됩니다 (`npm run build` → `dist`)
+4. Environment Variables:
 
-**이것은 보안 경계가 아닙니다.** 로그인이 없어서 헤더를 직접 바꾸면 우회됩니다.
-여기서 막는 것은 실수입니다 — 열람자가 남의 기록을 지우거나 역할을 바꾸는 일.
-진짜 경계는 인증이 붙는 자리에 생기고, 그때 `current_actor()`가 토큰에서 사람을
-읽으면 위 규칙은 그대로 쓸 수 있습니다.
+| 변수 | 값 |
+|------|-----|
+| `VITE_API_URL` | `https://<내-railway-앱>.up.railway.app/api` |
+
+`VITE_API_URL`을 넣지 않으면 프론트가 자기 도메인의 `/api`를 부르고, 거기엔 백엔드가
+없어서 사이드바에 "연결 안 됨"이 표시됩니다.
+
+`frontend/.env.production`에는 주소를 적지 않습니다. 파일에 박아 두면 다른 사람의
+백엔드로 붙는 사고가 납니다.
+
+### 3. 배포 후 확인
+
+- 사이드바에 가족 이름이 뜨는가 (안 뜨면 `VITE_API_URL` 또는 `ALLOWED_ORIGINS`)
+- 타임라인·지도에 사건 8개와 지도 점이 보이는가 (안 보이면 백엔드가 옛 코드)
+- 채팅에 질문했을 때 근거 뱃지가 붙는가 (안 붙으면 `EXAONE_API_KEY` 확인)
 
 ---
 

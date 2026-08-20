@@ -19,6 +19,8 @@ interface CurrentUserValue {
   members: FamilyMember[]
   spaceName: string
   loading: boolean
+  /** 백엔드에 못 붙었을 때의 이유. 화면이 "불러오는 중"에 갇히지 않게 한다 */
+  error: string | null
   setCurrentId: (id: string) => void
   /** 역할·동의가 바뀐 뒤 다시 받아온다 */
   reload: () => void
@@ -36,14 +38,23 @@ export function CurrentUserProvider({ children }: { children: ReactNode }) {
     () => window.localStorage.getItem(STORAGE_KEY),
   )
   const [loading, setLoading] = useState(true)
+  const [error, setError] = useState<string | null>(null)
 
   const load = () => {
+    setError(null)
     getFamilySpace()
       .then((space) => {
         setSpaceName(space.space_name)
         setMembers(space.members)
       })
-      .catch((e) => console.error('[family] 구성원을 불러오지 못했습니다', e))
+      .catch((e) => {
+        console.error('[family] 구성원을 불러오지 못했습니다', e)
+        // 배포에서 가장 흔한 두 가지 원인을 그대로 알려 준다.
+        // 이 화면이 조용히 비어 있으면 원인을 찾는 데 한참 걸린다 (겪었다).
+        setError(
+          '백엔드에 연결할 수 없습니다. VITE_API_URL(프론트)과 ALLOWED_ORIGINS(백엔드)를 확인하세요.',
+        )
+      })
       .finally(() => setLoading(false))
   }
 
@@ -73,6 +84,7 @@ export function CurrentUserProvider({ children }: { children: ReactNode }) {
         members: active,
         spaceName,
         loading,
+        error,
         setCurrentId,
         reload: load,
       }}

@@ -51,3 +51,20 @@ CHAT_QUERY_PLANNING = os.getenv("CHAT_QUERY_PLANNING", "true").lower() == "true"
 # Server
 HOST = os.getenv("HOST", "0.0.0.0")
 PORT = int(os.getenv("PORT", "8000"))
+
+# --- CORS ---
+# 배포된 프론트의 주소를 허용한다. 쉼표로 여러 개.
+#   ALLOWED_ORIGINS="https://my-homestory.vercel.app"
+ALLOWED_ORIGINS = [
+    origin.strip()
+    for origin in os.getenv("ALLOWED_ORIGINS", "").split(",")
+    if origin.strip()
+]
+
+# Vercel은 커밋마다 프리뷰 도메인을 새로 만든다. 하나씩 등록할 수 없어 정규식으로 받는다.
+# 이 API에는 인증이 없어서 CORS가 데이터를 지켜 주지는 않는다 (curl로는 그냥 열린다).
+# 여기서 하는 일은 브라우저가 정상 동작하게 만드는 것뿐이다.
+ALLOWED_ORIGIN_REGEX = os.getenv("ALLOWED_ORIGIN_REGEX", r"https://.*\.vercel\.app")
+
+# 개발 서버는 항상 허용한다
+DEV_ORIGINS = ["http://localhost:5173", "http://localhost:3000"]

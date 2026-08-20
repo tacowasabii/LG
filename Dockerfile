@@ -26,5 +26,5 @@ RUN pip install --no-cache-dir pillow && python scripts/generate_profiles.py
 ENV PORT=8000
 EXPOSE 8000
 
-# 실행
-CMD ["uvicorn", "backend.main:app", "--host", "0.0.0.0", "--port", "8000"]
+# 실행 — Railway는 PORT를 주입한다. 고정하면 라우팅이 어긋날 수 있다.
+CMD ["sh", "-c", "uvicorn backend.main:app --host 0.0.0.0 --port ${PORT:-8000}"]
