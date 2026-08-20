@@ -18,16 +18,31 @@
 
 import { ReactNode, useEffect, useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
-import { ChevronLeft, ChevronRight, ExternalLink, Link2, Lock, Users, X } from 'lucide-react'
+import {
+  ChevronLeft,
+  ChevronRight,
+  ExternalLink,
+  Link2,
+  Lock,
+  MoreHorizontal,
+  Trash2,
+  Users,
+  X,
+} from 'lucide-react'
 import {
   AlbumMediaItem,
+  CascadePreview,
   EventListItem,
   MediaDetail,
   addMediaToMemory,
+  deleteMedia,
+  getDeleteCascade,
   getMediaDetail,
   mediaUrl,
+  readDetail,
   setMediaPersons,
 } from '../../lib/api'
+import { invalidateEvents, invalidateVoiceClips } from '../../lib/useGraphData'
 import { formatDuration } from './AlbumGrid'
 
 const VISIBILITY_LABEL: Record<string, string> = {
@@ -50,6 +65,8 @@ interface MediaLightboxProps {
   onNeedMore: () => void
   /** 상세에서 바꾼 것을 목록에도 반영한다 (닫고 나서 어긋나 보이지 않게) */
   onItemUpdate: (id: string, patch: Partial<AlbumMediaItem>) => void
+  /** 지운 사진을 목록에서 뺀다. 목록이 비면 부모가 이 화면을 닫는다 */
+  onItemDelete: (id: string) => void
 }
 
 export default function MediaLightbox({
@@ -62,10 +79,12 @@ export default function MediaLightbox({
   onClose,
   onNeedMore,
   onItemUpdate,
+  onItemDelete,
 }: MediaLightboxProps) {
   const item = items[index]
   const [detail, setDetail] = useState<MediaDetail | null>(null)
-  const [pane, setPane] = useState<'none' | 'people' | 'event'>('none')
+  const [pane, setPane] = useState<'none' | 'people' | 'event' | 'more' | 'delete'>('none')
+  const [cascade, setCascade] = useState<CascadePreview | null>(null)
   const [saving, setSaving] = useState(false)
   const [notice, setNotice] = useState<string | null>(null)
   const touchStartX = useRef<number | null>(null)
@@ -90,6 +109,7 @@ export default function MediaLightbox({
     if (!item) return
     setDetail(null)
     setPane('none')
+    setCascade(null)
     setNotice(null)
 
     let alive = true
@@ -160,6 +180,51 @@ export default function MediaLightbox({
       setNotice(`"${event.title}"에 이었습니다.`)
     } catch (e) {
       setNotice(e instanceof Error ? e.message : '잇지 못했습니다.')
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  /**
+   * 지우기 전에 무엇이 함께 사라지는지 먼저 보여준다 (기획안 08장 삭제 전파).
+   *
+   * 공개·동의 화면이 쓰는 것과 같은 미리보기다. 못 받아오면 지우는 단추를
+   * 내주지 않는다 — 무엇을 지우는지 모르는 채로 되돌릴 수 없는 일을 하게
+   * 만들지 않는다.
+   */
+  const openDelete = async () => {
+    setPane('delete')
+    setCascade(null)
+    setNotice(null)
+    setSaving(true)
+    try {
+      setCascade(await getDeleteCascade(item.id))
+    } catch (e) {
+      setNotice(readDetail(e, '삭제 영향을 불러오지 못했습니다.'))
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  /**
+   * 원본을 지운다. 파일과 노드가 함께 사라지고, 그 원본을 가리키던 연결도
+   * 끊긴다. 가족이 남긴 기억 문장은 남는다 — 지우는 것은 원본이다.
+   *
+   * 남의 기록이면 서버가 403으로 막는다. 화면에서 미리 단추를 감추지 않고
+   * 서버가 밝힌 이유를 그대로 보여준다 — 왜 못 지우는지가 "지울 수 없음"보다
+   * 쓸모 있고, 권한 규칙을 두 곳에 두면 어긋난다.
+   */
+  const removeMedia = async () => {
+    setSaving(true)
+    setNotice(null)
+    try {
+      await deleteMedia(item.id)
+      // 홈·지도·TV의 개수와 썸네일에서도 즉시 빠져야 한다
+      invalidateEvents()
+      invalidateVoiceClips()
+      onItemDelete(item.id)
+    } catch (e) {
+      setNotice(readDetail(e, '지우지 못했습니다.'))
     } finally {
       setSaving(false)
     }
@@ -358,9 +423,116 @@ export default function MediaLightbox({
               <ExternalLink size={12} strokeWidth={2} />
               원본 보기
             </a>
+            {/*
+              삭제는 사진첩 전면에 두지 않는다. 훑어보는 화면에서 한 번의 실수로
+              원본이 사라지면 안 된다 — 더보기 안에 둔다.
+            */}
+            <button
+              onClick={() => setPane(pane === 'more' || pane === 'delete' ? 'none' : 'more')}
+              className="flex cursor-pointer items-center gap-1 rounded border border-white/20
+                         bg-transparent px-2.5 py-[7px] text-[12px] text-white/75
+                         transition-colors duration-150 ease-out hover:bg-white/10"
+              aria-label="더보기"
+              aria-expanded={pane === 'more' || pane === 'delete'}
+            >
+              <MoreHorizontal size={14} strokeWidth={2} />
+            </button>
           </div>
 
           {notice && <p className="m-0 mt-3 text-[12px] text-white/70">{notice}</p>}
+
+          {pane === 'more' && (
+            <div className="mt-3 flex flex-col items-start">
+              <button
+                onClick={openDelete}
+                className="flex cursor-pointer items-center gap-1.5 border-0 bg-transparent
+                           px-0 py-1 text-[12px]"
+                style={{ color: 'var(--critical)' }}
+              >
+                <Trash2 size={13} strokeWidth={2} />
+                이 사진 삭제
+              </button>
+            </div>
+          )}
+
+          {pane === 'delete' && (
+            /*
+              공개·동의 화면의 삭제 영향 카드와 같은 모양이다. 어두운 면 위에서도
+              밝은 경고색 면을 그대로 쓴다 — 되돌릴 수 없는 일에서 색이 조용해지면
+              안 되고, 이 색 조합은 이미 그 화면에서 쓰이고 있다.
+            */
+            <div
+              className="mt-4 rounded-lg p-5"
+              style={{ background: 'var(--critical-soft)' }}
+            >
+              <p className="t-body-sm m-0" style={{ color: 'var(--critical-ink)' }}>
+                지울 원본 · {cascade?.target || item.original_filename}
+              </p>
+              {cascade?.scene_description && (
+                <p
+                  className="t-caption m-0 mt-1"
+                  style={{ color: 'var(--critical-ink)', opacity: 0.75 }}
+                >
+                  {cascade.scene_description}
+                </p>
+              )}
+
+              {cascade ? (
+                <>
+                  <p className="t-eyebrow mb-2 mt-4" style={{ color: 'var(--critical-ink)' }}>
+                    함께 사라지는 것
+                  </p>
+                  {cascade.derived.map((d) => (
+                    <div
+                      key={d.label + d.detail}
+                      className="flex justify-between gap-5 py-[7px]"
+                      style={{ borderBottom: '1px solid rgba(194,84,42,0.18)' }}
+                    >
+                      <span className="t-body-sm" style={{ color: 'var(--critical-ink)' }}>
+                        {d.label}
+                      </span>
+                      <span
+                        className="t-mono text-[11px] opacity-70"
+                        style={{ color: 'var(--critical-ink)' }}
+                      >
+                        {d.detail}
+                      </span>
+                    </div>
+                  ))}
+                  <p className="t-caption mt-3.5" style={{ color: 'var(--critical-ink)' }}>
+                    가족이 남긴 기억 문장은 지워지지 않습니다. 원본과의 연결만 끊깁니다.
+                  </p>
+
+                  <div className="mt-4 flex flex-wrap items-center gap-3">
+                    <button
+                      onClick={removeMedia}
+                      disabled={saving}
+                      className="cursor-pointer rounded border-0 px-3.5 py-1.5 text-xs
+                                 disabled:opacity-40"
+                      style={{ background: 'var(--critical-ink)', color: 'var(--paper)' }}
+                    >
+                      {saving ? '지우는 중…' : '정말 지웁니다'}
+                    </button>
+                    <button
+                      onClick={() => setPane('none')}
+                      disabled={saving}
+                      className="cursor-pointer rounded border bg-transparent px-3.5 py-1.5 text-xs"
+                      style={{
+                        borderColor: 'rgba(194,84,42,0.35)',
+                        color: 'var(--critical-ink)',
+                      }}
+                    >
+                      취소
+                    </button>
+                  </div>
+                </>
+              ) : (
+                <p className="t-caption m-0 mt-3" style={{ color: 'var(--critical-ink)' }}>
+                  {saving ? '삭제 영향을 확인하는 중…' : '삭제 영향을 확인하지 못해 지우지 않습니다.'}
+                </p>
+              )}
+            </div>
+          )}
 
           {pane === 'people' && (
             <div className="mt-4 pt-4" style={{ borderTop: '1px solid rgba(255,255,255,0.12)' }}>

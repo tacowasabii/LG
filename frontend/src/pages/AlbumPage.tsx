@@ -73,6 +73,8 @@ export default function AlbumPage() {
     끝없이 되풀이하는 것을 막는다. "더 보기" 버튼은 그대로 남는다.
   */
   const [autoLoad, setAutoLoad] = useState(true)
+  /* 방금 지운 원본. 사진이 조용히 없어지는 것보다 무엇이 없어졌는지가 낫다 */
+  const [deleted, setDeleted] = useState<string | null>(null)
 
   // 입력 중인 검색어. 글자마다 서버를 부르지 않고 잠깐 멈춘 뒤 주소에 반영한다.
   const [draftQuery, setDraftQuery] = useState(filters.q)
@@ -105,6 +107,7 @@ export default function AlbumPage() {
     setError(null)
     setOpenIndex(null)
     setAutoLoad(true)
+    setDeleted(null)
 
     getAlbum({ ...query, limit: PAGE_SIZE })
       .then((page) => {
@@ -226,6 +229,35 @@ export default function AlbumPage() {
     setItems((prev) => prev.map((item) => (item.id === id ? { ...item, ...patch } : item)))
   }, [])
 
+  /**
+   * 지운 사진을 목록에서 뺀다.
+   *
+   * 목록을 처음부터 다시 받지 않는다. 사진첩은 아래로 계속 받아 가는 화면이라
+   * 다시 받으면 스크롤과 함께 훑던 자리를 잃는다. 그래서 지운 한 장만 빼고
+   * 개수를 하나 줄인다.
+   *
+   * 연도 목록은 서버가 준 그대로 둔다. 그 연도의 마지막 사진을 지웠을 때만
+   * 칩이 잠깐 남고, 다음 조회에서 사라진다 — 눌러도 "이 조건에 맞는 사진이
+   * 없습니다"가 되므로 잘못된 화면으로 이어지지는 않는다.
+   *
+   * 보고 있던 사진이 사라졌으므로 상세를 다음 사진으로 옮긴다. 마지막 한 장을
+   * 지웠으면 닫는다.
+   */
+  const removeItem = useCallback(
+    (id: string) => {
+      const gone = items.find((item) => item.id === id)
+      const remaining = items.filter((item) => item.id !== id)
+
+      setItems(remaining)
+      setTotal((prev) => Math.max(0, prev - 1))
+      setOpenIndex((prev) =>
+        prev == null ? prev : remaining.length === 0 ? null : Math.min(prev, remaining.length - 1),
+      )
+      setDeleted(gone?.original_filename || id)
+    },
+    [items],
+  )
+
   return (
     <Page width={1160}>
       <PageHeader
@@ -258,6 +290,15 @@ export default function AlbumPage() {
         onReset={resetFilters}
         active={filtersActive}
       />
+
+      {deleted && (
+        <p className="t-body-sm mt-8 flex flex-wrap items-center gap-2">
+          <span style={{ color: 'var(--critical-ink)' }}>{deleted} 원본을 지웠습니다.</span>
+          <span className="t-caption">
+            가족이 남긴 기억 문장은 그대로 있습니다 — 원본과의 연결만 끊겼습니다.
+          </span>
+        </p>
+      )}
 
       {error && (
         <p className="mt-8 text-[13px]" style={{ color: 'var(--critical-ink)' }}>
@@ -300,6 +341,7 @@ export default function AlbumPage() {
           onClose={() => setOpenIndex(null)}
           onNeedMore={loadMore}
           onItemUpdate={updateItem}
+          onItemDelete={removeItem}
         />
       )}
     </Page>

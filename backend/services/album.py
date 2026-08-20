@@ -175,7 +175,7 @@ def query(
     start = _cursor_position(ordered, cursor, sort)
     page = ordered[start : start + limit]
     next_cursor = (
-        _encode_cursor(sort, page[-1]["id"]) if start + limit < total and page else None
+        _encode_cursor(sort, page[-1]) if start + limit < total and page else None
     )
 
     return {
@@ -325,31 +325,70 @@ def _order(rows: Iterable[dict], sort: str) -> list[dict]:
 # --- 커서 --------------------------------------------------------------------
 
 
-def _encode_cursor(sort: str, media_id: str) -> str:
-    raw = f"{sort}|{media_id}".encode()
+def _position(row: dict, sort: str) -> tuple[int, str, str]:
+    """정렬에서 이 사진이 앉은 자리 (커서가 그대로 담는 값)
+
+    앞자리는 촬영일을 아는가다. 모르는 것은 촬영일 정렬에서 언제나 뒤 묶음에
+    있으므로(_order), 자리를 견줄 때도 묶음을 먼저 본다.
+    """
+    if sort == "uploaded_desc":
+        return (0, row["uploaded_at"] or "", row["id"])
+
+    if row["has_exif"]:
+        return (0, row["captured_at"] or "", row["id"])
+    # 촬영일을 모르는 묶음은 올린 시각으로 줄을 선다
+    return (1, row["uploaded_at"] or "", row["id"])
+
+
+def _comes_after(row: tuple[int, str, str], anchor: tuple[int, str, str], sort: str) -> bool:
+    """이 사진이 커서보다 뒤에 있는가"""
+    if row[0] != anchor[0]:
+        # 촬영일을 아는 묶음이 언제나 앞이다
+        return row[0] > anchor[0]
+
+    # 오래된순의 촬영일 묶음만 오름차순이다. 나머지는(촬영일 미상 묶음을 포함해)
+    # 최근 것이 앞에 온다.
+    ascending = sort == "captured_asc" and row[0] == 0
+    if ascending:
+        return row[1:] > anchor[1:]
+    return row[1:] < anchor[1:]
+
+
+def _encode_cursor(sort: str, row: dict) -> str:
+    rank, key, media_id = _position(row, sort)
+    raw = f"{sort}|{rank}|{key}|{media_id}".encode()
     return base64.urlsafe_b64encode(raw).decode().rstrip("=")
 
 
-def _decode_cursor(cursor: str) -> Optional[tuple[str, str]]:
+def _decode_cursor(cursor: str) -> Optional[tuple[str, tuple[int, str, str]]]:
     try:
         padded = cursor + "=" * (-len(cursor) % 4)
-        sort, _, media_id = base64.urlsafe_b64decode(padded).decode().partition("|")
+        parts = base64.urlsafe_b64decode(padded).decode().split("|", 3)
     except (binascii.Error, UnicodeDecodeError, ValueError):
         return None
-    if not sort or not media_id:
+    if len(parts) != 4:
         return None
-    return sort, media_id
+
+    sort, rank, key, media_id = parts
+    if not sort or not media_id or not rank.isdigit():
+        return None
+    return sort, (int(rank), key, media_id)
 
 
 def _cursor_position(ordered: list[dict], cursor: Optional[str], sort: str) -> int:
-    """커서가 가리키는 다음 항목의 자리
+    """커서 다음 사진이 앉은 자리
 
-    커서에 정렬 방식을 함께 담는다. 정렬을 바꾸면 순서가 달라져 같은 id 다음이
-    전혀 다른 자리가 되므로, 어긋난 커서는 버리고 처음부터 준다 — 조용히
-    이어 주면 화면에 사진이 겹치거나 빠진 채로 쌓인다.
+    id를 찾는 것이 아니라 "그 자리보다 뒤인 첫 사진"을 찾는다. 커서가 가리키던
+    사진이 지워져도 그 다음부터 이어진다 — id로만 찾으면 사진첩에서 사진을
+    지운 뒤 다음 페이지가 처음으로 돌아가고, 이미 여러 페이지를 받아 둔 화면은
+    새 사진을 하나도 받지 못한 채 멈춘다.
 
-    커서 이후에 새 사진이 올라오면 그 사진은 이 페이지에서 빠진다. 목록을
-    처음부터 다시 받으면 나타난다.
+    커서에 정렬 방식을 함께 담는다. 정렬을 바꾸면 같은 자리가 전혀 다른 곳을
+    가리키므로, 어긋난 커서는 버리고 처음부터 준다 — 조용히 이어 주면 화면에
+    사진이 겹치거나 빠진 채로 쌓인다.
+
+    커서보다 앞에 새 사진이 올라오면 그 사진은 이 페이지에 없다. 목록을 처음부터
+    다시 받으면 나타난다 (커서 방식이 원래 그렇다).
     """
     if not cursor:
         return 0
@@ -358,10 +397,10 @@ def _cursor_position(ordered: list[dict], cursor: Optional[str], sort: str) -> i
     if not decoded or decoded[0] != sort:
         return 0
 
-    _, media_id = decoded
+    anchor = decoded[1]
     for index, row in enumerate(ordered):
-        if row["id"] == media_id:
-            return index + 1
+        if _comes_after(_position(row, sort), anchor, sort):
+            # ordered는 이미 줄이 서 있다 — 한 번 넘어가면 나머지도 모두 뒤다
+            return index
 
-    # 커서가 가리키던 사진이 지워졌거나 조건에서 빠졌다
-    return 0
+    return len(ordered)

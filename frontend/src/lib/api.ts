@@ -79,6 +79,22 @@ async function fetchJSON<T>(url: string, options?: RequestInit): Promise<T> {
   return response.json();
 }
 
+/**
+ * 서버가 밝힌 이유를 꺼낸다.
+ *
+ * 권한 거절(403)의 detail은 화면이 지어낼 수 없는 문장이다 —
+ * "김하늘님은 열람자입니다. 기록을 지울 수 없습니다."처럼 누가 왜 막혔는지를
+ * 담고 있어서, 그대로 보여주는 편이 "실패했습니다"보다 낫다.
+ *
+ * 같은 네 줄이 화면마다 복사되던 것을 여기로 올렸다 (공개·동의, 가족 공간,
+ * 초대 참여에는 아직 각자의 사본이 있다).
+ */
+export function readDetail(error: unknown, fallback: string): string {
+  const message = error instanceof Error ? error.message : String(error);
+  const match = message.match(/"detail"\s*:\s*"([^"]+)"/);
+  return match ? match[1] : fallback;
+}
+
 // --- Media ---
 
 export interface MediaItem {

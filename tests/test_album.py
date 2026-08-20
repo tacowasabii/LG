@@ -10,6 +10,7 @@
   - 인물 필터가 사람이 지목한 태그만 보는가 (AI가 사진을 누구 것으로 정하지 않는다)
   - 커서로 넘긴 페이지에 겹침도 빠짐도 없는가
   - 비공개 사진이 목록·개수·연도 목록에서 모두 빠지는가
+  - 지운 원본이 목록·개수에서 빠지고, 남의 원본은 지워지지 않는가
 
 그래프를 실제로 바꾸므로 끝에서 원래대로 되돌린다.
 
@@ -29,6 +30,9 @@ from backend.models.graph_models import (  # noqa: E402
     MediaType,
     Visibility,
 )
+from fastapi.testclient import TestClient  # noqa: E402
+
+from backend.main import app  # noqa: E402
 from backend.routers.media import get_album  # noqa: E402
 from backend.services import album  # noqa: E402
 from backend.services.graph_manager import graph_manager  # noqa: E402
@@ -49,22 +53,38 @@ def _require_seeded_graph():
         )
 
 
+def _make_temp_photo(media_id: str, exif_date: str, owner_id: str = VIEWER) -> None:
+    """시험용 사진 한 장
+
+    file_path가 가리키는 파일은 없다. 삭제 시험이 실제 시드 사진을 지우면
+    데모 데이터가 깨지므로, 지워도 되는 것만 지운다 (라우터는 파일이 없으면
+    노드만 지운다).
+    """
+    graph_manager.add_media(
+        MediaNode(
+            id=media_id,
+            media_type=MediaType.PHOTO,
+            file_path=f"/media-files/{media_id}.jpg",
+            original_filename=f"{media_id}.jpg",
+            exif_date=exif_date,
+            owner_id=owner_id,
+        )
+    )
+
+
+def _drop(*media_ids: str) -> None:
+    for media_id in media_ids:
+        if graph_manager.get_node(media_id):
+            graph_manager.delete_node(media_id)
+
+
 def _setup():
     """시드에 없는 두 가지 상태를 만든다
 
     미분류 사진: 시드된 사진은 모두 추억에 붙어 있어 "미분류" 필터를 확인할 수 없다.
     음성:        사진첩에서 빠지는지 보려면 하나라도 있어야 한다.
     """
-    graph_manager.add_media(
-        MediaNode(
-            id=TEMP_UNLINKED,
-            media_type=MediaType.PHOTO,
-            file_path="/media-files/album_test_unlinked.jpg",
-            original_filename="album_test_unlinked.jpg",
-            exif_date="2019-06-01T10:00:00+09:00",
-            owner_id=VIEWER,
-        )
-    )
+    _make_temp_photo(TEMP_UNLINKED, "2019-06-01T10:00:00+09:00")
     graph_manager.add_media(
         MediaNode(
             id=TEMP_AUDIO,
@@ -88,8 +108,7 @@ def _restore():
 def _cleanup():
     """테스트가 넣은 기록을 걷어낸다 (맨 끝에서 한 번만)"""
     _restore()
-    graph_manager.delete_node(TEMP_UNLINKED)
-    graph_manager.delete_node(TEMP_AUDIO)
+    _drop(TEMP_UNLINKED, TEMP_AUDIO)
 
 
 def _ids(result):
@@ -349,10 +368,6 @@ def test_album_route_is_declared_before_media_id():
     순서가 뒤바뀌면 FastAPI가 "album"을 media_id로 읽어 404를 준다.
     라우트 선언 순서는 코드를 읽어서는 놓치기 쉬우므로 여기서 잡는다.
     """
-    from fastapi.testclient import TestClient
-
-    from backend.main import app
-
     client = TestClient(app)
     response = client.get("/api/media/album", params={"viewer_id": VIEWER, "limit": 5})
 
@@ -413,6 +428,87 @@ def test_router_passes_every_filter_through():
     print("  라우터 → 서비스 인자 전달 OK")
 
 
+# --- 삭제 --------------------------------------------------------------------
+
+
+def _delete(client, media_id: str, actor: str):
+    return client.delete(f"/api/media/{media_id}", headers={"X-Viewer-Id": actor})
+
+
+def test_delete_removes_it_from_the_album():
+    """지운 원본은 목록과 개수에서 함께 빠진다
+
+    사진첩은 목록을 스스로 들고 있는 화면이라, 지운 뒤에도 칸이 남아 있으면
+    없는 사진의 원본을 계속 부른다.
+    """
+    media_id = "album_test_delete"
+    _make_temp_photo(media_id, "2013-07-01T10:00:00+09:00")
+    try:
+        before = album.query(viewer_id=VIEWER, limit=album.MAX_LIMIT)
+        assert media_id in _ids(before), "시험용 사진이 목록에 없다"
+
+        with TestClient(app) as client:
+            gone = _delete(client, media_id, VIEWER)
+            assert gone.status_code == 200, gone.text
+
+        after = album.query(viewer_id=VIEWER, limit=album.MAX_LIMIT)
+        assert media_id not in _ids(after), "지웠는데 목록에 남아 있다"
+        assert after["total"] == before["total"] - 1, (before["total"], after["total"])
+        assert 2013 not in after["available_years"], "지운 사진의 연도가 필터에 남았다"
+        print(f"  {before['total']} → {after['total']} · 연도 목록에서도 빠짐 OK")
+    finally:
+        _drop(media_id)
+
+
+def test_delete_refused_leaves_the_photo_in_place():
+    """남이 올린 원본은 지워지지 않는다 (그리고 목록에 그대로 남는다)
+
+    권한 규칙 자체는 tests/test_permissions.py가 본다. 여기서 보는 것은
+    거절됐을 때 사진첩이 사진을 잃지 않는가다 — 화면이 먼저 지워 놓고 서버가
+    거절하면 사진이 사라진 것처럼 보인다.
+    """
+    media_id = "album_test_delete_denied"
+    _make_temp_photo(media_id, "2013-07-02T10:00:00+09:00", owner_id=VIEWER)
+    try:
+        with TestClient(app) as client:
+            denied = _delete(client, media_id, OTHER)
+            assert denied.status_code == 403, denied.status_code
+            # 왜 못 지우는지를 서버가 말해 준다 (화면이 그 문장을 그대로 보여준다)
+            assert denied.json().get("detail"), "거절 이유가 비었다"
+
+        assert media_id in _ids(album.query(viewer_id=VIEWER, limit=album.MAX_LIMIT))
+        print("  남의 원본 삭제 403 · 목록 유지 OK")
+    finally:
+        _drop(media_id)
+
+
+def test_cursor_survives_deleting_its_anchor():
+    """커서가 가리킨 사진을 지워도 다음 페이지가 그 뒤에서 이어진다
+
+    커서를 id로만 찾으면, 지워진 뒤 그 커서가 처음을 가리킨다. 이미 여러
+    페이지를 받아 둔 화면은 아는 사진만 다시 받고 더 내려가지 못한다.
+    """
+    ids = ["album_test_c1", "album_test_c2", "album_test_c3"]
+    for media_id, day in zip(ids, ("03", "02", "01")):
+        _make_temp_photo(media_id, f"2013-09-{day}T10:00:00+09:00")
+    try:
+        first = album.query(viewer_id=VIEWER, year=2013, limit=2)
+        assert _ids(first) == ids[:2], _ids(first)
+        cursor = first["next_cursor"]
+        assert cursor, "다음 페이지 커서가 없다"
+
+        # 커서가 앉아 있던 사진을 지운다
+        with TestClient(app) as client:
+            assert _delete(client, ids[1], VIEWER).status_code == 200
+
+        second = album.query(viewer_id=VIEWER, year=2013, limit=2, cursor=cursor)
+        assert _ids(second) == [ids[2]], _ids(second)
+        assert second["total"] == 2, second["total"]
+        print("  커서 사진 삭제 후에도 다음 장부터 이어짐 OK")
+    finally:
+        _drop(*ids)
+
+
 TESTS = [
     test_album_has_photos_and_videos_only,
     test_undated_photos_are_kept_and_pushed_last,
@@ -431,6 +527,9 @@ TESTS = [
     test_viewer_without_id_sees_family_shared_only,
     test_album_route_is_declared_before_media_id,
     test_router_passes_every_filter_through,
+    test_delete_removes_it_from_the_album,
+    test_delete_refused_leaves_the_photo_in_place,
+    test_cursor_survives_deleting_its_anchor,
 ]
 
 
