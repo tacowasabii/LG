@@ -19,6 +19,7 @@ import {
   FamilyMember,
   MediaItem,
   Visibility,
+  deleteMedia,
   getDeleteCascade,
   getFamilySpace,
   getMediaList,
@@ -67,6 +68,9 @@ export default function PrivacyPage() {
   const [busy, setBusy] = useState<string | null>(null)
   const [cascade, setCascade] = useState<CascadePreview | null>(null)
   const [cascadeFor, setCascadeFor] = useState<string | null>(null)
+  // 삭제는 되돌릴 수 없다. 한 번 더 누르게 한다 (확인을 요구한 id)
+  const [confirmDelete, setConfirmDelete] = useState<string | null>(null)
+  const [deleted, setDeleted] = useState<string | null>(null)
   // 공개 범위는 올린 사람과 가족 관리자만 바꿀 수 있다. 막히면 이유를 보여준다.
   const [error, setError] = useState<string | null>(null)
 
@@ -130,14 +134,46 @@ export default function PrivacyPage() {
     if (cascadeFor === mediaId) {
       setCascadeFor(null)
       setCascade(null)
+      setConfirmDelete(null)
       return
     }
     setBusy(mediaId)
+    setConfirmDelete(null)
     try {
       setCascade(await getDeleteCascade(mediaId))
       setCascadeFor(mediaId)
     } catch (e) {
       console.error(e)
+      setError(readDetail(e, '삭제 영향을 불러오지 못했습니다.'))
+    } finally {
+      setBusy(null)
+    }
+  }
+
+  /**
+   * 원본을 실제로 지운다 (기획안 08장 "삭제·이관").
+   *
+   * 미리보기까지만 있으면 "지워진다"는 약속이 화면에서 증명되지 않는다. 서버가
+   * 파일과 노드를 함께 지우고, 노드가 사라지면 그 원본을 가리키던 연결도 함께
+   * 끊긴다. 가족이 남긴 기억 문장은 남는다 — 지우는 것은 원본이다.
+   */
+  const removeMedia = async (mediaId: string) => {
+    const item = media.find((m) => m.id === mediaId)
+    setBusy(mediaId)
+    setError(null)
+    try {
+      await deleteMedia(mediaId)
+      // 홈·지도·TV의 개수와 썸네일에서도 즉시 빠져야 한다
+      invalidateEvents()
+      invalidateVoiceClips()
+      setCascadeFor(null)
+      setCascade(null)
+      setConfirmDelete(null)
+      setDeleted(item?.original_filename || mediaId)
+      await load()
+    } catch (e) {
+      console.error(e)
+      setError(readDetail(e, '기록을 지우지 못했습니다.'))
     } finally {
       setBusy(null)
     }
@@ -165,6 +201,12 @@ export default function PrivacyPage() {
       {error && (
         <p className="t-body-sm mt-4" style={{ color: 'var(--critical-ink)' }}>
           {error}
+        </p>
+      )}
+
+      {deleted && (
+        <p className="t-body-sm mt-4" style={{ color: 'var(--positive-ink)' }}>
+          {deleted}을 지웠습니다. 원본 파일과 그래프 연결이 함께 사라졌습니다.
         </p>
       )}
 
@@ -295,6 +337,41 @@ export default function PrivacyPage() {
                     <p className="t-caption mt-3.5" style={{ color: 'var(--critical-ink)' }}>
                       가족이 남긴 기억 문장은 지워지지 않습니다. 원본과의 연결만 끊깁니다.
                     </p>
+
+                    {/* 되돌릴 수 없는 일이라 한 번 더 묻는다 */}
+                    <div className="mt-4 flex flex-wrap items-center gap-3">
+                      {confirmDelete === item.id ? (
+                        <>
+                          <button
+                            onClick={() => removeMedia(item.id)}
+                            disabled={busy === item.id}
+                            className="cursor-pointer rounded px-3.5 py-1.5 text-xs disabled:opacity-40"
+                            style={{ background: 'var(--critical-ink)', color: 'var(--paper)' }}
+                          >
+                            {busy === item.id ? '지우는 중…' : '정말 지웁니다'}
+                          </button>
+                          <button
+                            onClick={() => setConfirmDelete(null)}
+                            disabled={busy === item.id}
+                            className="btn-quiet px-3.5 py-1.5 text-xs"
+                          >
+                            취소
+                          </button>
+                          <span className="t-caption" style={{ color: 'var(--critical-ink)' }}>
+                            원본 파일까지 지워집니다. 되돌릴 수 없습니다.
+                          </span>
+                        </>
+                      ) : (
+                        <button
+                          onClick={() => setConfirmDelete(item.id)}
+                          disabled={busy === item.id}
+                          className="btn-quiet px-3.5 py-1.5 text-xs"
+                          style={{ color: 'var(--critical-ink)' }}
+                        >
+                          이 원본 지우기
+                        </button>
+                      )}
+                    </div>
                   </div>
                 )}
               </div>

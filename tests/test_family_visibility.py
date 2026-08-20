@@ -111,6 +111,120 @@ def test_invite_expires_and_marks_person():
         _restore()
 
 
+def _drop_invites(*codes):
+    """테스트가 만든 초대를 공간 파일에서 지운다 (다음 실행에 쌓이지 않게)"""
+    space = family._load_space()
+    space["invites"] = [i for i in space.get("invites", []) if i.get("code") not in codes]
+    family._save_space(space)
+
+
+def test_invite_link_has_no_made_up_domain():
+    """초대는 없는 도메인을 지어내지 않는다
+
+    예전에는 link에 homestory.lge.com을 적어 두었고 그 링크는 눌러도 열리지
+    않았다. 서버가 앱 주소를 모르면 경로만 내려주고 화면이 자기 origin을 붙인다.
+    """
+    invite = family.create_invite()
+    try:
+        assert invite["join_path"] == "/join/" + invite["code"], invite
+        assert "homestory.lge.com" not in invite["link"], invite["link"]
+        # APP_BASE_URL을 설정한 배포에서만 채워진다
+        from backend.config import APP_BASE_URL
+
+        assert invite["link"] == (APP_BASE_URL + invite["join_path"] if APP_BASE_URL else "")
+        print("  초대 링크 OK:", invite["join_path"])
+    finally:
+        _drop_invites(invite["code"])
+        _restore()
+
+
+def test_join_consumes_invite_and_makes_contributor():
+    """지목된 초대로 참여하면 기록자가 되고, 코드는 소진된다"""
+    invite = family.create_invite(person_id=THIRD)
+    try:
+        assert graph_manager.get_node(THIRD)["role"] == FamilyRole.INVITED.value
+
+        result = family.join(invite["code"])
+        member = result["member"]
+        assert member["id"] == THIRD, member
+        assert member["role"] == FamilyRole.CONTRIBUTOR.value, member
+        assert member["joined_at"], member
+
+        # 소진된 코드는 살아 있는 초대 목록에서 사라지고 다시 쓸 수 없다
+        assert not any(i["code"] == invite["code"] for i in family.get_space()["invites"])
+        assert family.find_invite(invite["code"]) is None
+        try:
+            family.join(invite["code"])
+        except ValueError:
+            pass
+        else:
+            raise AssertionError("소진된 코드로 다시 참여할 수 있으면 안 된다")
+        print("  참여 OK:", member["name"], member["role"])
+    finally:
+        _drop_invites(invite["code"])
+        _restore()
+
+
+def test_join_creates_person_when_nobody_is_named():
+    """일반 초대는 이름을 받아 새 인물을 만든다 (이름이 없으면 받지 않는다)"""
+    invite = family.create_invite()
+    created_id = None
+    try:
+        try:
+            family.join(invite["code"])
+        except ValueError as e:
+            assert "이름" in str(e), e
+        else:
+            raise AssertionError("이름 없이 참여할 수 있으면 기억의 귀속이 사라진다")
+
+        result = family.join(invite["code"], name="박서준", relation="사촌")
+        created_id = result["member"]["id"]
+        assert result["member"]["name"] == "박서준", result
+        assert result["member"]["relation"] == "사촌", result
+        assert result["member"]["role"] == FamilyRole.CONTRIBUTOR.value, result
+        assert graph_manager.get_node(created_id)["node_type"] == "person"
+        print("  새 인물 참여 OK:", created_id)
+    finally:
+        if created_id:
+            graph_manager.delete_node(created_id)
+        _drop_invites(invite["code"])
+        _restore()
+
+
+def test_join_rejects_unknown_and_expired_codes():
+    """없는 코드·만료된 코드는 참여시키지 않는다"""
+    from datetime import datetime, timedelta
+
+    invite = family.create_invite()
+    try:
+        try:
+            family.join("HS-0000-0000", name="아무개")
+        except ValueError as e:
+            assert "쓸 수 없는" in str(e), e
+        else:
+            raise AssertionError("없는 코드로 참여할 수 있으면 안 된다")
+
+        # 만료 시각을 과거로 바꿔 둔다
+        space = family._load_space()
+        for stored in space["invites"]:
+            if stored["code"] == invite["code"]:
+                stored["expires_at"] = (
+                    datetime.now() - timedelta(hours=1)
+                ).isoformat(timespec="seconds")
+        family._save_space(space)
+
+        try:
+            family.join(invite["code"], name="아무개")
+        except ValueError as e:
+            assert "쓸 수 없는" in str(e), e
+        else:
+            raise AssertionError("만료된 코드로 참여할 수 있으면 안 된다")
+        print("  잘못된 코드 거절 OK")
+    finally:
+        _drop_invites(invite["code"])
+        _restore()
+
+
 # --- 공개 범위 ---------------------------------------------------------------
 
 
@@ -276,6 +390,28 @@ def test_http_family_endpoints():
                 mine["visibility"],
             )
 
+            # 초대 확인과 참여가 HTTP로도 도달하는가 (라우트 배선)
+            issued = client.post(
+                "/api/family/invite", json={"person_id": THIRD},
+                headers={"X-Viewer-Id": OWNER},
+            )
+            assert issued.status_code == 200, issued.text
+            code = issued.json()["code"]
+            try:
+                check = client.get(f"/api/family/invite/{code}")
+                assert check.status_code == 200, check.text
+                assert check.json()["person_id"] == THIRD, check.text
+
+                joined = client.post("/api/family/join", json={"code": code})
+                assert joined.status_code == 200, joined.text
+                assert joined.json()["member"]["role"] == FamilyRole.CONTRIBUTOR.value
+
+                # 소진된 코드는 확인도 참여도 되지 않는다
+                assert client.get(f"/api/family/invite/{code}").status_code == 404
+                assert client.post("/api/family/join", json={"code": code}).status_code == 400
+            finally:
+                _drop_invites(code)
+
             # 역할 변경은 관리자만 — 관리자가 아직 없는 공간에서는 기록자도 할 수 있다
             bad = client.put(
                 f"/api/family/member/{OTHER}",
@@ -293,6 +429,10 @@ TESTS = [
     test_role_change_persists_and_records_join,
     test_unknown_role_is_rejected,
     test_invite_expires_and_marks_person,
+    test_invite_link_has_no_made_up_domain,
+    test_join_consumes_invite_and_makes_contributor,
+    test_join_creates_person_when_nobody_is_named,
+    test_join_rejects_unknown_and_expired_codes,
     test_family_scope_is_visible_to_everyone,
     test_private_is_owner_only,
     test_partial_opens_only_to_listed,
