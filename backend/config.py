@@ -80,6 +80,31 @@ PORT = int(os.getenv("PORT", "8000"))
 APP_BASE_URL = os.getenv("APP_BASE_URL", "").rstrip("/")
 
 
+# --- Bedrock (선택) ---
+# EXAONE은 한국어 서술·호칭 해석처럼 "말맛"이 필요한 곳에 쓰고, JSON 조각만 뽑는
+# 기계적인 호출(질의 계획·답변 추출)은 이쪽으로 보낼 수 있다. 질의 계획은 채팅
+# 응답 시간에 그대로 더해지므로 빠른 모델이 유리하다.
+#
+# 자격증명은 boto3 기본 순서를 따른다 (.env의 AWS_* -> 환경변수 -> ~/.aws).
+AWS_REGION = os.getenv("AWS_REGION") or os.getenv("AWS_DEFAULT_REGION", "us-east-1")
+AWS_ACCESS_KEY_ID = os.getenv("AWS_ACCESS_KEY_ID", "").strip()
+AWS_SECRET_ACCESS_KEY = os.getenv("AWS_SECRET_ACCESS_KEY", "").strip()
+AWS_SESSION_TOKEN = os.getenv("AWS_SESSION_TOKEN", "").strip()
+AWS_PROFILE = os.getenv("AWS_PROFILE", "").strip()
+
+# us-east-1 기준. 다른 모델로 바꾸려면 이 한 줄만 고친다 (Nova·Llama도 같은 API다).
+BEDROCK_MODEL_ID = os.getenv(
+    "BEDROCK_MODEL_ID", "us.anthropic.claude-haiku-4-5-20251001-v1:0"
+)
+BEDROCK_TIMEOUT = float(os.getenv("BEDROCK_TIMEOUT", "30"))
+
+# 용도별 제공자: bedrock | exaone
+# 기본값이 bedrock이지만, 자격증명이 없으면 자동으로 EXAONE으로 돌아간다 —
+# 설정하지 않은 사람의 화면이 깨지지 않게.
+LLM_PLAN_PROVIDER = os.getenv("LLM_PLAN_PROVIDER", "bedrock").strip().lower()
+LLM_EXTRACT_PROVIDER = os.getenv("LLM_EXTRACT_PROVIDER", "bedrock").strip().lower()
+
+
 # --- 저장소 ---
 # 값이 있으면 Postgres, 없으면 graph.json 한 개를 쓴다.
 # Railway에서 Postgres를 붙이면 DATABASE_URL이 자동으로 주입된다.

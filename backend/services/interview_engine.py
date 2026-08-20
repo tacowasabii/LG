@@ -425,9 +425,9 @@ async def extract_and_link(
     memory_id: str,
 ) -> dict:
     """답변에서 인물·장소·시점을 뽑아 사건에 잇는다"""
-    if not llm_client.is_enabled():
-        # 키가 없으면 추출하지 않는다. 규칙 기반으로 흉내내면 잘못된 연결이
-        # 그래프에 남고, 그게 화면에서는 사실처럼 보인다.
+    if not llm_client.is_enabled("extract"):
+        # 부를 모델이 없으면 추출하지 않는다. 규칙 기반으로 흉내내면 잘못된
+        # 연결이 그래프에 남고, 그게 화면에서는 사실처럼 보인다.
         return _empty_extraction()
 
     raw = await llm_client.complete_json(
@@ -437,6 +437,8 @@ async def extract_and_link(
         ],
         max_tokens=256,
         model=EXAONE_PLANNER_MODEL,
+        # 답변에서 인물·장소·날짜만 뽑는 기계적인 일 (config의 LLM_EXTRACT_PROVIDER)
+        purpose="extract",
     )
     if not raw:
         return _empty_extraction()

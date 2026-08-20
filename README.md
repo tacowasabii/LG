@@ -144,6 +144,20 @@ cp .env.example .env
 # API 키 없어도 시뮬레이션 응답으로 동작함
 ```
 
+용도에 따라 모델이 갈립니다.
+
+| 용도 | 어디로 | 왜 |
+|------|--------|-----|
+| 채팅 답변 · 인터뷰 질문 · Film/TV 내레이션 | **EXAONE** | 한국어 서술, 가족 호칭("큰엄마"), 세대별 어투. 신뢰도 채점(Trust Harness)도 이 경로를 돕니다 |
+| 질의 계획 · 인터뷰 답변 추출 | **Bedrock** (기본값) | 질문·답변에서 JSON 조각만 뽑는 기계적인 호출. 질의 계획은 채팅 응답 시간에 그대로 더해져서 빠른 모델이 유리합니다 |
+
+Bedrock은 `.env`에 AWS 키를 넣으면 켜집니다 (`AWS_ACCESS_KEY_ID`,
+`AWS_SECRET_ACCESS_KEY`, `AWS_REGION`). **넣지 않으면 전부 EXAONE으로 돕니다** —
+설정하지 않은 사람의 화면이 깨지지 않습니다. 모델은 `BEDROCK_MODEL_ID` 한 줄로
+바꿉니다 (Claude·Nova·Llama 모두 같은 Converse API입니다). 어느 용도를 어디로
+보낼지는 `LLM_PLAN_PROVIDER` · `LLM_EXTRACT_PROVIDER`로 정합니다 —
+`exaone`으로 되돌리면 예전과 똑같이 동작합니다.
+
 ---
 
 ## 저장소

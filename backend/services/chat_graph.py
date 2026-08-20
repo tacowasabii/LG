@@ -142,7 +142,7 @@ async def _plan_node(state: ChatState) -> ChatState:
     """질의에서 검색 조건을 추출한다 (EXAONE instant, 추론 없음)"""
     query = state["query"]
 
-    if not CHAT_QUERY_PLANNING or not llm_client.is_enabled():
+    if not CHAT_QUERY_PLANNING or not llm_client.is_enabled("plan"):
         return {"plan": dict(EMPTY_PLAN), "planned_by_llm": False}
 
     raw = await llm_client.complete_json(
@@ -152,6 +152,9 @@ async def _plan_node(state: ChatState) -> ChatState:
         ],
         max_tokens=256,
         model=EXAONE_PLANNER_MODEL,
+        # 질문에서 조건만 뽑는 기계적인 일이다. 이 호출이 채팅 응답 시간에 그대로
+        # 더해지므로 빠른 쪽으로 보낸다 (config의 LLM_PLAN_PROVIDER).
+        purpose="plan",
     )
     if raw is None:
         return {"plan": dict(EMPTY_PLAN), "planned_by_llm": False}
