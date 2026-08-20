@@ -7,7 +7,9 @@ from backend.config import (
     ALLOWED_ORIGIN_REGEX,
     DEV_ORIGINS,
     MEDIA_DIR,
+    STATE_DIR,
 )
+from backend.services.graph_manager import graph_manager
 from backend.routers import (
     media, graph, chat, interview, gaps, tv, film, trust, family, export,
 )
@@ -48,4 +50,18 @@ app.include_router(export.router, prefix="/api/export", tags=["Export"])
 
 @app.get("/api/health")
 async def health_check():
-    return {"status": "ok", "service": "LG HomeStory"}
+    """살아있는지 + 무엇에 기대어 사는지
+
+    배포에서 저장소를 잘못 붙이면 앱은 정상으로 보이고 데이터만 조용히 사라진다.
+    (볼륨 없는 컨테이너에 사진을 올리면 재배포 때 없어진다.) 밖에서 확인할 수
+    있어야 해서 저장소 종류와 상태 디렉터리를 함께 알린다.
+
+    접속 문자열은 자격증명이 있으므로 내보내지 않는다 — 종류만 알린다.
+    """
+    return {
+        "status": "ok",
+        "service": "LG HomeStory",
+        "store": "postgres" if type(graph_manager).__name__ == "PostgresGraphStore" else "json",
+        "state_dir": str(STATE_DIR),
+        "media_dir_exists": MEDIA_DIR.exists(),
+    }
