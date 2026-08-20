@@ -38,7 +38,7 @@ Body: file (이미지/영상 파일)
 
 → MediaUploadResponse {
     id, media_type, file_path, thumbnail_path,
-    original_filename, exif_date, exif_lat, exif_lng,
+    original_filename, exif_date, exif_lat, exif_lng, place_guess,
     detected_faces, scene_description,
     linked_event_id, needs_info, message
   }
@@ -47,6 +47,10 @@ Body: file (이미지/영상 파일)
 `needs_info: true`이면 EXIF가 없다는 뜻이다. 서버가 날짜를 추측하지 않는다.
 `POST /api/media/supplement`는 **삭제됐다** — 빈칸을 사람이 폼으로 메우는 대신
 `POST /api/memories/draft`가 초안을 쓰고 사용자가 고친다.
+
+`place_guess`는 위도·경도에서 짐작한 대략적인 지명("부산 해운대구")이다. 화면은
+좌표 숫자를 그대로 보여 주지 않는다 — 소수점을 읽어 어디인지 아는 사람은 없다.
+표에 없는 좌표(해외·바다)면 `null`이다 (`backend/services/geocoder.py`).
 
 영상을 올릴 때는 브라우저가 길이(`duration_sec`)와 첫 장면(`poster`, 이미지 파일)을
 함께 보낸다. 서버에 ffmpeg를 두지 않기 위한 분업이다 (`frontend/src/lib/videoMeta.ts`).

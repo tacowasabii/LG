@@ -32,6 +32,10 @@ class MediaUploadResponse(BaseModel):
     exif_date: Optional[str] = None
     exif_lat: Optional[float] = None
     exif_lng: Optional[float] = None
+    # 위도·경도에서 짐작한 대략적인 지명 ("부산 해운대구"). 화면은 좌표 숫자
+    # 대신 이걸 보여 준다 — 소수점을 보고 어디인지 아는 사람은 없다.
+    # 표에 없는 곳이면 None이다 (backend/services/geocoder.py).
+    place_guess: Optional[str] = None
     detected_faces: list[str] = []
     scene_description: Optional[str] = None
     # 그 설명을 누가 썼는지: ai_vision(모델이 사진을 보고 씀) | user_input

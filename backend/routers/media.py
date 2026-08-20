@@ -17,7 +17,7 @@ from backend.models.graph_models import (
 from backend.services.media_analyzer import analyze_media, generate_thumbnail
 from backend.services.event_resolver import autotag_media_persons, set_media_persons
 from backend.services.graph_manager import graph_manager
-from backend.services import album, permissions, visibility
+from backend.services import album, geocoder, permissions, visibility
 from backend.services.permissions import current_actor
 
 router = APIRouter()
@@ -175,6 +175,7 @@ async def upload_media(
         exif_date=media_node.exif_date,
         exif_lat=media_node.exif_lat,
         exif_lng=media_node.exif_lng,
+        place_guess=geocoder.coarse_name(media_node.exif_lat, media_node.exif_lng),
         detected_faces=media_node.detected_faces,
         scene_description=media_node.scene_description,
         scene_source=media_node.scene_source,

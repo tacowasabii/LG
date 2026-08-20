@@ -74,7 +74,10 @@ function buildForm(draft: MemoryDraft): DraftForm {
   return {
     title: draft.title,
     date_start: (draft.date_start || '').slice(0, 10),
-    place_name: draft.place?.name || '',
+    // 그래프에 맞는 장소가 없으면 좌표에서 짐작한 지명을 채워 둔다. 짐작이므로
+    // place_id는 비운다 — 저장하면 이 이름으로 새 장소가 만들어지고, 틀렸으면
+    // 사용자가 저장 전에 고친다.
+    place_name: draft.place?.name || draft.place_guess?.name || '',
     place_id: draft.place?.id || null,
     description: draft.description,
     person_ids: draft.person_ids,
@@ -392,9 +395,12 @@ export default function CollectPage() {
                         촬영 시점 없음
                       </span>
                     )}
+                    {/* 좌표 숫자는 적지 않는다. "35.1587, 129.1604"를 보고 부산이라고
+                        아는 사람은 없다. 짐작한 지명이 나오면 그것만 보여 주고,
+                        표에 없는 곳(해외·바다)이면 위치가 담겨 있다는 사실만 말한다. */}
                     {result.exif_lat != null && (
                       <span className="pill bg-ink-50 font-normal text-ink-500">
-                        GPS 좌표 있음
+                        {result.place_guess ? `${result.place_guess} 근처` : '위치 정보 있음'}
                       </span>
                     )}
                   </div>

@@ -6,7 +6,8 @@
     읽는 것            어디서 오는가
     촬영 시점          EXIF DateTimeOriginal (media_analyzer)
     좌표               EXIF GPS
-    장소               좌표에서 가장 가까운 기존 장소 (없으면 좌표만)
+    장소               좌표에서 가장 가까운 기존 장소, 없으면 좌표에서 짐작한
+                       대략적인 지명 (services/geocoder.py)
     등장인물           지목된 사람 + 기존 기록에서의 동시 등장 추정
     주요 내용          scene_description — 모델이 사진을 보고 쓴다 (services/vision.py)
     기존 가족 기록     비슷한 날짜·같은 장소·같은 사람의 사건
@@ -36,7 +37,7 @@ from datetime import datetime
 from typing import Optional
 
 from backend.models.graph_models import MediaType, NodeType
-from backend.services import event_resolver, llm_client, vision
+from backend.services import event_resolver, geocoder, llm_client, vision
 from backend.services.graph_manager import graph_manager
 
 
@@ -413,6 +414,7 @@ async def draft(media_ids: list[str], author_id: Optional[str] = None) -> dict:
             "title": "",
             "date_start": None,
             "place": None,
+            "place_guess": None,
             "person_ids": [],
             "person_candidates": [],
             "description": "",
@@ -459,6 +461,17 @@ async def draft(media_ids: list[str], author_id: Optional[str] = None) -> dict:
 
     persons = [graph_manager.get_node(pid) or {} for pid in tagged]
     place = _nearest_place(lat, lng)
+    # 그래프에 가까운 장소가 없으면 좌표에서 지명을 짐작한다. 위도·경도를 그대로
+    # 내보내면 화면에 "35.1587, 129.1604"가 남는데, 그걸 보고 부산이라고 알아보는
+    # 사람은 없고 장소 칸에 소수점을 적어 둘 수도 없다 (services/geocoder.py).
+    guess = geocoder.coarse_place(lat, lng) if place is None else None
+    # 장소 칸에 채워도 되는 수준인가. "경북"처럼 시·도까지만 짚은 것은 넣지 않는다.
+    place_guess = (
+        {"name": guess.name, "precision": guess.precision}
+        if guess and guess.usable_as_place
+        else None
+    )
+    place_phrase = place["name"] if place else (place_guess or {}).get("name")
     scenes = [node["scene_description"] for node in media_nodes if node.get("scene_description")]
     candidates = _person_candidates(media_nodes, tagged, day, lat, lng)
 
@@ -471,10 +484,16 @@ async def draft(media_ids: list[str], author_id: Optional[str] = None) -> dict:
             "detail": day + (f" ~ {last_day}" if last_day and last_day != day else ""),
         })
     if coords:
-        evidence.append({
-            "label": "좌표",
-            "detail": f"{lat:.4f}, {lng:.4f}" + (f" · {place['name']} 근처" if place else ""),
-        })
+        # 위도·경도는 적지 않는다. 사용자가 확인할 수 있는 것은 지명뿐이고,
+        # 여기 적힌 이름은 좌표에서 짐작한 것이라 틀릴 수 있으므로 "근처"까지
+        # 함께 밝힌다 — 경계에 걸친 지점은 옆 동네로 갈 수 있다.
+        if place:
+            detail = f"{place['name']} 근처"
+        elif guess:
+            detail = f"{guess.name} 근처 (사진에 담긴 위치로 짐작)"
+        else:
+            detail = "사진에 위치가 담겨 있지만 어디인지 알 수 없습니다"
+        evidence.append({"label": "위치", "detail": detail})
     if persons:
         evidence.append({
             "label": "지목된 사람",
@@ -490,7 +509,7 @@ async def draft(media_ids: list[str], author_id: Optional[str] = None) -> dict:
 
     when = _when_phrase(day)
     title, description = _fallback_text(
-        when, place["name"] if place else None, persons, scenes, len(media_nodes)
+        when, place_phrase, persons, scenes, len(media_nodes)
     )
     # 기존 추억 후보는 한 번만 계산한다. 프롬프트에도 같은 목록이 들어간다 —
     # 같은 여행을 두 번 다른 이름으로 부르지 않게 하려는 것이다 (기획안 05).
@@ -509,8 +528,10 @@ async def draft(media_ids: list[str], author_id: Optional[str] = None) -> dict:
                 facts.append(f"오늘 기준 시점 표현: {when}")
         if place:
             facts.append(f"장소: {place['name']}")
-        elif coords:
-            facts.append(f"좌표: {lat:.4f}, {lng:.4f}")
+        elif place_guess:
+            # 좌표를 그대로 주면 모델은 그걸 읽지 못한다. 짐작한 것임을 밝혀
+            # 제목이 그 이름을 단정하지 않게 한다.
+            facts.append(f"장소(좌표에서 짐작, 확실하지 않음): {place_guess['name']}")
         if persons:
             facts.append(
                 "함께한 가족: "
@@ -579,6 +600,9 @@ async def draft(media_ids: list[str], author_id: Optional[str] = None) -> dict:
         "date_start": day,
         "date_end": last_day if last_day and last_day != day else None,
         "place": place,
+        # 그래프에 없는 장소를 좌표에서 짐작한 것. id가 없다 — 화면이 장소 칸에
+        # 미리 채워 두고, 저장할 때 이름으로 새 장소가 만들어진다.
+        "place_guess": place_guess,
         "lat": lat,
         "lng": lng,
         "person_ids": tagged,

@@ -20,6 +20,7 @@ from typing import Optional
 from backend.models.graph_models import (
     PlaceNode, Edge, MediaType, RelationType, SourceType, NodeType,
 )
+from backend.services import geocoder
 from backend.services.graph_manager import graph_manager
 
 
@@ -44,9 +45,11 @@ def resolve_place(lat: float, lng: float, event_id: Optional[str] = None) -> Opt
                     _ensure_event_place_edge(event_id, place["id"])
                 return place["id"]
 
-    # 새 Place 생성
+    # 새 Place 생성. 이름은 좌표에서 짐작한 지명으로 둔다 — "위치 (35.1587,
+    # 129.1604)"라는 장소는 지도 옆 목록에서 읽을 수 없고, 사용자가 나중에
+    # 고칠 실마리도 주지 않는다. 짐작조차 못 하면(해외·바다) 좌표를 남긴다.
     place = PlaceNode(
-        name=f"위치 ({lat:.4f}, {lng:.4f})",
+        name=geocoder.coarse_name(lat, lng) or f"위치 ({lat:.4f}, {lng:.4f})",
         lat=lat,
         lng=lng,
     )

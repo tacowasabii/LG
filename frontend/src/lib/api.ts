@@ -163,6 +163,8 @@ export interface MediaUploadResult {
   exif_date?: string | null;
   exif_lat?: number | null;
   exif_lng?: number | null;
+  /** 좌표에서 짐작한 대략적인 지명 ("부산 해운대구"). 화면은 좌표 숫자 대신 이걸 쓴다 */
+  place_guess?: string | null;
   detected_faces: string[];
   /** detected_faces를 누가 정했는지: ai_vision(얼굴 인식) | user_input(사람이 지목) */
   faces_source?: string | null;
@@ -1199,6 +1201,12 @@ export interface MemoryDraft {
   date_start?: string | null;
   date_end?: string | null;
   place?: PlaceOption | null;
+  /**
+   * 그래프에 맞는 장소가 없어 좌표에서 짐작한 지명. id가 없다 — 장소 칸에 미리
+   * 채워 두고, 저장할 때 이 이름으로 새 장소가 만들어진다. 시·도까지만 짚은
+   * 넓은 짐작은 서버가 걸러서 보내지 않는다.
+   */
+  place_guess?: { name: string; precision: string } | null;
   lat?: number | null;
   lng?: number | null;
   person_ids: string[];
