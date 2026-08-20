@@ -66,6 +66,12 @@ _SIBLING_LABELS = {"남매", "형제", "자매"}
 _SPOUSE_LABELS = {"부부"}
 _SPOUSE_TERMS = {"남편", "신랑", "아내", "부인", "와이프"}
 
+# 윗세대 → 아랫세대 관계를 뜻하는 엣지 이름. 엣지의 source가 윗세대다.
+# 시드 그래프에 실제로 있는 이름만 적는다 — 없는 이름을 넣어 두면 방향을 잘못
+# 읽고, 잘못 읽은 방향은 그대로 호칭이 된다.
+_PARENT_LABELS = {"부녀", "부자", "모녀", "모자"}
+_GRANDPARENT_LABELS = {"조손"}
+
 # 조사·호칭 접미. 한국어는 낱말 사이에 띄어쓰기가 없을 수 있어서, 뒤에 붙는 말을
 # 여기서 허용해 주지 않으면 "형이랑"을 찾지 못한다.
 _SUFFIX = (
@@ -133,6 +139,84 @@ def sibling_terms(a: dict, b: dict) -> set[str]:
         terms |= {"남동생", "여동생"}
 
     return terms
+
+
+def _sibling_address(subject: dict, other: dict) -> Optional[str]:
+    """형제자매 사이에서 subject가 other를 부르는 말 (정할 수 없으면 None)
+
+    sibling_terms()는 부르는 쪽의 성별을 보지 않는다 — 그것은 검사하는 함수여서
+    넓게 열어 두는 편이 안전하다. 여기는 부르는 함수다. 하나로 좁혀 주지 않으면
+    모델이 형·오빠 중에서 짐작하고, 그 짐작이 처음의 그 버그였다.
+    """
+    mine, theirs = subject.get("birth_year"), other.get("birth_year")
+    if not mine or not theirs or mine == theirs:
+        # 위아래를 정할 수 없다. 이름으로 부르게 둔다.
+        return None
+
+    subject_gender, other_gender = _gender(subject), _gender(other)
+
+    if mine < theirs:
+        # subject가 위다
+        if other_gender == "male":
+            return "남동생"
+        if other_gender == "female":
+            return "여동생"
+        return "동생"
+
+    if other_gender == "male":
+        if subject_gender == "male":
+            return "형"
+        if subject_gender == "female":
+            return "오빠"
+        return "형 또는 오빠"
+    if other_gender == "female":
+        if subject_gender == "male":
+            return "누나"
+        if subject_gender == "female":
+            return "언니"
+        return "누나 또는 언니"
+    return None
+
+
+def address_term(subject: dict, other: dict) -> Optional[str]:
+    """subject가 other를 부르는 말 (확실하지 않으면 None)
+
+    명단에는 "김하늘 — 김지우: 남매"처럼 관계 이름만 들어갔다. 방향이 없어서
+    김지우가 김하늘을 형이라 부를지 누나라 부를지는 모델이 스스로 메웠고,
+    메운 자리에서 없는 사람이 나왔다 (이 모듈 첫 주석의 "형").
+
+    아랫세대를 부를 때는 None을 돌린다. 부모가 자식을 "딸"이라고 부르지 않는다 —
+    이름으로 부르는 것이 맞다. 이 모듈의 규칙 2와 같다: 확실할 때만 말을 준다.
+    """
+    if not subject or not other:
+        return None
+    if subject.get("id") == other.get("id"):
+        return None
+
+    pair = {subject.get("id"), other.get("id")}
+    for a, b, label in person_relation_edges():
+        if pair != {a.get("id"), b.get("id")}:
+            continue
+
+        if label in _SPOUSE_LABELS:
+            gender = _gender(other)
+            if gender == "male":
+                return "남편"
+            if gender == "female":
+                return "아내"
+            return None
+
+        if label in _SIBLING_LABELS:
+            return _sibling_address(subject, other)
+
+        if label in _PARENT_LABELS or label in _GRANDPARENT_LABELS:
+            if subject.get("id") == a.get("id"):
+                # subject가 윗세대다. 아랫세대는 이름으로 부른다.
+                return None
+            relation = (other.get("relation") or "").strip()
+            return relation if relation in KIN_TERMS else None
+
+    return None
 
 
 def known_terms() -> set[str]:

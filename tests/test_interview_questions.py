@@ -248,6 +248,224 @@ def test_fallback_question_skips_asked_ones():
     print("  폴백 질문 중복 회피 OK")
 
 
+# --- 같은 사건이어도 사람마다 다르게 묻는가 -----------------------------------
+
+
+def test_age_at_event_is_counted_per_person():
+    """사건 당시 나이를 사람마다 따로 센다"""
+    _require_seeded_graph()
+
+    busan = graph_manager.get_node("E01")  # 1998-08-13
+    ages = {
+        pid: interview_engine._age_at(graph_manager.get_node(pid), busan)
+        for pid in (FATHER, MOTHER, DAUGHTER, SON)
+    }
+    assert ages[FATHER] == 28, ages
+    assert ages[MOTHER] == 25, ages
+    assert ages[DAUGHTER] == 2, ages
+    assert ages[SON] == -2, ages  # 2000년생 — 이 여행 뒤에 태어난다
+    print("  사건 당시 나이 OK:", ages)
+
+
+def test_toddler_and_adult_get_different_instructions():
+    """두 살과 스물여덟 살에게 물을 것이 다르다
+
+    1998년 부산 여행은 김하늘(1996년생)이 참여자로 걸려 있어 auto가 그를 고른다.
+    그때 두 살이다. 나이를 모르는 프롬프트는 두 살에게 그날의 심정을 물었다 —
+    답할 수 없고, 답하면 남는 것은 기억이 아니다.
+    """
+    _require_seeded_graph()
+
+    busan = graph_manager.get_node("E01")
+    toddler = interview_engine._age_rule(graph_manager.get_node(DAUGHTER), busan)
+    adult = interview_engine._age_rule(graph_manager.get_node(FATHER), busan)
+
+    assert toddler and adult and toddler != adult
+    assert "기억나냐고 묻지 않는다" in toddler, toddler
+    assert "들은 이야기" in toddler, toddler
+    assert "어른이었다" in adult, adult
+    print("  나이별 지시 갈림 OK")
+
+
+def test_context_states_the_age_at_that_time():
+    """컨텍스트가 그때 몇 살이었는지 말한다"""
+    _require_seeded_graph()
+
+    busan = graph_manager.get_node("E01")
+    father = interview_engine._build_interview_context(busan, graph_manager.get_node(FATHER))
+    daughter = interview_engine._build_interview_context(busan, graph_manager.get_node(DAUGHTER))
+
+    assert "그때 28살" in father, father
+    assert "그때 2살" in daughter, daughter
+    # 참여자 줄도 그때 나이로 적힌다 — 이름만 주면 모델이 지금 나이로 읽는다
+    assert "김하늘(2살)" in father, father
+    print("  컨텍스트 나이 표기 OK")
+
+
+def test_unborn_family_member_is_kept_out():
+    """그때 태어나지 않은 사람을 그 자리에 세우지 않게 알려 준다
+
+    "있는 사람만 언급한다"로는 막히지 않는다 — 김지우는 이 가족에 있는 사람이다.
+    """
+    _require_seeded_graph()
+
+    busan = graph_manager.get_node("E01")
+    father = interview_engine._build_interview_context(busan, graph_manager.get_node(FATHER))
+    assert "그때 아직 태어나지 않은 사람: 김지우" in father, father
+
+    # 대상 본인은 그 목록에 넣지 않는다 (앞의 [그때 이 사람]과 어긋난다)
+    son = interview_engine._build_interview_context(busan, graph_manager.get_node(SON))
+    assert "태어나지 않은 사람" not in son, son
+    assert "2년 뒤에 태어난다" in son, son
+    print("  태어나기 전 처리 OK")
+
+
+def test_address_terms_have_a_direction():
+    """호칭에 방향이 있다 (김지우에게 김하늘은 누나다 — 형이 아니다)"""
+    _require_seeded_graph()
+
+    father = graph_manager.get_node(FATHER)
+    mother = graph_manager.get_node(MOTHER)
+    daughter = graph_manager.get_node(DAUGHTER)
+    son = graph_manager.get_node(SON)
+
+    assert kinship.address_term(son, daughter) == "누나"
+    assert kinship.address_term(daughter, son) == "남동생"
+    assert kinship.address_term(daughter, father) == "아빠"
+    assert kinship.address_term(son, mother) == "엄마"
+    assert kinship.address_term(father, mother) == "아내"
+    assert kinship.address_term(mother, father) == "남편"
+    # 부모는 자식을 "딸"이라고 부르지 않는다 — 이름으로 부른다
+    assert kinship.address_term(father, daughter) is None
+    print("  방향 있는 호칭 OK")
+
+
+def test_roster_carries_the_viewpoint_terms():
+    """명단이 그 사람 시점의 호칭을 함께 준다"""
+    _require_seeded_graph()
+
+    son = interview_engine._family_roster(graph_manager.get_node(SON))
+    assert "누나" in son, son
+    assert "아빠" in son, son
+
+    daughter = interview_engine._family_roster(graph_manager.get_node(DAUGHTER))
+    assert "남동생" in daughter, daughter
+    assert "누나" not in daughter, daughter  # 김하늘에게 누나는 없다
+    print("  시점 호칭 명단 OK")
+
+
+def test_own_memories_and_others_memories_are_separated():
+    """본인이 남긴 기억과 다른 가족이 남긴 기억을 갈라서 준다
+
+    섞어서 주면 지시가 하나뿐이다 ("다시 묻지 않는다"). 그러면 남만 말한 장면도
+    피해야 할 것이 되는데, 그것을 이 사람 시점에서 묻는 것은 겹치는 것이 아니라
+    관점이 하나 늘어나는 일이다.
+    """
+    _require_seeded_graph()
+
+    busan = graph_manager.get_node("E01")  # 기록된 기억이 둘 다 김민수의 것이다
+
+    father = interview_engine._build_interview_context(busan, graph_manager.get_node(FATHER))
+    assert "김민수님이 이 사건에 이미 남긴 기억" in father, father
+    assert "다른 가족이 남긴 기억" not in father, father
+
+    mother = interview_engine._build_interview_context(busan, graph_manager.get_node(MOTHER))
+    assert "다른 가족이 남긴 기억" in mother, mother
+    assert "박서연님이 본 것을 새로 물어도 좋다" in mother, mother
+    assert "박서연님이 이 사건에 이미 남긴 기억" not in mother, mother
+    print("  기억 분리 OK")
+
+
+def test_age_rule_reaches_the_prompt_rules():
+    """나이 규칙이 규칙 목록에 들어간다 (컨텍스트 안쪽에만 두면 뒤에서 잊혔다)"""
+    messages = interview_engine._question_messages(
+        "[주제] 1998 부산", [], [], "김하늘", age_rule="김하늘님은 그때 두 살이었다."
+    )
+    assert "김하늘님은 그때 두 살이었다." in messages[-1]["content"]
+    print("  나이 규칙 전달 OK")
+
+
+def test_prior_questions_reach_the_prompt_without_breaking_pairs():
+    """예전 세션의 질문을 주되, 이번 대화의 질문·답 짝은 어긋나지 않는다"""
+    messages = interview_engine._question_messages(
+        "[주제] 1998 부산",
+        ["이번에 물은 것"],
+        ["이번에 답한 것"],
+        "김민수",
+        prior=["예전에 물은 것"],
+    )
+    prompt = messages[-1]["content"]
+
+    assert "예전 인터뷰에서 이미 물은 것" in prompt, prompt
+    assert "예전에 물은 것" in prompt, prompt
+    # 짝짓기는 questions/answers만으로 센다 — prior가 끼면 질문과 답이 어긋난다
+    assert "Q1. 이번에 물은 것" in prompt, prompt
+    assert "A1. 이번에 답한 것" in prompt, prompt
+    assert "Q2." not in prompt, prompt
+    print("  예전 질문 전달 + 짝 유지 OK")
+
+
+def test_asked_questions_are_remembered_per_person():
+    """물어본 질문을 사람별로 따로 적어 둔다
+
+    아빠에게 물은 것이 딸의 차례를 밀어낼 이유가 없다.
+    """
+    interview_engine.forget_questions()
+    try:
+        interview_engine._remember_question(FATHER, "캠코더는 어디서 사셨어요?")
+        assert interview_engine._prior_questions(FATHER) == ["캠코더는 어디서 사셨어요?"]
+        assert interview_engine._prior_questions(DAUGHTER) == []
+
+        # 같은 질문을 두 번 적어도 하나로 남는다
+        interview_engine._remember_question(FATHER, "캠코더는 어디서 사셨어요?")
+        assert len(interview_engine._prior_questions(FATHER)) == 1
+
+        # 무한히 쌓지 않는다 — 프롬프트가 질문 목록으로 채워진다
+        for i in range(30):
+            interview_engine._remember_question(FATHER, f"질문 {i}")
+        assert len(interview_engine._prior_questions(FATHER)) == interview_engine._ASKED_KEEP
+    finally:
+        interview_engine.forget_questions()
+    print("  사람별 질문 이력 OK")
+
+
+def test_fallback_questions_also_differ_by_person():
+    """모델을 못 쓸 때도 사람마다 다른 질문이 나온다
+
+    이 경로가 전원에게 같은 문장을 내던 동안, 키가 없는 환경에서는 차별화가
+    아예 없었다. 그 풀의 첫 질문이 "그때의 기분은 어땠나요?"였다 — 두 살에게도.
+    """
+    toddler = interview_engine._simulate_question("ctx", [], age=2)
+    child = interview_engine._simulate_question("ctx", [], age=8)
+    adult = interview_engine._simulate_question("ctx", [], age=30)
+
+    assert len({toddler, child, adult}) == 3, (toddler, child, adult)
+    assert "기분" not in toddler, toddler
+    assert "들어 본 적" in toddler, toddler
+
+    named = interview_engine._simulate_question("ctx", [], subject_name="김민수", age=30)
+    assert named.startswith("김민수님, "), named
+    print("  폴백 개인화 OK")
+
+
+def test_media_target_also_knows_the_age():
+    """사진을 타겟으로 시작한 인터뷰도 그때 나이를 안다
+
+    날짜가 사건은 date_start, 미디어는 exif_date에 있다. 사건만 보면
+    target_type="media"로 시작한 인터뷰는 나이를 모른 채 묻는다.
+    """
+    _require_seeded_graph()
+
+    photo = {"node_type": "media", "exif_date": "2006-07-23", "original_filename": "jeju.jpg"}
+    daughter = graph_manager.get_node(DAUGHTER)  # 1996년생
+
+    assert interview_engine._age_at(daughter, photo) == 10
+    context = interview_engine._build_interview_context(photo, daughter)
+    assert "그때 10살" in context, context
+    assert "아이였다" in context, context
+    print("  미디어 타겟 나이 OK")
+
+
 TESTS = [
     test_target_is_the_person_who_answers,
     test_target_event_includes_the_speaker,
@@ -263,6 +481,18 @@ TESTS = [
     test_answered_question_does_not_switch_topic,
     test_same_question_is_rejected,
     test_fallback_question_skips_asked_ones,
+    test_age_at_event_is_counted_per_person,
+    test_toddler_and_adult_get_different_instructions,
+    test_context_states_the_age_at_that_time,
+    test_unborn_family_member_is_kept_out,
+    test_address_terms_have_a_direction,
+    test_roster_carries_the_viewpoint_terms,
+    test_own_memories_and_others_memories_are_separated,
+    test_age_rule_reaches_the_prompt_rules,
+    test_prior_questions_reach_the_prompt_without_breaking_pairs,
+    test_asked_questions_are_remembered_per_person,
+    test_fallback_questions_also_differ_by_person,
+    test_media_target_also_knows_the_age,
 ]
 
 

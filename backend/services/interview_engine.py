@@ -30,6 +30,18 @@ from backend.services.question_picker import pick_target, remember_asked
 # 인터뷰 세션 저장 (MVP: in-memory)
 _sessions: dict[str, dict] = {}
 
+# 사람별로 예전에 물은 질문 (MVP: in-memory)
+#
+# 세션은 끝나면 사라진다. 그래서 같은 사람이 다시 인터뷰를 시작하면 모델은
+# 첫 질문을 백지에서 냈고, 백지에서 낸 첫 질문은 늘 비슷했다 — 같은 사람이
+# 세 번 들어와 세 번 "가장 기억에 남는 순간"을 들었다. 사건은 회전하는데
+# (question_picker) 질문의 말투와 각도가 회전하지 않았다.
+_asked_questions: dict[str, list[str]] = {}
+
+# 몇 개를 기억할지. 세션 하나가 질문 5개이므로 12개면 최근 두세 번의 인터뷰가
+# 덮인다. 무한히 쌓으면 프롬프트가 질문 목록으로 채워진다.
+_ASKED_KEEP = 12
+
 
 INTERVIEW_SYSTEM_PROMPT = """너는 가족의 기억을 받아 적는 따뜻한 인터뷰어야.
 지금 화면 앞에는 한 사람이 앉아 있다. [인터뷰 대상]에 적힌 그 사람에게 묻는다.
@@ -108,8 +120,19 @@ async def start_interview(
     # 타겟 정보 구성
     context = _build_interview_context(target_node, subject)
 
+    # 사건 당시 이 사람의 나이. 같은 사건이어도 두 살과 스물여덟 살에게 물을
+    # 것이 다르다 — 컨텍스트와 규칙 양쪽에 넣고, 폴백 질문도 이것으로 고른다.
+    age = _age_at(subject, target_node)
+    age_rule = _age_rule(subject, target_node)
+
+    # 예전 세션에서 이 사람에게 물은 것 (세션은 끝나면 사라진다)
+    prior = _prior_questions(contributor_id)
+
     # 첫 질문 생성
-    first_question = await _generate_question(context, [], [], contributor_name)
+    first_question = await _generate_question(
+        context, [], [], contributor_name, age_rule=age_rule, prior=prior, age=age
+    )
+    _remember_question(contributor_id, first_question)
 
     # 세션 저장
     _sessions[session_id] = {
@@ -117,6 +140,9 @@ async def start_interview(
         "context": context,
         "contributor_id": contributor_id,
         "contributor_name": contributor_name,
+        "age": age,
+        "age_rule": age_rule,
+        "prior": prior,
         "questions": [first_question],
         "answers": [],
         "updated_nodes": [],
@@ -188,9 +214,13 @@ async def process_answer(
             session["questions"],
             session["answers"],
             session.get("contributor_name"),
+            age_rule=session.get("age_rule"),
+            prior=session.get("prior") or [],
+            age=session.get("age"),
         )
         session["questions"].append(next_question)
         session["question_count"] += 1
+        _remember_question(session.get("contributor_id"), next_question)
 
     return {
         "session_id": session_id,
@@ -222,6 +252,94 @@ def get_session_status(session_id: str) -> Optional[dict]:
     }
 
 
+def _prior_questions(person_id: Optional[str]) -> list[str]:
+    """이 사람에게 예전 세션에서 물은 질문"""
+    return list(_asked_questions.get(person_id or "", ()))
+
+
+def _remember_question(person_id: Optional[str], question: Optional[str]) -> None:
+    """이 사람에게 이 질문을 물었다고 적어 둔다"""
+    if not person_id or not question:
+        return
+    asked = [q for q in _asked_questions.get(person_id, []) if q != question]
+    asked.append(question)
+    _asked_questions[person_id] = asked[-_ASKED_KEEP:]
+
+
+def forget_questions() -> None:
+    """물어본 질문을 잊는다 (테스트가 첫 질문 상태를 만들 때 쓴다)"""
+    _asked_questions.clear()
+
+
+def _age_at(subject: Optional[dict], target: Optional[dict]) -> Optional[int]:
+    """그 사건·사진의 해에 이 사람이 몇 살이었나 (알 수 없으면 None)
+
+    연 나이로 센다. 생일 경과까지 보면 한 살이 오갈 수 있지만, 여기서 쓰는 것은
+    "아이였나 어른이었나"이므로 한 살 차이는 답이 바뀌지 않는다.
+
+    사건은 date_start, 미디어는 exif_date에 날짜가 있다. 사건만 보면 사진을
+    타겟으로 시작한 인터뷰(target_type="media")는 나이를 모른 채 묻는다.
+    """
+    if not subject or not target:
+        return None
+    birth_year = subject.get("birth_year")
+    year = (target.get("date_start") or target.get("exif_date") or "")[:4]
+    if not birth_year or not year.isdigit():
+        return None
+    return int(year) - int(birth_year)
+
+
+# 그때 몇 살이었나에 따라 물어도 되는 것이 다르다. (상한 나이, 그때 무엇이었나,
+# 무엇을 물어야 하는지).
+#
+# 이것이 없는 동안 프롬프트는 나이를 몰랐다. 시드 그래프에서 1998년 부산 여행에
+# 참여자로 걸린 김하늘은 그때 두 살이다 — 모델은 두 살에게 "그때 어떤 기분이
+# 드셨어요?"를 물었다. 답할 수 없는 질문이고, 답하면 남는 것은 기억이 아니다.
+_AGE_BANDS: tuple[tuple[int, str, str], ...] = (
+    (-1, "아직 태어나기 전이다",
+     "그때를 기억하냐고 묻지 않는다. 가족에게 전해 들은 이야기나, "
+     "이 사진·영상을 지금 보면서 드는 생각을 묻는다."),
+    (3, "너무 어려 직접 기억이 남지 않는 나이다",
+     "그때가 기억나냐고 묻지 않는다. 가족에게 들은 이야기나, "
+     "사진을 보면서 드는 생각을 묻는다."),
+    (12, "아이였다",
+     "보이고 들리고 만져진 것, 누구와 무엇을 하고 놀았는지를 묻는다. "
+     "어른의 사정이나 집안의 결정 이유는 묻지 않는다."),
+    (18, "청소년이었다",
+     "그 무렵의 마음과 가족과의 관계를 물어도 좋다. "
+     "집안의 형편이나 어른들의 결정은 묻지 않는다."),
+)
+
+_ADULT_BAND = (
+    "어른이었다",
+    "그날을 어떻게 준비했고 무엇을 마음에 두었는지, 다른 가족의 사정까지 물어도 좋다.",
+)
+
+
+def _age_band(age: Optional[int]) -> Optional[tuple[str, str]]:
+    """그 나이에 물어도 되는 것 (나이를 모르면 None)"""
+    if age is None:
+        return None
+    for limit, what, guide in _AGE_BANDS:
+        if age <= limit:
+            return what, guide
+    return _ADULT_BAND
+
+
+def _age_rule(subject: Optional[dict], event: Optional[dict]) -> Optional[str]:
+    """나이에서 나오는 규칙 한 줄 (프롬프트 규칙 목록에 넣는다)
+
+    컨텍스트에도 같은 내용이 들어가지만, 규칙 목록에 한 번 더 둔다 — 컨텍스트
+    안쪽에만 두면 다섯 번째 질문쯤에서 잊혔다.
+    """
+    band = _age_band(_age_at(subject, event))
+    if not band:
+        return None
+    name = (subject or {}).get("name") or ""
+    who = f"{name}님은" if name else "이 사람은"
+    return f"{who} 그때 {band[0]}. {band[1]}"
+
+
 def _family_roster(subject: Optional[dict] = None) -> str:
     """가족 명단과 서로의 관계
 
@@ -239,9 +357,17 @@ def _family_roster(subject: Optional[dict] = None) -> str:
             bits.append(person["relation"])
         if person.get("birth_year"):
             bits.append(f"{person['birth_year']}년생")
-        mark = " ← 지금 답하는 사람" if subject and person.get("id") == subject.get("id") else ""
+        is_subject = bool(subject and person.get("id") == subject.get("id"))
+        mark = " ← 지금 답하는 사람" if is_subject else ""
         detail = f" · {', '.join(bits)}" if bits else ""
-        lines.append(f"- {person.get('name', '')}{detail}{mark}")
+
+        # 답하는 사람이 이 사람을 뭐라고 부르는지. 명단에는 "김하늘 — 김지우:
+        # 남매"처럼 방향 없는 관계만 있었고, 방향을 모델이 메우면서 없는 사람이
+        # 나왔다 (김지우에게 김하늘은 누나인데 "형"이라고 물었다).
+        term = None if is_subject else kinship.address_term(subject, person)
+        called = f' (부를 때: "{term}")' if term else ""
+
+        lines.append(f"- {person.get('name', '')}{detail}{mark}{called}")
 
     # 서로를 어떻게 부르는지는 관계 엣지에 있다. 이것이 없으면 모델이 호칭을
     # 짐작하고, 짐작한 호칭이 없는 사람을 만든다.
@@ -287,6 +413,16 @@ def _build_interview_context(target_node: Optional[dict], subject: Optional[dict
         lines.append("[주제] 정해진 사건 없이 가족의 기억을 전반적으로 묻는다.")
         return "\n".join(lines)
 
+    # 그때 이 사람이 몇 살이었나. 같은 사건이어도 두 살과 스물여덟 살에게 물을
+    # 것은 다르다 — 이것이 없어서 두 살에게 그날의 심정을 물었다.
+    age = _age_at(subject, target_node)
+    band = _age_band(age)
+    if band:
+        who = (subject or {}).get("name") or "이 사람"
+        when = f"그때 {age}살" if age >= 0 else f"{-age}년 뒤에 태어난다"
+        lines.append(f"[그때 이 사람] {who}님은 {when} — {band[0]}.")
+        lines.append(f"  -> {band[1]}")
+
     node_type = target_node.get("node_type", "")
 
     if node_type == "event":
@@ -294,19 +430,71 @@ def _build_interview_context(target_node: Optional[dict], subject: Optional[dict
         lines.append(f"날짜: {target_node.get('date_start', '미상')}")
         lines.append(f"설명: {target_node.get('description', '없음')}")
 
-        # 참여자 정보
+        # 참여자. 그때 몇 살이었는지 함께 준다 — 이름만 주면 모델은 지금의
+        # 나이로 읽는다 (1998년 사진을 두고 두 살이던 사람에게 어른의 일을 물었다).
         connected = graph_manager.get_connected_nodes(target_node["id"])
         persons = [n for n in connected if n.get("node_type") == "person"]
         if persons:
-            lines.append(f"참여자: {', '.join(p.get('name', '') for p in persons)}")
+            who = []
+            for person in persons:
+                years = _age_at(person, target_node)
+                who.append(
+                    f"{person.get('name', '')}({years}살)"
+                    if years is not None and years >= 0
+                    else person.get("name", "")
+                )
+            lines.append(f"참여자: {', '.join(who)}")
+
+        # 그때 아직 없던 사람. 이것을 적어 두지 않으면 모델이 명단에 있는 이름을
+        # 그 자리에 세운다 — 2000년생 김지우에게 1998년 여행에서 무엇을 했는지
+        # 물을 수 있다. "있는 사람만 언급한다"는 규칙으로는 막히지 않는다,
+        # 김지우는 이 가족에 있는 사람이다.
+        # 답하는 사람은 뺀다. 그 사람이 그때 없었다는 것은 [그때 이 사람]이
+        # 이미 말하고 있고, 여기 또 넣으면 "이 자리에 세우지 않는다"가 인터뷰
+        # 대상을 가리켜 앞뒤가 어긋난다.
+        unborn = [
+            person.get("name", "")
+            for person in graph_manager.get_persons()
+            if person.get("id") != (subject or {}).get("id")
+            and (_age_at(person, target_node) or 0) < 0
+        ]
+        if unborn:
+            lines.append(
+                f"그때 아직 태어나지 않은 사람: {', '.join(unborn)} — 이 자리에 세우지 않는다"
+            )
 
         # 이미 기록된 기억. 누가 남긴 것인지 함께 준다 — 화자를 빼면 모델이
         # 기억의 주인을 뒤바꿔 말한다 (아빠에게 "아버지가 찍으셨다고 하는데"라고
         # 되물은 일이 있었다).
+        # 본인이 남긴 것과 다른 가족이 남긴 것을 갈라서 준다. 섞어서 주던 동안
+        # 지시가 하나뿐이었다 ("같은 것을 다시 묻지 않는다") — 그래서 아빠가 이미
+        # 말한 장면도, 엄마만 말한 장면도 똑같이 피해야 할 것이 됐다. 그런데 남이
+        # 말한 장면을 이 사람 시점에서 다시 묻는 것은 겹치는 것이 아니라 관점이
+        # 하나 늘어나는 일이다 — question_picker가 노리는 것이 그것이다.
         memories = [n for n in connected if n.get("node_type") == "memory"]
-        if memories:
-            lines.append("이미 기록된 기억 (같은 것을 다시 묻지 않는다):")
-            for m in memories[:3]:
+        subject_id = (subject or {}).get("id")
+        subject_name = (subject or {}).get("name") or ""
+        mine = [m for m in memories if subject_id and m.get("contributor_id") == subject_id]
+        mine_ids = {m.get("id") for m in mine}
+        theirs = [m for m in memories if m.get("id") not in mine_ids]
+
+        if mine:
+            lines.append(
+                f"{subject_name}님이 이 사건에 이미 남긴 기억 (같은 것을 다시 묻지 않는다):"
+                if subject_name
+                else "이미 기록된 기억 (같은 것을 다시 묻지 않는다):"
+            )
+            for m in mine[:3]:
+                lines.append(f"  - {(m.get('content') or '')[:100]}")
+
+        if theirs:
+            tail = (
+                f"참고만 한다. 같은 장면이라도 {subject_name}님이 본 것을 새로 물어도 좋다"
+                if subject_name
+                else "참고만 한다"
+            )
+            lines.append(f"다른 가족이 남긴 기억 ({tail}):")
+            for m in theirs[:3]:
                 contributor = graph_manager.get_node(m.get("contributor_id") or "")
                 content = (m.get("content") or "")[:100]
                 who = contributor.get("name") if contributor else None
@@ -342,23 +530,43 @@ def _question_messages(
     questions: list[str],
     answers: list[str],
     subject_name: Optional[str] = None,
+    age_rule: Optional[str] = None,
+    prior: list[str] | tuple = (),
 ) -> list[dict]:
-    """질문 생성 프롬프트 (LLM 호출과 분리해 둔다 — 규칙을 시험할 수 있게)"""
+    """질문 생성 프롬프트 (LLM 호출과 분리해 둔다 — 규칙을 시험할 수 있게)
+
+    age_rule  사건 당시 이 사람의 나이에서 나오는 규칙 (_age_rule)
+    prior     예전 세션에서 이 사람에게 물은 질문. questions와 섞지 않는다 —
+              questions는 answers와 번호를 맞춰야 해서(_dialogue) 여기에
+              예전 질문이 끼면 질문과 답이 어긋난다.
+    """
     rules = [
         "위 대화에 이미 나온 질문을 다시 하지 마세요. 말만 바꿔 같은 것을 묻는 것도 안 됩니다.",
         "[가족 구성원]에 없는 사람이나 호칭을 만들지 마세요. 확실하지 않으면 이름을 쓰세요.",
         "아직 비어 있는 것(날짜, 장소, 함께 있던 사람, 그때의 장면이나 감정)을 채우는 질문이면 좋습니다.",
     ]
+    if age_rule:
+        # 나이 규칙을 앞쪽에 둔다. 컨텍스트 안쪽에도 같은 내용이 있지만 거기
+        # 하나만 두면 뒤쪽 질문에서 잊혔다.
+        rules.insert(0, age_rule)
     if subject_name:
         rules.insert(0, f"{subject_name}님에게 직접, 존댓말로 묻습니다.")
     if answers and _NO_MEMORY.search(answers[-1]):
         # 기억나지 않는다는 답이다. 더 캐물으면 답할 수 없는 질문을 반복하게 된다.
         rules.insert(0, '직전 답변은 "기억나지 않는다"는 뜻입니다. 그 질문을 되풀이하지 말고 다른 주제로 넘어가세요.')
 
+    # 예전 인터뷰에서 이 사람에게 물은 것. 세션마다 백지에서 시작하던 동안
+    # 같은 사람이 여러 번 들어와도 첫 질문이 늘 비슷했다.
+    history = ""
+    if prior:
+        nl = chr(10)
+        asked = nl.join(f"- {q}" for q in prior)
+        history = f"[예전 인터뷰에서 이미 물은 것] — 다시 묻지 않는다{nl}{asked}{nl}{nl}"
+
     user_content = f"""[인터뷰 대상 정보]
 {context}
 
-[지금까지의 대화]
+{history}[지금까지의 대화]
 {_dialogue(questions, answers)}
 
 다음 질문 하나만 쓰세요.
@@ -412,6 +620,9 @@ async def _generate_question(
     questions: list[str],
     answers: list[str],
     subject_name: Optional[str] = None,
+    age_rule: Optional[str] = None,
+    prior: list[str] | tuple = (),
+    age: Optional[int] = None,
 ) -> str:
     """EXAONE으로 인터뷰 질문 생성
 
@@ -419,13 +630,18 @@ async def _generate_question(
     청하고, 그래도 같으면 그 문장은 쓰지 않는다 — 화면에 나가면 답하는 사람이
     없는 사람을 떠올리려 애쓰거나 같은 것을 두 번 답하게 된다.
     """
-    messages = _question_messages(context, questions, answers, subject_name)
+    messages = _question_messages(
+        context, questions, answers, subject_name, age_rule=age_rule, prior=prior
+    )
+    # 이번 세션에서 물은 것과 예전 세션에서 물은 것을 함께 놓고 검사한다.
+    asked = list(questions) + list(prior)
+    fallback = dict(subject_name=subject_name, age=age)
 
     question = await llm_client.complete(messages, max_tokens=256)
     if question is None:
-        return _simulate_question(context, answers, questions)
+        return _simulate_question(context, answers, asked, **fallback)
 
-    problem = _problem_with(question, questions)
+    problem = _problem_with(question, asked)
     if not problem:
         return question
 
@@ -434,31 +650,73 @@ async def _generate_question(
         {"role": "user", "content": f"{problem} 질문을 다시 하나만 쓰세요."},
     ]
     question = await llm_client.complete(retry, max_tokens=256)
-    if question is None or _problem_with(question, questions):
-        return _simulate_question(context, answers, questions)
+    if question is None or _problem_with(question, asked):
+        return _simulate_question(context, answers, asked, **fallback)
     return question
+
+
+# 모델을 못 쓸 때 쓰는 질문. 나이대별로 갈라 둔다 — 하나뿐이던 동안 두 살이던
+# 사람에게도 "그때의 기분은 어땠나요?"가 나갔고, 그것이 이 폴백의 첫 질문이었다.
+_HEARSAY_POOL = (
+    "이날 이야기를 가족에게 들어 본 적 있으세요? 어떤 이야기였나요?",
+    "이 사진을 지금 보면 가장 먼저 눈에 들어오는 것이 무엇인가요?",
+    "이 무렵 이야기 중에 가족들이 자주 하는 이야기가 있나요?",
+    "사진 속 사람들의 모습에서 지금과 달라 보이는 것이 있나요?",
+    "이 사진을 남겨 준 사람에게 지금 묻고 싶은 것이 있나요?",
+)
+
+_CHILD_POOL = (
+    "그날 누구와 무엇을 하고 놀았는지 기억나세요?",
+    "그때 보이거나 들렸던 것 중에 아직 생각나는 것이 있나요?",
+    "그날 먹은 것 중에 기억나는 게 있나요?",
+    "그때 제일 재미있었던 일은 무엇이었나요?",
+    "그날 어디를 돌아다녔는지 기억나세요?",
+)
+
+_ADULT_POOL = (
+    "이 사진이 찍힌 날, 어떤 일이 있었는지 기억나세요?",
+    "그때 함께 있었던 가족이 누구였나요? 특별히 기억나는 순간이 있나요?",
+    "이 장소에서의 추억 중 가장 먼저 떠오르는 것은 무엇인가요?",
+    "그날의 날씨나 분위기가 기억나시나요?",
+    "이 사진을 보면 어떤 감정이 떠오르나요? 그때의 기분은 어땠나요?",
+)
+
+
+def _fallback_pool(age: Optional[int]) -> tuple[str, ...]:
+    """그 나이에 답할 수 있는 폴백 질문 목록"""
+    if age is None:
+        return _ADULT_POOL
+    if age <= 3:
+        return _HEARSAY_POOL
+    if age <= 12:
+        return _CHILD_POOL
+    return _ADULT_POOL
 
 
 def _simulate_question(
     context: str,
     previous_answers: list[str],
     asked: list[str] | tuple = (),
+    subject_name: Optional[str] = None,
+    age: Optional[int] = None,
 ) -> str:
-    """EXAONE 없을 때 시뮬레이션 질문 (이미 한 것은 건너뛴다)"""
-    question_pool = [
-        "이 사진이 찍힌 날, 어떤 일이 있었는지 기억나세요?",
-        "그때 함께 있었던 가족이 누구였나요? 특별히 기억나는 순간이 있나요?",
-        "이 장소에서의 추억 중 가장 먼저 떠오르는 것은 무엇인가요?",
-        "그날의 날씨나 분위기가 기억나시나요?",
-        "이 사진을 보면 어떤 감정이 떠오르나요? 그때의 기분은 어땠나요?",
-    ]
+    """EXAONE 없을 때 시뮬레이션 질문 (이미 한 것은 건너뛴다)
+
+    모델이 없어도 누구에게 묻는지는 안다. 나이대로 묶음을 고르고 이름을 붙인다 —
+    이 경로가 전원에게 같은 문장을 내던 동안, 키가 없는 환경에서는 사용자별
+    차별화가 아예 없었다.
+    """
+    question_pool = list(_fallback_pool(age))
+
+    def _address(text: str) -> str:
+        return f"{subject_name}님, {text}" if subject_name else text
 
     idx = len(previous_answers) % len(question_pool)
     for offset in range(len(question_pool)):
-        candidate = question_pool[(idx + offset) % len(question_pool)]
+        candidate = _address(question_pool[(idx + offset) % len(question_pool)])
         if not _repeats(candidate, list(asked)):
             return candidate
-    return question_pool[idx]
+    return _address(question_pool[idx])
 
 
 def _asked_question(session: dict) -> Optional[str]:
