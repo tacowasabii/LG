@@ -18,4 +18,6 @@ async def chat(request: ChatRequest):
         sources=result["sources"],
         confidence=result["confidence"],
         conversation_id=result["conversation_id"],
+        llm_used=result["llm_used"],
+        model=result.get("model"),
     )

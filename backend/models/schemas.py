@@ -39,6 +39,15 @@ class MediaUploadResponse(BaseModel):
     message: str = "업로드 완료"
 
 
+class MediaPersonTagRequest(BaseModel):
+    """이 기록에 있는 사람을 지목한다 (보낸 목록이 최종 상태가 된다)
+
+    얼굴 인식이 없으므로 사람이 직접 지목하는 것이 detected_faces의 유일한
+    출처다. 빈 목록을 보내면 태그를 모두 떼는 뜻이다.
+    """
+    person_ids: list[str] = []
+
+
 class MediaSupplementRequest(BaseModel):
     """EXIF 없는 미디어에 사용자가 추가 정보를 제공"""
     media_id: str
@@ -206,6 +215,11 @@ class ChatResponse(BaseModel):
     sources: list[SourceItem] = []
     confidence: str = "confirmed"
     conversation_id: Optional[str] = None
+    # 실제 모델이 이 답변을 썼는가. False면 키가 없거나 호출이 실패해 대체
+    # 문장으로 답한 것이다 — 화면이 그 사실을 밝힌다.
+    llm_used: bool = True
+    # 어떤 모델이었는지 (폴백이면 None)
+    model: Optional[str] = None
 
 
 # --- Interview ---

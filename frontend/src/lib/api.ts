@@ -148,9 +148,14 @@ export interface MediaUploadResult {
   message: string;
 }
 
-export async function uploadMedia(file: File): Promise<MediaUploadResult> {
+export async function uploadMedia(
+  file: File,
+  /** 이 기록에 있는 사람. 얼굴 인식이 없으므로 사람이 지목한 것만 붙는다 */
+  personIds?: string[],
+): Promise<MediaUploadResult> {
   const formData = new FormData();
   formData.append('file', file);
+  if (personIds && personIds.length > 0) formData.append('person_ids', personIds.join(','));
   // 올린 사람이 소유자다 (기획안 08장 Asset 권한)
   if (viewerId) formData.append('owner_id', viewerId);
   const response = await fetch(`${BASE_URL}/media/upload`, {
@@ -222,7 +227,29 @@ export async function deleteMedia(id: string): Promise<void> {
   }
 }
 
-export async function supplementMedia(data: { media_id: string; date?: string; event_id?: string; description?: string }): Promise<{ message: string; linked_event_id?: string }> {
+/**
+ * 이 기록에 누가 있는지 지목한다. 보낸 목록이 최종 상태가 된다.
+ *
+ * 얼굴 인식이 없으므로 이 호출이 detected_faces의 유일한 출처다. 켜고 끈 결과를
+ * 그대로 보내면 서버가 DEPICTS 엣지를 맞춘다 — 더하기만 있으면 잘못 지목한
+ * 사람을 뗄 수 없다.
+ */
+export async function setMediaPersons(
+  mediaId: string,
+  personIds: string[],
+): Promise<{ media_id: string; detected_faces: string[] }> {
+  return fetchJSON(`${BASE_URL}/media/${mediaId}/persons`, {
+    method: 'PUT',
+    body: JSON.stringify({ person_ids: personIds }),
+  });
+}
+
+export async function supplementMedia(data: {
+  media_id: string;
+  date?: string;
+  event_id?: string;
+  description?: string;
+}): Promise<{ message: string; linked_event_id?: string }> {
   return fetchJSON(`${BASE_URL}/media/supplement`, {
     method: 'POST',
     body: JSON.stringify(data),
@@ -371,6 +398,10 @@ export interface ChatResponse {
   sources: ChatSource[];
   confidence: string;
   conversation_id?: string | null;
+  /** 실제 모델이 이 답변을 썼는가. false면 키가 없거나 호출이 실패한 것이다 */
+  llm_used: boolean;
+  /** 어떤 모델이었는지 (폴백이면 null) */
+  model?: string | null;
 }
 
 export async function sendChat(query: string, conversationId?: string): Promise<ChatResponse> {

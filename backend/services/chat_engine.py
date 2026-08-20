@@ -6,6 +6,7 @@ import uuid
 from datetime import date
 from typing import Optional
 
+from backend.config import EXAONE_MODEL
 from backend.services import chat_graph, graph_search, llm_client, verification, visibility
 from backend.services.graph_manager import graph_manager
 from backend.models.schemas import SourceItem
@@ -60,7 +61,7 @@ async def process_chat(
 
     # 2. EXAONE 호출
     messages = _build_messages(query, context_text, conversation_id, missing_entities)
-    answer = await _call_exaone(messages, search_results)
+    answer, llm_used = await _call_exaone(messages, search_results)
 
     # 3. 대화 히스토리 저장
     _conversations[conversation_id].append({"role": "user", "content": query})
@@ -79,6 +80,9 @@ async def process_chat(
         "sources": sources,
         "confidence": confidence,
         "conversation_id": conversation_id,
+        # 이 답변을 실제 모델이 썼는지. 폴백이면 화면이 그렇게 밝힌다.
+        "llm_used": llm_used,
+        "model": EXAONE_MODEL if llm_used else None,
     }
 
 
@@ -190,12 +194,20 @@ def _build_messages(
     return messages
 
 
-async def _call_exaone(messages: list[dict], search_results: list[dict]) -> str:
-    """EXAONE API 호출 (키 없음/실패 시 시뮬레이션 폴백)"""
+async def _call_exaone(
+    messages: list[dict], search_results: list[dict]
+) -> tuple[str, bool]:
+    """EXAONE API 호출 (키 없음/실패 시 시뮬레이션 폴백)
+
+    Returns:
+        (답변, 실제 모델이 썼는가). 두 번째 값을 화면까지 올린다 — 폴백이 조용히
+        일어나면 사용자는 "LLM이 이상하다"고 느끼고 원인을 찾을 수 없다.
+        (실제로 그 질문을 받았다: "실제 llm 같지가 않아")
+    """
     answer = await llm_client.complete(messages, max_tokens=1024)
     if answer is None:
-        return _simulate_response(search_results)
-    return answer
+        return _simulate_response(search_results), False
+    return answer, True
 
 
 def _simulate_response(search_results: list[dict]) -> str:

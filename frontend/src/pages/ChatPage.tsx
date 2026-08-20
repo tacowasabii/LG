@@ -1,6 +1,6 @@
 import { useState, useRef, useEffect } from 'react'
 import { Link } from 'react-router-dom'
-import { sendChat, ChatResponse, ChatSource, mediaUrl } from '../lib/api'
+import { sendChat, ChatResponse, ChatSource, EventListItem, mediaUrl } from '../lib/api'
 import RichText from '../components/RichText'
 import EvidenceCard from '../components/EvidenceCard'
 import AudioClip from '../components/AudioClip'
@@ -31,6 +31,9 @@ interface Message {
   content: string
   sources?: ChatSource[]
   confidence?: string
+  /** 실제 모델이 답했는가 (false면 대체 문장) */
+  llmUsed?: boolean
+  model?: string | null
   /** 질문 자체를 들고 있어야 후속 액션(기억 남기기)에 문맥을 넘길 수 있다 */
   query?: string
 }
@@ -50,12 +53,61 @@ function confidenceColor(confidence: string): string {
   return 'var(--ink-400)'
 }
 
-const SUGGESTIONS = [
-  '우리 가족이 부산 처음 간 게 언제야?',
-  '제주도 여행에서 뭐 했어?',
-  '아빠가 기억하는 부산 여행 이야기 알려줘',
-  '서연이 생일파티 사진 보여줘',
-]
+/**
+ * 조사 붙이기 — 종성이 있으면 앞의 것, 없으면 뒤의 것
+ *
+ * "박서연이" / "김민수가" 처럼 이름마다 달라서, 추천 질문을 데이터로 만들려면
+ * 필요하다. 한글이 아니면 종성 없는 쪽을 쓴다.
+ */
+function withParticle(word: string, withJong: string, withoutJong: string): string {
+  const code = word.charCodeAt(word.length - 1) - 0xac00
+  if (code < 0 || code > 11171) return word + withoutJong
+  return word + (code % 28 === 0 ? withoutJong : withJong)
+}
+
+/**
+ * 추천 질문은 그래프에 실제로 있는 사건에서 만든다.
+ *
+ * 예전에는 고정 문장 네 개였고 그중 "서연이 생일파티 사진 보여줘"는 그래프에 없는
+ * 사건이었다. 화면이 권한 질문이 "그런 기록이 없습니다"로 돌아오니 모델이 고장 난
+ * 것처럼 보였다. 데이터에서 만들면 그럴 수가 없다.
+ */
+function buildSuggestions(events: EventListItem[]): string[] {
+  if (events.length === 0) return []
+
+  // 시드 장소 이름에 붙은 "(가상)" 같은 꼬리표는 질문에서 뗀다.
+  // 검색은 부분 일치라서 떼도 같은 곳을 찾는다.
+  const plain = (text: string) => text.replace(/\s*\([^)]*\)\s*$/, '').trim()
+
+  const sorted = [...events].sort((a, b) =>
+    (a.date_start || '').localeCompare(b.date_start || ''),
+  )
+  // 네 질문이 같은 사건을 가리키면 추천이 하나뿐인 것과 같다. 쓴 사건은 빼고 고른다.
+  const used = new Set<string>()
+  const pick = (test: (e: EventListItem) => boolean) => {
+    const found = sorted.find((e) => !used.has(e.id) && test(e))
+    if (found) used.add(found.id)
+    return found
+  }
+
+  const oldest = pick(() => true)
+  const withMemory = pick((e) => e.memory_count > 0 && e.participants.length > 0)
+  const withPhoto = pick((e) => e.media_thumbs.length > 0)
+  const newest = [...sorted].reverse().find((e) => e.place?.name)
+
+  const questions: string[] = []
+  if (oldest) questions.push(`${withParticle(plain(oldest.title), '은', '는')} 언제였어?`)
+  if (withMemory) {
+    const who = withMemory.participants[0].name
+    questions.push(
+      `${withParticle(who, '이', '가')} 기억하는 ${plain(withMemory.title)} 이야기 알려줘`,
+    )
+  }
+  if (withPhoto) questions.push(`${plain(withPhoto.title)} 사진 보여줘`)
+  if (newest?.place?.name) questions.push(`${plain(newest.place.name)} 언제 갔어?`)
+
+  return questions.slice(0, 4)
+}
 
 export default function ChatPage() {
   const { current } = useCurrentUser()
@@ -65,13 +117,23 @@ export default function ChatPage() {
   const [conversationId, setConversationId] = useState<string | undefined>()
   const [openSource, setOpenSource] = useState<ChatSource | null>(null)
   // 근거에 걸린 사건의 확인 상태와 그 사건에 남은 목소리를 함께 보여준다
-  const { eventById } = useEvents()
+  const { events, eventById } = useEvents()
   const { clipsForEvent } = useVoiceClips()
   const messagesEndRef = useRef<HTMLDivElement>(null)
+  /** 기다린 시간. 추론 모드는 20~30초 걸려서, 숫자가 없으면 멈춘 것처럼 보인다 */
+  const [waited, setWaited] = useState(0)
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
   }, [messages])
+
+  // 기다리는 동안 초를 센다. 가짜 진행률을 그리지 않고 실제 경과만 보여준다.
+  useEffect(() => {
+    if (!loading) return
+    setWaited(0)
+    const timer = window.setInterval(() => setWaited((s) => s + 1), 1000)
+    return () => window.clearInterval(timer)
+  }, [loading])
 
   const send = async (text?: string) => {
     const query = (text ?? input).trim()
@@ -91,6 +153,8 @@ export default function ChatPage() {
           content: result.answer,
           sources: result.sources,
           confidence: result.confidence,
+          llmUsed: result.llm_used,
+          model: result.model,
           query,
         },
       ])
@@ -129,7 +193,7 @@ export default function ChatPage() {
           <div className="py-12">
             <p className="t-body m-0 mb-5 text-ink-300">기억에 대해 무엇이든 물어보세요.</p>
             <div className="flex flex-col gap-px">
-              {SUGGESTIONS.map((s) => (
+              {buildSuggestions(events).map((s) => (
                 <button
                   key={s}
                   onClick={() => send(s)}
@@ -214,6 +278,22 @@ export default function ChatPage() {
                   </p>
                 )}
 
+                {/*
+                  이 답변을 누가 썼는가. 폴백이 조용히 일어나면 "LLM이 이상하다"로만
+                  보이고 원인을 찾을 수 없다. 그래서 실패했을 때는 분명히 밝힌다.
+                */}
+                {!isUser && msg.llmUsed === false && (
+                  <p className="t-caption m-0 ml-0.5 mt-1" style={{ color: 'var(--critical-ink)' }}>
+                    모델을 부르지 못해 미리 준비된 문장으로 답했습니다 — EXAONE_API_KEY와
+                    네트워크를 확인하세요.
+                  </p>
+                )}
+                {!isUser && msg.llmUsed && msg.model && (
+                  <p className="t-caption m-0 ml-0.5 mt-1 text-ink-300">
+                    {msg.model.includes('instant') ? 'EXAONE' : 'EXAONE · 추론 모드'}가 썼습니다
+                  </p>
+                )}
+
                 {/* 기억이 갈리는 사건이면 숨기지 않고 알린다 */}
                 {conflicted && (
                   <div
@@ -256,7 +336,22 @@ export default function ChatPage() {
           )
         })}
 
-        {loading && <p className="t-caption m-0">그래프를 찾고 있습니다…</p>}
+        {loading && (
+          <div>
+            <p className="t-caption m-0">
+              {waited < 3
+                ? '질문을 인물·장소·시점 조건으로 바꾸는 중…'
+                : '그래프에서 근거를 찾아 답을 쓰는 중…'}
+              {waited > 0 && ` · ${waited}초`}
+            </p>
+            {waited >= 8 && (
+              <p className="t-caption m-0 mt-1 text-ink-300">
+                추론 모드라 20~30초 걸립니다. 빠르게 보려면 서버 설정에서
+                EXAONE_ENABLE_THINKING을 끄면 됩니다.
+              </p>
+            )}
+          </div>
+        )}
 
         <div ref={messagesEndRef} />
       </div>
