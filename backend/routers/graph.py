@@ -1,6 +1,8 @@
 """Graph Router - Graph 조회, Person/Event CRUD"""
 
-from fastapi import APIRouter, HTTPException, Query
+from typing import Optional
+
+from fastapi import APIRouter, Depends, HTTPException, Query
 
 from backend.models.schemas import (
     GraphResponse, PersonCreate, PersonResponse,
@@ -10,7 +12,8 @@ from backend.models.schemas import (
 from backend.models.graph_models import (
     PersonNode, NodeType, MediaType, VerificationState, VerifyAction,
 )
-from backend.services import verification, visibility
+from backend.services import permissions, verification, visibility
+from backend.services.permissions import current_actor
 from backend.services.graph_manager import graph_manager
 
 router = APIRouter()
@@ -134,12 +137,18 @@ async def verification_inbox():
 
 
 @router.post("/event/{event_id}/verify", response_model=VerifyResponse)
-async def verify_event(event_id: str, request: VerifyRequest):
+async def verify_event(
+    event_id: str,
+    request: VerifyRequest,
+    actor: Optional[dict] = Depends(current_actor),
+):
     """가족 확인 기록 (맞음 / 모름 / 이견)
 
     이견은 사실을 덮어쓰지 않는다. 그 사람의 기억을 별도 Memory로 보존하고
     사건을 충돌 상태로 표시한다.
     """
+    permissions.require_writer(actor)
+
     if request.action not in {a.value for a in VerifyAction}:
         raise HTTPException(
             status_code=400,
@@ -172,8 +181,14 @@ async def verify_event(event_id: str, request: VerifyRequest):
 
 
 @router.put("/event/{event_id}")
-async def update_event(event_id: str, updates: dict):
+async def update_event(
+    event_id: str,
+    updates: dict,
+    actor: Optional[dict] = Depends(current_actor),
+):
     """이벤트 정보 수정"""
+    permissions.require_writer(actor)
+
     node = graph_manager.get_node(event_id)
     if not node or node.get("node_type") != NodeType.EVENT:
         raise HTTPException(status_code=404, detail="이벤트를 찾을 수 없습니다.")
@@ -221,8 +236,13 @@ async def get_person_detail(
 
 
 @router.post("/person", response_model=PersonResponse)
-async def create_person(data: PersonCreate):
+async def create_person(
+    data: PersonCreate,
+    actor: Optional[dict] = Depends(current_actor),
+):
     """가족 구성원 추가"""
+    permissions.require_writer(actor)
+
     person = PersonNode(
         name=data.name,
         relation=data.relation,

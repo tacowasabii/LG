@@ -32,6 +32,16 @@ import { ROLE_DESC, ROLE_LABEL, ROLE_ORDER } from '../lib/familyLabels'
 import { useCurrentUser } from '../lib/currentUser'
 import { Page, PageHeader } from '../components/Page'
 
+/**
+ * 서버가 403과 함께 보내는 이유를 뽑아낸다.
+ * fetchJSON이 "API Error 403: {\"detail\":\"...\"}" 모양으로 던진다.
+ */
+function readDetail(error: unknown, fallback: string): string {
+  const message = error instanceof Error ? error.message : String(error)
+  const match = message.match(/"detail"\s*:\s*"([^"]+)"/)
+  return match ? match[1] : fallback
+}
+
 export default function SpacePage() {
   const { current, reload: reloadMembers } = useCurrentUser()
   const [space, setSpace] = useState<FamilySpace | null>(null)
@@ -39,6 +49,9 @@ export default function SpacePage() {
   const [busy, setBusy] = useState<string | null>(null)
   const [copied, setCopied] = useState(false)
   const [invite, setInvite] = useState<FamilyInvite | null>(null)
+  // 역할 가드에 막히면 이유를 화면에 남긴다. 조용히 실패하면 사용자는
+  // 자기가 뭘 못 하는지 모른다 (backend/services/permissions.py).
+  const [error, setError] = useState<string | null>(null)
 
   const load = () =>
     getFamilySpace()
@@ -56,6 +69,7 @@ export default function SpacePage() {
 
   const changeRole = async (personId: string, role: FamilyRole) => {
     setBusy(personId)
+    setError(null)
     try {
       await updateMember(personId, { role })
       await load()
@@ -63,6 +77,7 @@ export default function SpacePage() {
       reloadMembers()
     } catch (e) {
       console.error(e)
+      setError(readDetail(e, '역할을 바꾸지 못했습니다.'))
     } finally {
       setBusy(null)
     }
@@ -70,6 +85,7 @@ export default function SpacePage() {
 
   const issueInvite = async (personId?: string) => {
     setBusy(personId || 'invite')
+    setError(null)
     try {
       const created = await createInvite(personId)
       setInvite(created)
@@ -77,6 +93,7 @@ export default function SpacePage() {
       reloadMembers()
     } catch (e) {
       console.error(e)
+      setError(readDetail(e, '초대 링크를 만들지 못했습니다.'))
     } finally {
       setBusy(null)
     }
@@ -179,6 +196,12 @@ export default function SpacePage() {
         지금 사용 중인 {current?.name ?? '사람'}에게 보이는 기록 {space.visibility.visible}개
         {space.visibility.hidden > 0 && ' · 열람 범위 밖 ' + space.visibility.hidden + '개'}
       </p>
+
+      {error && (
+        <p className="t-body-sm mt-4" style={{ color: 'var(--critical-ink)' }}>
+          {error}
+        </p>
+      )}
 
       <div className="mt-10">
         <p className="t-eyebrow m-0 mb-3">구성원과 역할</p>

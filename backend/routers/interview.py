@@ -1,11 +1,15 @@
 """Interview Router - AI Memory Interview"""
 
-from fastapi import APIRouter, HTTPException
+from typing import Optional
+
+from fastapi import APIRouter, Depends, HTTPException
 
 from backend.models.schemas import (
     InterviewStartRequest, InterviewStartResponse,
     InterviewAnswerRequest, InterviewAnswerResponse,
 )
+from backend.services import permissions
+from backend.services.permissions import current_actor
 from backend.services.interview_engine import start_interview, process_answer, get_session_status
 
 router = APIRouter()
@@ -24,8 +28,13 @@ async def interview_start(request: InterviewStartRequest):
 
 
 @router.post("/answer", response_model=InterviewAnswerResponse)
-async def interview_answer(request: InterviewAnswerRequest):
+async def interview_answer(
+    request: InterviewAnswerRequest,
+    actor: Optional[dict] = Depends(current_actor),
+):
     """사용자 답변 제출"""
+    permissions.require_writer(actor)
+
     result = await process_answer(
         request.session_id,
         request.answer,

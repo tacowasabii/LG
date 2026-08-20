@@ -98,6 +98,7 @@ prompthon-2026/
 │   └── run_dev.sh             # 백엔드+프론트 동시 실행
 │
 ├── docs/
+│   ├── USER_GUIDE.md        # 화면별 사용법, TV 리모컨 조작, 문제 해결
 │   ├── MVP_DESIGN.md        # Graph 스키마, API 설계, 화면 구성
 │   └── SPEC_SUMMARY.md      # API 호출 형식 전체 정리
 │
@@ -155,6 +156,7 @@ python tests/test_verification.py       # 가족 확인 9개
 python tests/test_events_and_voice.py   # 사건 요약·음성·화자 귀속 11개
 python tests/test_film.py               # Memory Film 9개
 python tests/test_family_visibility.py  # 가족 공간·공개 범위 14개
+python tests/test_permissions.py        # 역할 가드 11개
 
 # Memory Trust Harness — 정답표로 실제 질의를 돌려 채점
 python scripts/run_trust_harness.py            # 20문항 (LLM 호출, 수 분)
@@ -202,6 +204,23 @@ python scripts/run_trust_harness.py --limit 5  # 앞 5문항만
 
 여기에 인물 동의가 겹칩니다. 어떤 인물이 비공개를 요청하면 그 사람이 등장하는
 기록이 다른 가족에게 가려집니다. 본인은 계속 봅니다.
+
+### 역할 가드
+
+화면이 `X-Viewer-Id` 헤더로 "지금 쓰는 사람"을 알려 주고, 서버가 역할로 쓰기를 막습니다
+(`backend/services/permissions.py`).
+
+| 행위 | 필요한 역할 |
+|------|------------|
+| 업로드 · 기억 남기기 · 확인 · 인물 추가 · 사건 수정 | 기록자 이상 (열람자·초대 대기 차단) |
+| 역할 변경 · 초대 발급 | 가족 관리자 (관리자가 아직 없으면 기록자도 가능) |
+| 삭제 · 공개 범위 변경 | 올린 사람 또는 가족 관리자 |
+| 자기 비공개 요청 | 본인 |
+
+**이것은 보안 경계가 아닙니다.** 로그인이 없어서 헤더를 직접 바꾸면 우회됩니다.
+여기서 막는 것은 실수입니다 — 열람자가 남의 기록을 지우거나 역할을 바꾸는 일.
+진짜 경계는 인증이 붙는 자리에 생기고, 그때 `current_actor()`가 토큰에서 사람을
+읽으면 위 규칙은 그대로 쓸 수 있습니다.
 
 ---
 
@@ -304,6 +323,7 @@ python scripts/run_trust_harness.py --limit 5  # 앞 5문항만
 
 ## 참고 문서
 
+- `docs/USER_GUIDE.md` — 사용법 (화면별 조작, TV 리모컨, 막혔을 때)
 - `docs/MVP_DESIGN.md` — 설계 상세 (Graph 스키마, API, 화면 구성)
 - `docs/SPEC_SUMMARY.md` — API 호출 형식 전체 정리
 - `.env.example` — 환경변수 설명

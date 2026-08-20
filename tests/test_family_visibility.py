@@ -253,8 +253,17 @@ def test_http_family_endpoints():
             assert space.status_code == 200, space.text
             assert space.json()["members"], space.text
 
-            changed = client.put(
+            # 비공개 요청은 본인이 정한다. 누가 하는지 밝히지 않으면 받지 않는다
+            # (tests/test_permissions.py가 그 규칙을 따로 검증한다).
+            anonymous = client.put(
                 f"/api/family/member/{OTHER}", json={"private_request": True}
+            )
+            assert anonymous.status_code == 403, anonymous.status_code
+
+            changed = client.put(
+                f"/api/family/member/{OTHER}",
+                json={"private_request": True},
+                headers={"X-Viewer-Id": OTHER},
             )
             assert changed.status_code == 200, changed.text
             assert changed.json()["private_request"] is True
@@ -267,7 +276,12 @@ def test_http_family_endpoints():
                 mine["visibility"],
             )
 
-            bad = client.put(f"/api/family/member/{OTHER}", json={"role": "admin"})
+            # 역할 변경은 관리자만 — 관리자가 아직 없는 공간에서는 기록자도 할 수 있다
+            bad = client.put(
+                f"/api/family/member/{OTHER}",
+                json={"role": "admin"},
+                headers={"X-Viewer-Id": OWNER},
+            )
             assert bad.status_code == 400, bad.status_code
         print("  HTTP 응답 OK: /api/family · PUT member")
     finally:

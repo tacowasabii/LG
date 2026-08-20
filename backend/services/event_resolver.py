@@ -114,12 +114,20 @@ def _create_event_from_media(media: MediaNode, date_str: Optional[str], lat: Opt
         source=SourceType.EXIF,
     )
 
+    # 사건 노드를 먼저 넣는다.
+    # _resolve_place가 이벤트→장소 엣지를 만드는데, NetworkX의 add_edge는 없는
+    # 노드를 속성 없이 만들어 버린다. 그 상태로 save()가 돌면 graph.json에
+    # 속성이 텅 빈 노드가 남고, 그 틈에 프로세스가 죽으면 다음 부팅 때
+    # _load의 node["id"]가 KeyError로 터진다.
+    graph_manager.add_event(event)
+
     # 장소가 있으면 Place 노드 연결
     if lat and lng:
         place_id = _resolve_place(lat, lng, event.id)
-        event.location_id = place_id
+        if place_id:
+            event.location_id = place_id
+            graph_manager.update_node(event.id, {"location_id": place_id})
 
-    graph_manager.add_event(event)
     return event.id
 
 

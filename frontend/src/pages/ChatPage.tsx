@@ -21,10 +21,9 @@ import { useCurrentUser } from '../lib/currentUser'
  * 추측하지 않았습니다"는 사용자에게 전혀 다른 뜻이고, 그 차이를 문장으로 밝히는
  * 것이 이 제품이 신뢰를 얻는 방식이다.
  *
- * 실기능 개발 시 교체 지점:
- *   음성 근거   -> 사건에 연결된 audio 미디어를 API로 (지금은 목데이터)
- *   원본 패널   -> GET /api/media/{id} 상세로 채우기
- *   "기억 남기기" -> POST /api/interview/start {target_id: event_id}
+ * 근거·음성·확인 상태는 모두 API에서 온다. 남은 교체 지점은 원본 패널을
+ * GET /api/media/{id} 상세로 채우는 것과, "기억 남기기"가 그 사건을 바로 인터뷰
+ * 대상으로 넘기는 것(POST /api/interview/start {target_id})이다.
  */
 
 interface Message {

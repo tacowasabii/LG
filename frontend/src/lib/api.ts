@@ -62,7 +62,13 @@ async function fetchJSON<T>(url: string, options?: RequestInit): Promise<T> {
   }
 
   const response = await fetch(url, {
-    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    headers: {
+      'Content-Type': 'application/json',
+      // 지금 쓰는 사람. 서버가 역할로 쓰기를 막고, 공개 범위를 적용한다.
+      // 인증이 아니라 실수 방지 가드다 (backend/services/permissions.py).
+      ...(viewerId ? { 'X-Viewer-Id': viewerId } : {}),
+      ...options?.headers,
+    },
     ...options,
   });
   if (!response.ok) {
@@ -149,6 +155,7 @@ export async function uploadMedia(file: File): Promise<MediaUploadResult> {
   if (viewerId) formData.append('owner_id', viewerId);
   const response = await fetch(`${BASE_URL}/media/upload`, {
     method: 'POST',
+    headers: viewerId ? { 'X-Viewer-Id': viewerId } : undefined,
     body: formData,
   });
   if (!response.ok) throw new Error('Upload failed');
@@ -187,6 +194,7 @@ export async function uploadVoice(
 
   const response = await fetch(`${BASE_URL}/media/upload`, {
     method: 'POST',
+    headers: viewerId ? { 'X-Viewer-Id': viewerId } : undefined,
     body: formData,
   });
   if (!response.ok) throw new Error('Voice upload failed');
@@ -203,7 +211,15 @@ export async function getVoiceClips(personId?: string): Promise<VoiceClip[]> {
 }
 
 export async function deleteMedia(id: string): Promise<void> {
-  await fetch(`${BASE_URL}/media/${id}`, { method: 'DELETE' });
+  const response = await fetch(withViewer(`${BASE_URL}/media/${id}`), {
+    method: 'DELETE',
+    headers: viewerId ? { 'X-Viewer-Id': viewerId } : undefined,
+  });
+  // 남의 기록을 지우려 했을 때 403이 온다. 화면이 그대로 넘기지 않게 던진다.
+  if (!response.ok) {
+    const detail = await response.text();
+    throw new Error(detail || '삭제하지 못했습니다.');
+  }
 }
 
 export async function supplementMedia(data: { media_id: string; date?: string; event_id?: string; description?: string }): Promise<{ message: string; linked_event_id?: string }> {

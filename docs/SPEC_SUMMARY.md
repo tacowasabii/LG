@@ -124,6 +124,15 @@ Base URL: `http://localhost:8000`
 | POST | `/api/tv/journey` | Journey 생성 |
 | GET | `/api/tv/journey/{id}` | Journey 조회 |
 
+### 공통 헤더
+
+| 헤더 | 설명 |
+|------|------|
+| `X-Viewer-Id` | 지금 쓰는 사람의 인물 id. 조회에서는 공개 범위를, 쓰기에서는 역할 가드를 적용한다 (`viewer_id` 쿼리로도 받는다) |
+
+쓰기 요청이 역할에 막히면 `403`과 함께 이유가 담긴 `detail`이 온다.
+인증이 아니라 실수 방지 가드다 — 헤더를 바꾸면 우회된다.
+
 ### Static Files
 | Path | 설명 |
 |------|------|

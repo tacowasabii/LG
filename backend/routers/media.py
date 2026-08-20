@@ -1,6 +1,6 @@
 """Media Router - 업로드, 목록, 상세, 삭제"""
 
-from fastapi import APIRouter, UploadFile, File, Form, HTTPException, Query
+from fastapi import APIRouter, Depends, UploadFile, File, Form, HTTPException, Query
 from typing import Optional
 import json
 import shutil
@@ -14,7 +14,8 @@ from backend.models.graph_models import (
 from backend.services.media_analyzer import analyze_media, generate_thumbnail
 from backend.services.event_resolver import resolve_event_for_media
 from backend.services.graph_manager import graph_manager
-from backend.services import visibility
+from backend.services import permissions, visibility
+from backend.services.permissions import current_actor
 
 router = APIRouter()
 
@@ -32,8 +33,11 @@ async def upload_media(
     event_id: Optional[str] = Form(None),
     # 올린 사람. 공개 범위를 정할 수 있는 사람이고, 비공개로 두면 이 사람만 본다.
     owner_id: Optional[str] = Form(None),
+    actor: Optional[dict] = Depends(current_actor),
 ):
     """미디어 파일 업로드 + 자동 분석 + Graph 연결"""
+    permissions.require_writer(actor)
+
     if not file.filename:
         raise HTTPException(status_code=400, detail="파일명이 없습니다.")
 
@@ -74,6 +78,9 @@ async def upload_media(
         media_node.speaker_id = speaker_id
     if owner_id and graph_manager.get_node(owner_id):
         media_node.owner_id = owner_id
+    elif actor:
+        # 소유자를 따로 안 보냈으면 올린 사람이 소유자다
+        media_node.owner_id = actor["id"]
     elif media_node.speaker_id:
         # 녹음은 말한 사람이 곧 올린 사람이다
         media_node.owner_id = media_node.speaker_id
@@ -272,11 +279,20 @@ async def get_media_detail(
 
 
 @router.delete("/{media_id}")
-async def delete_media(media_id: str):
-    """미디어 삭제"""
+async def delete_media(
+    media_id: str,
+    actor: Optional[dict] = Depends(current_actor),
+):
+    """미디어 삭제 — 올린 사람이나 가족 관리자만"""
     node = graph_manager.get_node(media_id)
     if not node or node.get("node_type") != NodeType.MEDIA:
         raise HTTPException(status_code=404, detail="미디어를 찾을 수 없습니다.")
+
+    if not visibility.can_view(node, actor["id"] if actor else None):
+        # 볼 수 없는 기록의 존재를 삭제 응답으로 알려주지 않는다
+        raise HTTPException(status_code=404, detail="미디어를 찾을 수 없습니다.")
+
+    permissions.require_owner_of(node, actor, what="기록")
 
     # 실제 파일 삭제
     file_path = node.get("file_path", "")
@@ -297,8 +313,13 @@ async def delete_media(media_id: str):
 
 
 @router.post("/supplement")
-async def supplement_media_info(request: MediaSupplementRequest):
+async def supplement_media_info(
+    request: MediaSupplementRequest,
+    actor: Optional[dict] = Depends(current_actor),
+):
     """EXIF 없는 미디어에 사용자가 추가 정보 제공 → 이벤트 연결"""
+    permissions.require_writer(actor)
+
     node = graph_manager.get_node(request.media_id)
     if not node or node.get("node_type") != NodeType.MEDIA:
         raise HTTPException(status_code=404, detail="미디어를 찾을 수 없습니다.")

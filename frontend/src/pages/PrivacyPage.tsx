@@ -50,6 +50,13 @@ const AI_LABELS = [
   },
 ]
 
+/** 서버가 403과 함께 보내는 이유를 뽑아낸다 */
+function readDetail(error: unknown, fallback: string): string {
+  const message = error instanceof Error ? error.message : String(error)
+  const match = message.match(/"detail"\s*:\s*"([^"]+)"/)
+  return match ? match[1] : fallback
+}
+
 export default function PrivacyPage() {
   const { current, members, reload: reloadMembers } = useCurrentUser()
   const [media, setMedia] = useState<MediaItem[]>([])
@@ -60,6 +67,8 @@ export default function PrivacyPage() {
   const [busy, setBusy] = useState<string | null>(null)
   const [cascade, setCascade] = useState<CascadePreview | null>(null)
   const [cascadeFor, setCascadeFor] = useState<string | null>(null)
+  // 공개 범위는 올린 사람과 가족 관리자만 바꿀 수 있다. 막히면 이유를 보여준다.
+  const [error, setError] = useState<string | null>(null)
 
   const load = async () => {
     const [items, familySpace] = await Promise.all([getMediaList(), getFamilySpace()])
@@ -77,6 +86,7 @@ export default function PrivacyPage() {
 
   const changeScope = async (mediaId: string, visibility: Visibility) => {
     setBusy(mediaId)
+    setError(null)
     setScopes((prev) => ({ ...prev, [mediaId]: visibility }))
     try {
       // 비공개·부분공개로 바꿀 때 소유자를 함께 남긴다 —
@@ -88,6 +98,13 @@ export default function PrivacyPage() {
       await load()
     } catch (e) {
       console.error(e)
+      // 실패했으므로 화면의 선택도 되돌린다
+      setScopes((prev) => {
+        const next = { ...prev }
+        delete next[mediaId]
+        return next
+      })
+      setError(readDetail(e, '공개 범위를 바꾸지 못했습니다.'))
     } finally {
       setBusy(null)
     }
@@ -95,6 +112,7 @@ export default function PrivacyPage() {
 
   const togglePrivateRequest = async (member: FamilyMember) => {
     setBusy(member.id)
+    setError(null)
     try {
       await updateMember(member.id, { private_request: !member.private_request })
       reloadMembers()
@@ -102,6 +120,7 @@ export default function PrivacyPage() {
       await load()
     } catch (e) {
       console.error(e)
+      setError(readDetail(e, '비공개 요청을 바꾸지 못했습니다.'))
     } finally {
       setBusy(null)
     }
@@ -140,6 +159,12 @@ export default function PrivacyPage() {
           지금 사용 중인 {current?.name ?? '사람'}에게 보이는 기록 {space.visible}개 · 전체{' '}
           {space.total}개
           {space.hidden > 0 && ' · 열람 범위 밖 ' + space.hidden + '개'}
+        </p>
+      )}
+
+      {error && (
+        <p className="t-body-sm mt-4" style={{ color: 'var(--critical-ink)' }}>
+          {error}
         </p>
       )}
 

@@ -5,7 +5,9 @@
 (backend/services/visibility.py).
 """
 
-from fastapi import APIRouter, HTTPException, Query
+from typing import Optional
+
+from fastapi import APIRouter, Depends, HTTPException, Query
 
 from backend.models.schemas import (
     FamilySpaceResponse,
@@ -14,7 +16,10 @@ from backend.models.schemas import (
     MemberUpdateRequest,
     VisibilityRequest,
 )
-from backend.services import family, visibility
+from backend.models.graph_models import NodeType
+from backend.services import family, permissions, visibility
+from backend.services.permissions import current_actor
+from backend.services.graph_manager import graph_manager
 
 router = APIRouter()
 
@@ -33,8 +38,21 @@ async def get_space(viewer_id: str = Query(None, description="지금 보는 사�
 
 
 @router.put("/member/{person_id}")
-async def update_member(person_id: str, request: MemberUpdateRequest):
-    """역할 변경 · 비공개 요청 토글"""
+async def update_member(
+    person_id: str,
+    request: MemberUpdateRequest,
+    actor: Optional[dict] = Depends(current_actor),
+):
+    """역할 변경 · 비공개 요청 토글
+
+    역할은 가족 관리자가 정한다. 비공개 요청은 본인도 직접 바꿀 수 있다 —
+    자기가 나온 기록을 감추는 것은 남이 대신 결정할 일이 아니다.
+    """
+    if request.role is not None:
+        permissions.require_admin(actor)
+    elif not (actor and actor["id"] == person_id):
+        permissions.require_admin(actor)
+
     try:
         member = family.update_member(
             person_id,
@@ -51,15 +69,30 @@ async def update_member(person_id: str, request: MemberUpdateRequest):
 
 
 @router.post("/invite", response_model=InviteResponse)
-async def create_invite(request: InviteRequest):
+async def create_invite(
+    request: InviteRequest,
+    actor: Optional[dict] = Depends(current_actor),
+):
     """초대 링크 발급 (72시간 뒤 만료)"""
+    permissions.require_admin(actor)
+
     invite = family.create_invite(person_id=request.person_id)
     return InviteResponse(**invite)
 
 
 @router.put("/media/{media_id}/visibility")
-async def set_visibility(media_id: str, request: VisibilityRequest):
-    """기록 하나의 공개 범위를 정한다"""
+async def set_visibility(
+    media_id: str,
+    request: VisibilityRequest,
+    actor: Optional[dict] = Depends(current_actor),
+):
+    """기록 하나의 공개 범위를 정한다 — 올린 사람이나 가족 관리자만"""
+    node = graph_manager.get_node(media_id)
+    if not node or node.get("node_type") != NodeType.MEDIA:
+        raise HTTPException(status_code=404, detail="그런 기록이 없습니다.")
+
+    permissions.require_owner_of(node, actor, what="기록의 공개 범위")
+
     try:
         node = family.set_media_visibility(
             media_id,

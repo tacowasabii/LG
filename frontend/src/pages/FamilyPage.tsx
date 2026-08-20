@@ -2,7 +2,6 @@ import { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { getPersons, createPerson, PersonData, mediaUrl } from '../lib/api'
 import AudioClip from '../components/AudioClip'
-import MockBadge from '../components/MockBadge'
 import { Page, PageHeader } from '../components/Page'
 import { ROLE_LABEL, ROLE_DESC } from '../lib/familyLabels'
 import { useCurrentUser } from '../lib/currentUser'
@@ -269,7 +268,6 @@ export default function FamilyPage() {
               <div className="mt-6">
                 <div className="mb-3 flex items-center gap-2">
                   <p className="t-eyebrow m-0">남긴 목소리</p>
-                  <MockBadge label="음성 목데이터" />
                 </div>
                 <div className="flex flex-col gap-2">
                   {selectedClips.map((clip) => (
