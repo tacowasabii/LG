@@ -8,6 +8,7 @@ import RemoteHint from '../components/RemoteHint'
 import StatusPill, { STATE_CONFIG } from '../components/StatusPill'
 import { useEvents, useVoiceClips } from '../lib/useGraphData'
 import { usePrefersReducedMotion } from '../lib/reducedMotion'
+import { useNarrator } from '../lib/narrator'
 import { ambientSlides, buildLocalJourney, tvPresets } from '../lib/tvCuration'
 
 /**
@@ -135,6 +136,10 @@ export default function TVViewPage() {
   // 영상 재생은 CSS로 멈출 수 없어서 여기서 판단한다 (lib/reducedMotion.ts)
   const reducedMotion = usePrefersReducedMotion()
 
+  const { speak, stop: stopNarration, supported: canNarrate } = useNarrator()
+  /** 이 Journey의 내레이션을 이미 읽었는가 (일시정지 후 다시 처음부터 읽지 않게) */
+  const narrated = useRef<string | null>(null)
+
   const [screen, setScreen] = useState<Screen>('ambient')
   const [journey, setJourney] = useState<TVJourney | null>(null)
   const [slideIndex, setSlideIndex] = useState(0)
@@ -188,7 +193,33 @@ export default function TVViewPage() {
     setSlideIndex(0)
     setAutoPlay(true)
     setScreen('play')
+    // 같은 프리셋을 다시 보면 id가 같다. 초기화하지 않으면 두 번째부터 낭독이
+    // 안 나온다 — 처음 볼 때만 읽어 주는 화면이 되어 버린다.
+    narrated.current = null
   }, [])
+
+  /**
+   * 타이틀 장면에서 내레이션을 읽어 준다.
+   *
+   * 거실에서 3m 떨어져 글을 읽게 만드는 것은 이 화면이 하려는 일과 어긋난다.
+   * 새 리모컨 키는 만들지 않는다 — 시작(OK)이 곧 소리를 낼 허가이고(자동재생
+   * 정책도 사용자 동작을 요구한다), 다음 장면으로 넘어가거나 일시정지하면 멈춘다.
+   *
+   * 사진 장면에서는 읽지 않는다. 거기서는 실제 가족 음성이 재생되고, 기계 낭독이
+   * 겹치면 어느 쪽이 가족 목소리인지 알 수 없다.
+   */
+  useEffect(() => {
+    const current = journey?.slides[slideIndex]
+    const onTitle = screen === 'play' && current?.type === 'title'
+
+    if (!onTitle || !autoPlay || showEvidence || !journey?.narration) {
+      stopNarration()
+      return
+    }
+    if (narrated.current === journey.id) return
+    narrated.current = journey.id
+    speak(journey.narration)
+  }, [screen, journey, slideIndex, autoPlay, showEvidence, speak, stopNarration])
 
   const exitToAmbient = useCallback(() => {
     setScreen('ambient')
@@ -519,9 +550,18 @@ export default function TVViewPage() {
         <div className="tv-safe relative z-10 flex h-full flex-col items-center justify-center text-center">
           <h1 className="tv-title max-w-[80vw] text-paper">{journey.title}</h1>
           {journey.narration && (
-            <p className="tv-body mt-[2.5vh] max-w-[62vw] whitespace-pre-wrap text-paper/70">
-              <RichText text={journey.narration} />
-            </p>
+            <>
+              <p className="tv-body mt-[2.5vh] max-w-[62vw] whitespace-pre-wrap text-paper/70">
+                <RichText text={journey.narration} />
+              </p>
+              {/* 합성 목소리를 가족 목소리로 착각하게 두지 않는다. 실제 가족 음성은
+                  사진 장면에서 따로 재생되고 그때는 다른 알약이 붙는다. */}
+              {canNarrate && (
+                <div className="mt-[2vh]">
+                  <OverlayPill>AI 음성 낭독 · 가족 목소리가 아닙니다</OverlayPill>
+                </div>
+              )}
+            </>
           )}
         </div>
       ) : (

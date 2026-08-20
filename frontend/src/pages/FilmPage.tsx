@@ -30,6 +30,7 @@ import {
 import { AUDIENCE_DESC, AUDIENCE_LABEL, Audience, FilmLength } from '../lib/filmOptions'
 import { useEvents, useVoiceClips } from '../lib/useGraphData'
 import { usePrefersReducedMotion } from '../lib/reducedMotion'
+import { useNarrator } from '../lib/narrator'
 import { Page, PageHeader } from '../components/Page'
 import AudioClip from '../components/AudioClip'
 import RichText from '../components/RichText'
@@ -73,6 +74,7 @@ export default function FilmPage() {
   const [playing, setPlaying] = useState(false)
   const [elapsed, setElapsed] = useState(0)
   const reducedMotion = usePrefersReducedMotion()
+  const narrator = useNarrator()
 
   // 사진이 가장 많은 사건에서 시작한다 (이야기가 될 자료가 있는 쪽)
   useEffect(() => {
@@ -198,9 +200,21 @@ export default function FilmPage() {
               </button>
             ))}
           </div>
+          {/*
+            고른 길이는 상한이다 (backend/services/film_composer.py _fit). 자료가
+            적으면 그보다 짧게 끝나므로 요청한 값과 실제 값을 나란히 적는다 —
+            둘을 합쳐 한 숫자로만 쓰면 사진 세 장뿐인 사건에서 30·45·60초가
+            모두 같은 줄로 보이고, 고른 것이 화면에 나타나지 않는다.
+          */}
           <p className="t-caption mt-2.5">
-            선택한 길이에 맞춰 장면 {scenes.length}개 · 실제 {totalSec}초
+            {length}초 안에서 · 장면 {scenes.length}개 · 실제 {totalSec}초
           </p>
+          {board && totalSec < length && (
+            <p className="t-caption m-0 mt-1">
+              연결된 자료가 여기까지여서 {length - totalSec}초가 남았습니다. 사진이나 영상을
+              더 연결하면 그만큼 길어집니다.
+            </p>
+          )}
         </div>
 
         <div>
@@ -311,6 +325,9 @@ export default function FilmPage() {
                 <button
                   onClick={() => {
                     if (elapsed >= totalSec) setElapsed(0)
+                    // 장면마다 실제 가족 음성이 재생되므로 기계 낭독을 겹치지
+                    // 않는다. 둘이 함께 나면 어느 쪽이 가족 목소리인지 알 수 없다.
+                    narrator.stop()
                     setPlaying((p) => !p)
                   }}
                   aria-label={playing ? '일시정지' : '재생'}
@@ -355,9 +372,23 @@ export default function FilmPage() {
               {board.title}
               <span className="t-caption ml-2.5 text-ink-300">{board.subtitle}</span>
             </p>
-            <p className="t-body mt-3 max-w-[45em]">
-              <RichText text={board.narration} />
-            </p>
+            <div className="mt-3 flex items-start gap-3">
+              <p className="t-body m-0 max-w-[45em]">
+                <RichText text={board.narration} />
+              </p>
+              {narrator.supported && board.narration && (
+                <button
+                  onClick={() =>
+                    narrator.speaking
+                      ? narrator.stop()
+                      : narrator.speak(board.narration, { audience })
+                  }
+                  className="btn-quiet shrink-0 whitespace-nowrap"
+                >
+                  {narrator.speaking ? '■ 멈추기' : '▶ 소리로 듣기'}
+                </button>
+              )}
+            </div>
             {board.omitted_scenes > 0 && (
               <p className="t-caption m-0 mt-2">
                 {board.requested_sec}초에 맞추려고 장면 {board.omitted_scenes}개를 뺐습니다. 더 긴
@@ -367,6 +398,15 @@ export default function FilmPage() {
             <p className="t-caption mt-3">
               내레이션은 확인된 기록 안에서만 생성됩니다. 원본에 없는 발화·행동은 만들지
               않습니다.
+              {narrator.supported ? (
+                <>
+                  {' '}
+                  소리로 들으면 <strong>기계가 읽어 주는 음성</strong>입니다 — 가족의
+                  목소리가 아닙니다. 실제 목소리는 장면마다 따로 재생됩니다.
+                </>
+              ) : (
+                ' 이 브라우저에서는 소리로 읽어 주지 못합니다.'
+              )}
             </p>
           </div>
 
