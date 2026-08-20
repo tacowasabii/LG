@@ -23,7 +23,7 @@ from backend.models.graph_models import (
     PersonNode, EventNode, PlaceNode, MediaNode, MemoryNode,
     Edge, RelationType, RelationCategory, Confidence, SourceType, MediaType,
 )
-from backend.services.graph_manager import GraphManager
+from backend.services.graph_manager import graph_manager
 
 
 ROLE_KR = {
@@ -47,14 +47,9 @@ ROLE_CATEGORY = {
 def seed():
     print("🌱 실제 데이터셋으로 Graph 생성 중...")
 
-    # 기존 그래프 초기화
-    if GRAPH_FILE.exists():
-        GRAPH_FILE.unlink()
-
-    # GraphManager 재초기화
-    gm = GraphManager()
-    gm._initialized = False
-    gm.__init__()
+    # 기존 그래프 초기화. 저장소가 파일인지 DB인지 여기서 알 필요가 없다.
+    gm = graph_manager
+    gm.reset()
 
     # 미디어 디렉토리 준비 - photos와 video를 media로 복사/심링크
     MEDIA_DIR.mkdir(parents=True, exist_ok=True)

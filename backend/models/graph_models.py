@@ -126,6 +126,7 @@ class VerifyAction(str, Enum):
     기억으로 보존한다.
     """
     CONFIRM = "confirm"      # 맞음
+    CORRECT = "correct"      # 값이 틀렸다 — 고치고 누가 고쳤는지 남긴다
     UNKNOWN = "unknown"      # 모르겠어요 (확인 불가도 정보다)
     DISPUTE = "dispute"      # 내 기억은 다르다
 

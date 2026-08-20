@@ -146,6 +146,36 @@ cp .env.example .env
 
 ---
 
+## 저장소
+
+그래프 저장소를 갈아끼울 수 있습니다. 호출부는 `graph_manager` 하나만 알고,
+고르는 곳은 `backend/services/graph_manager.py` 한 파일입니다.
+
+| `DATABASE_URL` | 저장소 | 쓰는 곳 |
+|---|---|---|
+| 없음 | `graph.json` 한 개 (NetworkX + 파일) | 로컬 개발·데모 |
+| 있음 | Postgres (`nodes`/`edges` + JSONB) | 실제 데이터 |
+
+```bash
+# 이전 (여러 번 돌려도 됩니다 — id 기준 UPSERT)
+DATABASE_URL="postgresql://..." python scripts/migrate_to_postgres.py --reset
+
+# 이후 백엔드에 DATABASE_URL만 주면 Postgres를 씁니다.
+# Railway에서 Postgres를 붙이면 자동으로 주입됩니다.
+```
+
+Postgres 쪽이 없애는 것: 쓰기마다 파일 전체 재작성 · 락 없음(동시 업로드 유실) ·
+검색 전수 스캔(trigram 색인). JSON 파일은 그대로 남으므로 `DATABASE_URL`을 지우면
+되돌아갑니다.
+
+의미 차이 하나: 같은 두 노드 사이에 관계가 둘 이상이면 Postgres는 모두 남기고
+JSON(NetworkX)은 마지막 하나만 남깁니다. Postgres 쪽이 옳습니다.
+
+대량 수집은 `graph_manager.batch()`로 감싸면 저장이 한 번으로 모입니다
+(JSON에서 사진 400장을 한 장씩 넣으면 24초, batch로는 한 번).
+
+---
+
 ## 검증
 
 ```bash
@@ -157,6 +187,9 @@ python tests/test_events_and_voice.py   # 사건 요약·음성·화자 귀속 1
 python tests/test_film.py               # Memory Film 9개
 python tests/test_family_visibility.py  # 가족 공간·공개 범위 14개
 python tests/test_permissions.py        # 역할 가드 11개
+
+# 같은 테스트를 Postgres 저장소로도 돌립니다 (구현이 갈리지 않게)
+DATABASE_URL="postgresql://..." python tests/test_verification.py
 
 # Memory Trust Harness — 정답표로 실제 질의를 돌려 채점
 python scripts/run_trust_harness.py            # 20문항 (LLM 호출, 수 분)

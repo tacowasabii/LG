@@ -80,6 +80,12 @@ PORT = int(os.getenv("PORT", "8000"))
 APP_BASE_URL = os.getenv("APP_BASE_URL", "").rstrip("/")
 
 
+# --- 저장소 ---
+# 값이 있으면 Postgres, 없으면 graph.json 한 개를 쓴다.
+# Railway에서 Postgres를 붙이면 DATABASE_URL이 자동으로 주입된다.
+DATABASE_URL = os.getenv("DATABASE_URL", "").strip()
+
+
 # --- CORS ---
 # 배포된 프론트의 주소를 허용한다. 쉼표로 여러 개.
 #   ALLOWED_ORIGINS="https://my-homestory.vercel.app"
