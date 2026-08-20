@@ -466,6 +466,124 @@ def test_media_target_also_knows_the_age():
     print("  미디어 타겟 나이 OK")
 
 
+# --- 프롬프트가 화면으로 새어 나오지 않는가 -----------------------------------
+
+
+def test_prompt_scaffolding_is_stripped():
+    """모델이 프롬프트를 베껴 오면 떼어낸다
+
+    화면에 실제로 이런 것이 나갔다:
+      "Q3. 교문 앞에서 사진을 찍고 나면, 가장 먼저 도착한 곳은 어디였나요?"
+      "김민수님에게 직접, 존댓말로 묻습니다."
+
+    앞의 것은 [지금까지의 대화]의 "Q1./A1." 번호를, 뒤의 것은 규칙 목록을 베낀
+    것이다. 프롬프트에 "베끼지 마라"를 더 적어도 막히지 않는다.
+    """
+    clean = interview_engine._clean_question
+
+    assert clean("Q3. 교문 앞에서 무엇을 하셨나요?") == "교문 앞에서 무엇을 하셨나요?"
+    # 번호표가 겹쳐 오기도 한다
+    assert clean("Q3. Q3. 교문 앞에서 무엇을 하셨나요?") == "교문 앞에서 무엇을 하셨나요?"
+    assert clean("질문: 그날 날씨가 어땠나요?") == "그날 날씨가 어땠나요?"
+
+    leaked = "- 김민수님에게 직접, 존댓말로 묻습니다.\n- 이미 나온 질문을 다시 하지 마세요.\n그날 날씨가 어땠나요?"
+    assert clean(leaked) == "그날 날씨가 어땠나요?"
+
+    assert clean("[인터뷰 대상] 김민수\n그날 날씨가 어땠나요?") == "그날 날씨가 어땠나요?"
+    assert clean("```\n그날 날씨가 어땠나요?\n```") == "그날 날씨가 어땠나요?"
+    assert clean(None) == ""
+    print("  프롬프트 누출 제거 OK")
+
+
+def test_cleaner_keeps_real_questions_whole():
+    """정상 질문은 손대지 않는다 — 넓게 막으면 맞는 질문까지 버린다"""
+    clean = interview_engine._clean_question
+
+    for text in (
+        "그날 아침 날씨가 어땠나요?",
+        # "에게 직접"만으로 재면 이것이 걸린다
+        "그때 하늘이에게 직접 말해 주셨나요?",
+        "박서연님은 그때 어디 계셨나요?",
+        "김민수님, 그날 저녁 외식은 어디서 하셨나요?",
+        "그 캠코더로 무엇을 가장 많이 찍으셨는지 기억나세요?",
+    ):
+        assert clean(text) == text, (text, clean(text))
+    print("  정상 질문 보존 OK")
+
+
+def test_calling_another_family_member_is_rejected():
+    """다른 가족을 불러 세운 질문은 내보내지 않는다
+
+    화면에서 이런 일이 있었다: 김민수로 인터뷰하는 중에 질문이 "박서연님께서는"
+    으로 시작했다. 답하는 사람은 김민수인데 대답을 박서연에게 청한 것이다.
+    """
+    _require_seeded_graph()
+
+    for bad in (
+        "박서연님께서는 그날 무엇을 하셨나요?",
+        "박서연님, 그날 기억나세요?",
+        "김하늘님께서는 그때 무엇을 하고 놀았나요?",
+    ):
+        assert interview_engine._calls_someone_else(bad, "김민수"), bad
+        assert interview_engine._problem_with(bad, [], "김민수"), bad
+
+    # 다른 사람을 **가리키는** 것은 정상이다 — 김민수에게 묻는 질문이다
+    for ok in (
+        "박서연님은 그때 어디 계셨나요?",
+        "그날 아내분과 어떤 이야기를 나누셨나요?",
+        "김민수님, 그날 저녁 외식은 어디서 하셨나요?",
+    ):
+        assert interview_engine._calls_someone_else(ok, "김민수") is None, ok
+    print("  다른 사람 호출 거절 OK")
+
+
+def test_empty_question_is_rejected():
+    """빈 문장은 내보내지 않는다 (규칙만 베껴 오면 남는 것이 없다)"""
+    assert interview_engine._problem_with("", [], "김민수")
+    assert interview_engine._problem_with("   ", [], "김민수")
+    print("  빈 질문 거절 OK")
+
+
+def test_switching_speaker_moves_the_question_too():
+    """대화 중에 답하는 사람이 바뀌면 질문도 그 사람을 향한다
+
+    화면의 "지금 답하는 사람"은 대화 중에도 바뀐다. 세션은 시작할 때의 사람을
+    붙잡고 있었고 답변 귀속만 speaker_id를 따랐다 — 그래서 기억은 김민수에게
+    붙는데 질문은 계속 "박서연님께서는"으로 나갔다.
+    """
+    _require_seeded_graph()
+
+    busan = graph_manager.get_node("E01")
+    mother = graph_manager.get_node(MOTHER)
+    session = {
+        "target_node": busan,
+        "context": interview_engine._build_interview_context(busan, mother),
+        "contributor_id": MOTHER,
+        "contributor_name": mother["name"],
+        "age": interview_engine._age_at(mother, busan),
+        "age_rule": interview_engine._age_rule(mother, busan),
+        "prior": [],
+    }
+
+    # 같은 사람이면 아무것도 바꾸지 않는다
+    assert interview_engine._retarget_session(session, MOTHER) is False
+    assert session["contributor_name"] == "박서연"
+
+    # 없는 사람 id로는 세션을 흔들지 않는다
+    assert interview_engine._retarget_session(session, "P99") is False
+    assert session["contributor_name"] == "박서연"
+
+    # 딸로 바뀌면 이름·컨텍스트·나이가 함께 따라간다 (박서연 25살 → 김하늘 2살)
+    assert interview_engine._retarget_session(session, DAUGHTER) is True
+    assert session["contributor_id"] == DAUGHTER
+    assert session["contributor_name"] == "김하늘"
+    assert session["age"] == 2, session["age"]
+    assert "[인터뷰 대상] 김하늘" in session["context"], session["context"]
+    assert "[인터뷰 대상] 박서연" not in session["context"]
+    assert "기억나냐고 묻지 않는다" in session["age_rule"], session["age_rule"]
+    print("  화자 전환 시 질문도 따라감 OK")
+
+
 TESTS = [
     test_target_is_the_person_who_answers,
     test_target_event_includes_the_speaker,
@@ -493,6 +611,11 @@ TESTS = [
     test_asked_questions_are_remembered_per_person,
     test_fallback_questions_also_differ_by_person,
     test_media_target_also_knows_the_age,
+    test_prompt_scaffolding_is_stripped,
+    test_cleaner_keeps_real_questions_whole,
+    test_calling_another_family_member_is_rejected,
+    test_empty_question_is_rejected,
+    test_switching_speaker_moves_the_question_too,
 ]
 
 

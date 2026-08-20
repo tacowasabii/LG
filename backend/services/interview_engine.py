@@ -183,6 +183,10 @@ async def process_answer(
             "message": "세션을 찾을 수 없습니다.",
         }
 
+    # 답하는 사람이 바뀌었으면 세션을 그 사람에게 다시 맞춘다. 답변을 그래프에
+    # 넣기 전에 한다 — 아래 _process_answer_to_graph도 같은 사람을 봐야 한다.
+    _retarget_session(session, speaker_id)
+
     # 이 답변이 답한 질문. answers에 담기 전에 짚어 둔다 (아래 _asked_question)
     asked = _asked_question(session)
 
@@ -236,6 +240,36 @@ async def process_answer(
         },
         "message": "감사합니다! 소중한 기억이 기록되었어요." if is_complete else "",
     }
+
+
+def _retarget_session(session: dict, speaker_id: Optional[str]) -> bool:
+    """답하는 사람이 바뀌면 질문도 그 사람을 향하게 한다 (바꿨으면 True)
+
+    화면의 "지금 답하는 사람"은 대화 중에도 바뀐다 (InterviewPage의
+    useCurrentUser). 세션은 시작할 때의 사람을 붙잡고 있었고, 답변 귀속만
+    speaker_id를 따랐다 (_process_answer_to_graph). 그래서 기억은 새 사람에게
+    붙는데 질문은 계속 예전 사람을 불렀다 — 김민수로 바꿨는데도 화면이
+    "박서연님께서는"으로 물었다.
+
+    기억은 답한 사람의 것이고, 질문도 답하는 사람을 향해야 한다. 둘이
+    갈라지면 어느 쪽이 맞는지 데이터가 말할 수 없다.
+    """
+    if not speaker_id or speaker_id == session.get("contributor_id"):
+        return False
+    speaker = graph_manager.get_node(speaker_id)
+    if not speaker or speaker.get("node_type") != NodeType.PERSON:
+        return False
+
+    target_node = session.get("target_node")
+    session["contributor_id"] = speaker["id"]
+    session["contributor_name"] = speaker.get("name")
+    # 컨텍스트를 다시 짠다. 명단의 시점 호칭·그때 나이·기억의 주인이 모두
+    # 답하는 사람을 기준으로 적혀 있다.
+    session["context"] = _build_interview_context(target_node, speaker)
+    session["age"] = _age_at(speaker, target_node)
+    session["age_rule"] = _age_rule(speaker, target_node)
+    session["prior"] = _prior_questions(speaker["id"])
+    return True
 
 
 def get_session_status(session_id: str) -> Optional[dict]:
@@ -600,16 +634,98 @@ def _repeats(question: str, questions: list[str]) -> bool:
     return False
 
 
-def _problem_with(question: str, questions: list[str]) -> Optional[str]:
+# 모델이 프롬프트를 그대로 베껴 오는 자리들. 화면에 이런 것이 나갔다:
+#
+#   "Q3. 교문 앞에서 사진을 찍고 나면, 가장 먼저 도착한 곳은 어디였나요?"
+#   "김민수님에게 직접, 존댓말로 묻습니다."
+#
+# 앞의 것은 [지금까지의 대화]의 "Q1./A1." 번호를, 뒤의 것은 규칙 목록을
+# 베낀 것이다. 프롬프트에 "베끼지 마라"를 더 적어도 막히지 않는다 — 모델이
+# 문서를 이어 쓰는 쪽으로 읽으면 형식까지 따라온다. 그래서 나가는 자리에서
+# 걸러낸다.
+_LABEL = re.compile(r"^\s*(?:[QA]\s*\d*|질문|물음|답|답변)\s*[.:)\]]\s*", re.I)
+
+# 규칙 목록·컨텍스트 제목처럼 질문이 아닌 줄
+_SCAFFOLD = re.compile(
+    # 목록·제목·머리말로 시작하는 줄
+    r"^\s*(?:[-*•]\s|\[|#|다음 질문|규칙\s*[:0-9])"
+    # 규칙 문구 그대로. "에게 직접"만으로 재면 정상 질문이 걸린다 —
+    # "하늘이에게 직접 말해 주셨나요?"는 버려서는 안 된다.
+    r"|^\S{1,12}님에게 직접"
+    r"|존댓말로 묻|다시 하지 마세요|만들지 마세요"
+)
+
+
+def _clean_question(text: Optional[str]) -> str:
+    """모델이 준 것에서 화면에 나갈 한 문장만 남긴다 (없으면 빈 문자열)
+
+    줄 단위로 본다. 규칙 목록·대괄호 제목은 버리고, 남은 첫 줄에서 "Q3." 같은
+    번호표를 뗀다. 질문을 고쳐 쓰지는 않는다 — 여기서 하는 일은 프롬프트에서
+    새어 나온 것을 떼는 것까지다.
+    """
+    if not text:
+        return ""
+
+    for line in (text or "").splitlines():
+        line = line.strip().strip("`").strip()
+        if not line or _SCAFFOLD.search(line):
+            continue
+        # 번호표가 겹쳐 오기도 한다 ("Q3. Q3. 교문 앞에서…") — 남지 않을
+        # 때까지 뗀다.
+        while True:
+            stripped = _LABEL.sub("", line).strip()
+            if stripped == line:
+                break
+            line = stripped
+        if line:
+            return line
+    return ""
+
+
+def _calls_someone_else(question: str, subject_name: Optional[str]) -> Optional[str]:
+    """다른 가족을 불러 세운 질문인가 (아니면 None)
+
+    화면에서 이런 일이 있었다: 김민수로 인터뷰하는 중에 질문이 "박서연님께서는"
+    으로 시작했다. 답하는 사람이 김민수인데 대답을 박서연에게 청한 것이다.
+
+    문장 맨 앞만 본다. 다른 사람을 **가리키는** 것은 정상이다 ("박서연님은
+    그때 어디 계셨나요?"는 김민수에게 묻는 질문이다). 잘못된 것은 다른 사람을
+    **부르는** 것이고, 부르는 자리는 문장 맨 앞이다.
+    """
+    if not question:
+        return None
+    head = question.strip()
+    for person in graph_manager.get_persons():
+        name = (person.get("name") or "").strip()
+        if not name or name == (subject_name or ""):
+            continue
+        if re.match(rf"^{re.escape(name)}(님|씨)?\s*[,，]|^{re.escape(name)}(님|씨)?께서", head):
+            return (
+                f"{name}님을 부르면 안 됩니다. 지금 답하는 사람은 "
+                f"{subject_name or '[인터뷰 대상]에 적힌 사람'}입니다."
+            )
+    return None
+
+
+def _problem_with(
+    question: str,
+    questions: list[str],
+    subject_name: Optional[str] = None,
+) -> Optional[str]:
     """이 질문을 그대로 내보낼 수 없는 이유 (없으면 None)
 
     모델에게 그대로 돌려줄 문장으로 쓴다. "다시 써"라고만 하면 같은 것이 온다.
     """
+    if not (question or "").strip():
+        return "질문이 비었습니다. 질문 한 문장만 쓰세요."
     strays = kinship.unknown_terms(question)
     if strays:
         return (
             f"'{', '.join(strays)}'는 이 가족에 없습니다. [가족 구성원]에 있는 사람만 쓰세요."
         )
+    wrong_person = _calls_someone_else(question, subject_name)
+    if wrong_person:
+        return wrong_person
     if _repeats(question, questions):
         return "그 질문은 이미 했습니다. 아직 묻지 않은 것을 물으세요."
     return None
@@ -637,20 +753,21 @@ async def _generate_question(
     asked = list(questions) + list(prior)
     fallback = dict(subject_name=subject_name, age=age)
 
-    question = await llm_client.complete(messages, max_tokens=256)
-    if question is None:
-        return _simulate_question(context, answers, asked, **fallback)
+    raw = await llm_client.complete(messages, max_tokens=256)
+    question = _clean_question(raw)
 
-    problem = _problem_with(question, asked)
+    problem = _problem_with(question, asked, subject_name)
     if not problem:
         return question
 
+    # 무엇이 잘못됐는지 적어 돌려준다. 되돌려 주는 것은 청소 전 원본이다 —
+    # 모델이 자기가 쓴 것을 봐야 다른 것을 쓴다.
     retry = messages + [
-        {"role": "assistant", "content": question},
-        {"role": "user", "content": f"{problem} 질문을 다시 하나만 쓰세요."},
+        {"role": "assistant", "content": raw or ""},
+        {"role": "user", "content": f"{problem} 질문 한 문장만, 다른 말 없이 쓰세요."},
     ]
-    question = await llm_client.complete(retry, max_tokens=256)
-    if question is None or _problem_with(question, asked):
+    question = _clean_question(await llm_client.complete(retry, max_tokens=256))
+    if _problem_with(question, asked, subject_name):
         return _simulate_question(context, answers, asked, **fallback)
     return question
 
