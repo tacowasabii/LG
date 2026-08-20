@@ -1,13 +1,15 @@
 import { useEffect, useState } from 'react'
 import { Link, useParams } from 'react-router-dom'
-import { Heart, Plus, Sparkles } from 'lucide-react'
+import { Heart, Plus, Sparkles, Trash2 } from 'lucide-react'
 import {
   MemoryDetail,
   MemoryEntry,
   composeTogetherStory,
+  deleteMemoryEntry,
   echoMemory,
   getMemoryDetail,
   mediaUrl,
+  readDetail,
 } from '../lib/api'
 import AudioClip from '../components/AudioClip'
 import MemoryComposer from '../components/MemoryComposer'
@@ -34,11 +36,41 @@ import { invalidateEvents } from '../lib/useGraphData'
  */
 
 /** 기억 한 줄 — 원문과 다듬은 문장을 함께 보여준다 */
-function MemoryBlock({ memory, accent }: { memory: MemoryEntry; accent?: boolean }) {
+function MemoryBlock({
+  memory,
+  accent,
+  onDelete,
+}: {
+  memory: MemoryEntry
+  accent?: boolean
+  /** 지우기. 서버가 막으면 그 이유를 담은 오류를 던진다 (여기서 받아 적는다) */
+  onDelete: (memoryId: string) => Promise<void>
+}) {
   const [showRaw, setShowRaw] = useState(false)
+  const [confirming, setConfirming] = useState(false)
+  const [busy, setBusy] = useState(false)
+  const [failed, setFailed] = useState<string | null>(null)
   const polished = memory.polished && memory.polished !== memory.content ? memory.polished : null
   const audios = memory.media.filter((m) => m.media_type === 'audio')
   const visuals = memory.media.filter((m) => m.media_type !== 'audio')
+
+  /*
+    남의 기억이면 서버가 403으로 막고 이유를 함께 보낸다 ("이 기억은 박서연님이
+    올렸습니다…"). 그 문장을 그대로 적는다 — 단추를 미리 감추면 왜 못 지우는지
+    말할 자리가 없어지고, 권한 규칙이 화면과 서버 두 곳에 생긴다.
+  */
+  const remove = async () => {
+    setBusy(true)
+    setFailed(null)
+    try {
+      await onDelete(memory.id)
+    } catch (e) {
+      setFailed(readDetail(e, '지우지 못했습니다.'))
+      setConfirming(false)
+    } finally {
+      setBusy(false)
+    }
+  }
 
   return (
     <div className="rounded bg-ink-50 px-5 py-4">
@@ -108,6 +140,58 @@ function MemoryBlock({ memory, accent }: { memory: MemoryEntry; accent?: boolean
           ))}
         </div>
       )}
+
+      {/*
+        지우기는 조용한 자리에 둔다. 기억을 읽는 화면에서 가장 눈에 띄는 것이
+        지우기여서는 안 된다 — 그래서 밑줄 글자 하나이고, 색도 쓰지 않는다.
+
+        누르면 그 자리에서 한 번 더 묻는다. 되돌릴 수 없는 일이고, 무엇이 남는지도
+        묻는 문장에 함께 적는다 (사진첩의 여러 장 지우기와 같은 방식이다).
+      */}
+      {!confirming ? (
+        <div className="mt-3 flex items-center justify-end">
+          <button
+            onClick={() => {
+              setConfirming(true)
+              setFailed(null)
+            }}
+            className="btn-link flex items-center gap-1 text-[11px]"
+          >
+            <Trash2 size={12} />
+            지우기
+          </button>
+        </div>
+      ) : (
+        <div className="mt-3 rounded px-4 py-3" style={{ background: 'var(--critical-soft)' }}>
+          <p className="t-body-sm m-0" style={{ color: 'var(--critical-ink)' }}>
+            이 기억을 지웁니다. 되돌릴 수 없습니다.
+          </p>
+          <p className="t-caption m-0 mt-1" style={{ color: 'var(--critical-ink)' }}>
+            {memory.media.length > 0
+              ? `함께 올린 기록 ${memory.media.length}개는 이 추억에 남습니다 — 원본은 사진첩에서 지웁니다.`
+              : '문장만 지워집니다. 이 추억의 다른 기억은 그대로 있습니다.'}
+          </p>
+          <div className="mt-3 flex items-center gap-3">
+            <button
+              onClick={remove}
+              disabled={busy}
+              className="cursor-pointer rounded border-0 px-4 py-2 text-[13px] disabled:opacity-40"
+              style={{ background: 'var(--critical-ink)', color: 'var(--paper)' }}
+            >
+              {busy ? '지우는 중…' : '정말 지웁니다'}
+            </button>
+            <button onClick={() => setConfirming(false)} disabled={busy} className="btn-quiet">
+              취소
+            </button>
+          </div>
+        </div>
+      )}
+
+      {failed && (
+        <p className="t-body-sm m-0 mt-2" style={{ color: 'var(--critical-ink)' }}>
+          {failed}
+        </p>
+      )}
     </div>
   )
 }
@@ -120,6 +204,8 @@ export default function MemoryDetailPage() {
   const [composing, setComposing] = useState(false)
   const [storyBusy, setStoryBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  /* 방금 지운 뒤 서버가 밝힌 것 — 무엇이 남았고, 이야기가 왜 사라졌는지 */
+  const [removed, setRemoved] = useState<string | null>(null)
 
   const load = () => {
     if (!eventId) return Promise.resolve()
@@ -154,6 +240,26 @@ export default function MemoryDetailPage() {
     } finally {
       setBusy(false)
     }
+  }
+
+  /**
+   * 기억 하나를 지운다.
+   *
+   * 지운 뒤 상세를 다시 받아온다. 문장 하나가 빠지면 최초 작성자의 기억 · 함께
+   * 기억한 이야기 · 상태 알약이 함께 움직이므로, 화면에서 한 칸만 지워 맞추려
+   * 들면 서버와 어긋난다.
+   *
+   * 오류는 삼키지 않고 그대로 올려보낸다 — 누른 기억 블록이 자기 자리에서 이유를
+   * 보여줘야 한다.
+   */
+  const removeMemory = async (memoryId: string) => {
+    if (!eventId) return
+    setError(null)
+    const result = await deleteMemoryEntry(eventId, memoryId)
+    setRemoved(result.message)
+    // 홈·지도·TV가 세는 기억 수와 상태에서도 즉시 빠져야 한다
+    invalidateEvents()
+    await load()
   }
 
   const makeStory = async () => {
@@ -219,6 +325,16 @@ export default function MemoryDetailPage() {
           </span>
         }
       />
+
+      {/*
+        지운 뒤에 서버가 밝힌 것을 그대로 적는다. "지웠습니다" 한 마디로 끝내면
+        함께 올린 목소리까지 사라진 줄 알고, 이야기가 왜 없어졌는지도 모른다.
+      */}
+      {removed && (
+        <p className="t-body-sm m-0 mt-6" style={{ color: 'var(--critical-ink)' }}>
+          {removed}
+        </p>
+      )}
 
       {/* 1. 사진 · 영상 */}
       {visuals.length > 0 && (
@@ -291,10 +407,12 @@ export default function MemoryDetailPage() {
       <section className="mt-10">
         <p className="t-eyebrow m-0 mb-3 text-ink-300">최초 작성자의 기억</p>
         {detail.author_memory ? (
-          <MemoryBlock memory={detail.author_memory} accent />
+          <MemoryBlock memory={detail.author_memory} accent onDelete={removeMemory} />
         ) : (
           <p className="t-body-sm m-0 text-ink-300">
-            아직 이 추억에 남은 기억 문장이 없습니다.
+            {detail.contributions.length > 0
+              ? '만든 사람의 기억은 지워졌습니다. 가족이 더한 기억은 아래에 그대로 있습니다.'
+              : '아직 이 추억에 남은 기억 문장이 없습니다.'}
           </p>
         )}
       </section>
@@ -359,7 +477,7 @@ export default function MemoryDetailPage() {
         ) : (
           <div className="flex flex-col gap-2.5">
             {detail.contributions.map((memory) => (
-              <MemoryBlock key={memory.id} memory={memory} />
+              <MemoryBlock key={memory.id} memory={memory} onDelete={removeMemory} />
             ))}
           </div>
         )}

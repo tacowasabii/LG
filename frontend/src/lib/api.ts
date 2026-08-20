@@ -1412,6 +1412,34 @@ export async function addMemoryContribution(
   });
 }
 
+/**
+ * 사건에서 내가 남긴 기억 하나 지우기.
+ *
+ * 지우는 것은 문장이다. 함께 올린 사진·영상·목소리는 추억에 남고(kept_media),
+ * 원본을 지우는 자리는 사진첩이다. AI가 쓴 "함께 기억한 이야기"가 이 기억을
+ * 담고 있었다면 서버가 함께 지우고 story_cleared로 알려 준다 — 화면이 그 사실을
+ * 말하지 않으면 사용자는 이야기가 왜 사라졌는지 모른다.
+ *
+ * 남의 기억이면 403이 온다. 화면은 단추를 미리 감추지 않고 서버가 밝힌 이유를
+ * 그대로 보여준다 (readDetail).
+ */
+export async function deleteMemoryEntry(
+  eventId: string,
+  memoryId: string,
+): Promise<{
+  event_id: string;
+  memory_id: string;
+  /** 지운 문장이 근거로 매달고 있던 원본. 지워지지 않고 추억에 남는다 */
+  kept_media: string[];
+  /** "함께 기억한 이야기"를 함께 지웠는가 */
+  story_cleared: boolean;
+  message: string;
+}> {
+  return fetchJSON(`${BASE_URL}/memories/${eventId}/memory/${memoryId}`, {
+    method: 'DELETE',
+  });
+}
+
 /** 기존 추억에 사진·영상 더하기 (AI가 자동으로 붙이지 않는다) */
 export async function addMediaToMemory(
   eventId: string,

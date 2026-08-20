@@ -18,6 +18,11 @@
 기억이 서로 어긋나도 하나를 정답으로 고르지 않는다. "환갑 여행"과 "여름휴가"는
 둘 다 남고, 화면은 "가족들이 조금 다르게 기억하고 있어요"라고만 알린다.
 누가 맞는지는 AI도 가족도 여기서 판정하지 않는다.
+
+남긴 기억은 지울 수 있다 (delete_memory). 지우는 것은 그 사람이 남긴 문장이고,
+함께 올린 사진·영상·목소리는 사건에 그대로 남는다 — 원본을 지우는 자리는
+사진첩이다. 남긴 사람과 가족 관리자만 지운다. 판정하지 않는 것과 지우지 못하는
+것은 다르다: 내가 한 말을 거둘 수 없으면 그건 보존이 아니라 구속이다.
 """
 
 from __future__ import annotations
@@ -76,17 +81,25 @@ def memories_of(event_id: str, viewer_id: Optional[str] = None) -> list[dict]:
 
 
 def author_memory(event_id: str, memories: Optional[list[dict]] = None) -> Optional[dict]:
-    """최초 작성자의 기억
+    """최초 작성자의 기억 (없으면 None)
 
     kind로 표시된 것을 먼저 찾고, 없으면 가장 오래된 기억을 작성자의 것으로 본다.
     시드 데이터와 예전에 쌓인 기억에는 kind가 없기 때문이다 — 마이그레이션을
     돌리지 않고도 상세 화면이 "최초 작성자의 기억"을 세울 수 있어야 한다.
+
+    다만 스스로 "더한 기억"이라고 밝힌 것(kind=contribution)은 이 자리에 올리지
+    않는다. 작성자가 자기 첫 기억을 지우면 남는 것은 남이 더한 기억인데, 그것을
+    "최초 작성자의 기억" 자리에 세우면 남의 문장이 작성자의 것으로 읽힌다.
+    그런 추억에는 작성자의 기억이 없는 것이 맞다.
     """
     items = memories if memories is not None else memories_of(event_id)
     for memory in items:
         if memory.get("kind") == MemoryKind.AUTHOR:
             return memory
-    return items[0] if items else None
+    for memory in items:
+        if not memory.get("kind"):
+            return memory
+    return None
 
 
 def state_of(event_id: str, viewer_id: Optional[str] = None) -> Optional[dict]:
@@ -101,7 +114,9 @@ def state_of(event_id: str, viewer_id: Optional[str] = None) -> Optional[dict]:
 
     items = memories_of(event_id, viewer_id)
     first = author_memory(event_id, items)
-    added = [m for m in items if m.get("id") != (first or {}).get("id")]
+    # 작성자의 기억이 없으면(지웠다) 무엇에 "더했다"고 셀 기준이 없다. 그때는
+    # 사람 수로만 가른다 — 한 사람이 남긴 문장 하나를 "함께 기억"으로 읽지 않게.
+    added = [m for m in items if m.get("id") != first["id"]] if first else []
     differs = any(m.get("differs") for m in items)
 
     contributors: list[str] = []
@@ -380,6 +395,104 @@ def toggle_echo(event_id: str, person_id: str) -> Optional[dict]:
         "echoed": echoed,
         "echo_count": len(echoes),
         "echoed_by": [_person_ref(e.get("person_id")) for e in echoes if e.get("person_id")],
+    }
+
+
+# --- 기억 지우기 -------------------------------------------------------------
+
+
+def attached_memory(event_id: str, memory_id: str) -> Optional[dict]:
+    """이 사건에 붙어 있는 기억 하나 (아니면 None)
+
+    사건을 함께 받는 이유는 "사건에서 지운다"는 말을 지키기 위해서다. 다른
+    사건의 기억 id를 넣어도 여기서 걸린다 — 화면이 보고 있는 추억과 지워지는
+    문장이 어긋나면, 지운 사람은 무엇을 지웠는지 모른다.
+    """
+    event = graph_manager.get_node(event_id)
+    if not event or event.get("node_type") != NodeType.EVENT:
+        return None
+
+    memory = graph_manager.get_node(memory_id)
+    if not memory or memory.get("node_type") != NodeType.MEMORY:
+        return None
+
+    attached = any(
+        node.get("id") == memory_id
+        for node in graph_manager.get_connected_nodes(event_id)
+        if node.get("node_type") == NodeType.MEMORY
+    )
+    return memory if attached else None
+
+
+def _story_may_quote(event: dict, memory: dict) -> bool:
+    """사건에 저장된 "함께 기억한 이야기"가 이 기억을 담고 있을 수 있는가
+
+    이야기를 쓴 시점이 기억이 생긴 시점보다 뒤라면 담고 있다. 그보다 앞서 쓰인
+    이야기는 이 기억을 볼 수 없었으므로 그대로 둔다 — 지울 이유가 없는 것까지
+    지우면 가족이 만든 이야기를 잃는다.
+    """
+    if not event.get("together_story"):
+        return False
+
+    written_at = event.get("together_story_at")
+    created_at = memory.get("created_at")
+    if not written_at or not created_at:
+        # 언제 쓴 것인지 모르면 담고 있다고 본다. 반대로 잘못 짚으면 지운 말이
+        # AI가 쓴 산문 속에 그대로 남는다.
+        return True
+    return written_at >= created_at
+
+
+def delete_memory(event_id: str, memory_id: str) -> Optional[dict]:
+    """사건에서 기억 문장 하나를 지운다
+
+    지우는 것은 문장이다. 함께 올린 사진·영상·목소리는 사건에 그대로 남는다 —
+    원본을 지우는 자리는 사진첩이고, 원본을 지울 때 기억 문장이 남는 것과 짝을
+    맞춘 것이다 (routers/media.py: "원본과의 연결만 끊긴다"). 대신 무엇이 남았는지
+    돌려준다. 지운 사람이 "다 지웠다"고 오해하면 그게 가장 나쁜 실패다.
+
+    "함께 기억한 이야기"는 이 기억이 생긴 뒤에 쓰였다면 함께 지운다. 그 이야기에는
+    지운 문장이 들어 있다 — 모델이 없을 때는 문장을 그대로 나열하기까지 한다
+    (_story_fallback). 문장만 지우고 이야기를 남기면 거둔 말이 AI의 산문 속에
+    계속 남는다. 다시 만드는 것은 단추 한 번이다.
+
+    권한은 라우터가 본다 (permissions.require_owner_of). 여기는 무엇이 지워지고
+    무엇이 남는지만 정한다.
+
+    Returns:
+        지운 것과 남은 것. 사건·기억이 없거나 서로 붙어 있지 않으면 None.
+    """
+    memory = attached_memory(event_id, memory_id)
+    if not memory:
+        return None
+
+    event = graph_manager.get_node(event_id) or {}
+
+    # 이 기억이 근거로 매달고 있던 원본. 지우지 않고 세어만 둔다.
+    kept_media = [
+        media_id
+        for media_id in memory.get("media_ids") or []
+        if (graph_manager.get_node(media_id) or {}).get("node_type") == NodeType.MEDIA
+    ]
+
+    story_cleared = _story_may_quote(event, memory)
+
+    # 이야기를 비우는 것과 기억을 지우는 것은 한 번에 끝나야 한다. 갈라지면
+    # 지운 문장을 담은 이야기만 남는 상태가 생긴다.
+    with graph_manager.batch():
+        if story_cleared:
+            graph_manager.update_node(event_id, {
+                "together_story": None,
+                "together_story_at": None,
+                "together_story_basis": 0,
+            })
+        graph_manager.delete_node(memory_id)
+
+    return {
+        "event_id": event_id,
+        "memory_id": memory_id,
+        "kept_media": kept_media,
+        "story_cleared": story_cleared,
     }
 
 

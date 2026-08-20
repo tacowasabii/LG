@@ -416,12 +416,12 @@ JSON(NetworkX)은 마지막 하나만 남깁니다. Postgres 쪽이 옳습니다
 # 회귀 테스트 (venv 활성화 상태에서)
 python tests/test_chat_search.py        # 검색 15개
 python tests/test_chat_graph.py         # 질의 계획 8개
-python tests/test_memories.py           # 추억 게시·기억 더하기 6개
+python tests/test_memories.py           # 추억 게시·기억 더하기·기억 삭제 10개
 python tests/test_events_and_voice.py   # 사건 요약·음성·화자 귀속 11개
 python tests/test_film.py               # Memory Film 12개
 python tests/test_motion_clips.py       # 미세 모션 클립 15개 (새 사건만·대표 선정·상한·TV)
 python tests/test_family_visibility.py  # 가족 공간·초대 참여·공개 범위 18개
-python tests/test_permissions.py        # 역할 가드 11개
+python tests/test_permissions.py        # 역할 가드 12개
 python tests/test_interview_extraction.py # 답변에서 인물·장소·시점 추출
 python tests/test_interview_questions.py  # 인터뷰 대상·없는 호칭·질문 반복 13개
 python tests/test_media_person_tags.py  # 기록에 있는 사람 지목 6개

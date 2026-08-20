@@ -119,7 +119,10 @@ def require_owner_of(node: dict, actor: Optional[dict], what: str = "기록") ->
     기록자가 정리할 수 있게 둔다. 그마저 막으면 시드 데이터를 아무도 못 지운다.
     """
     role = _role(actor)
-    owner_id = node.get("owner_id")
+    # 기억 문장의 주인은 그것을 남긴 사람이다. 원본(미디어)은 owner_id에 올린
+    # 사람이 남고, 기억에는 contributor_id에 말한 사람이 남는다 — 이름만 다르고
+    # "이 기록은 누구의 것인가"는 같은 질문이므로 규칙을 두 벌로 두지 않는다.
+    owner_id = node.get("owner_id") or node.get("contributor_id")
 
     if role is None:
         if owner_id:

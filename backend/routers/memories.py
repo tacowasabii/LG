@@ -9,6 +9,7 @@
     GET  /api/memories/{id}        추억 상세
     POST /api/memories/{id}/echo   나도 기억나요 (토글)
     POST /api/memories/{id}/memory 내 기억 더하기
+    DEL  /api/memories/{id}/memory/{memory_id}  내가 남긴 기억 지우기
     POST /api/memories/{id}/media  기존 추억에 사진·영상 추가
     POST /api/memories/{id}/story  함께 기억한 이야기 만들기
 """
@@ -24,7 +25,7 @@ from backend.models.schemas import (
     MemoryDraftRequest,
     MemoryMediaRequest,
 )
-from backend.services import memories, memory_drafter, permissions
+from backend.services import memories, memory_drafter, permissions, visibility
 from backend.services.permissions import current_actor
 
 router = APIRouter()
@@ -200,6 +201,46 @@ async def add_memory(
         "polished_by_ai": polished_by_ai,
         "state": memories.state_of(event_id, person_id),
         "message": "기억을 더했어요. 원래 기록은 그대로 있습니다.",
+    }
+
+
+@router.delete("/{event_id}/memory/{memory_id}")
+async def delete_memory(
+    event_id: str,
+    memory_id: str,
+    actor: Optional[dict] = Depends(current_actor),
+):
+    """내가 남긴 기억 지우기 (남긴 사람이나 가족 관리자만)
+
+    지우는 것은 문장이다. 함께 올린 사진·영상·목소리는 이 추억에 남는다 — 원본은
+    사진첩에서 지운다. 그래서 응답이 몇 개가 남았는지 밝힌다. "지웠습니다" 한
+    마디로 끝내면 사용자는 목소리까지 사라진 줄 안다.
+
+    남의 기억을 지우려 하면 서버가 그 이유를 밝히며 막는다(403). 화면은 단추를
+    미리 감추지 않는다 — 왜 못 지우는지가 단추가 없는 것보다 쓸모 있고, 권한
+    규칙을 두 곳에 두면 어긋난다 (미디어 삭제와 같은 방식이다).
+    """
+    memory = memories.attached_memory(event_id, memory_id)
+    # 볼 수 없는 기억의 존재를 삭제 응답으로 알려주지 않는다 (media.py와 같다)
+    if not memory or not visibility.can_view(memory, actor["id"] if actor else None):
+        raise HTTPException(status_code=404, detail="이 추억에 그 기억이 없습니다.")
+
+    permissions.require_owner_of(memory, actor, what="기억")
+
+    result = memories.delete_memory(event_id, memory_id)
+    if not result:
+        raise HTTPException(status_code=404, detail="이 추억에 그 기억이 없습니다.")
+
+    message = "기억을 지웠습니다."
+    if result["kept_media"]:
+        message += f" 함께 올린 기록 {len(result['kept_media'])}개는 이 추억에 남아 있습니다."
+    if result["story_cleared"]:
+        message += " 함께 기억한 이야기는 이 기억을 담고 있어 함께 지웠습니다."
+
+    return {
+        **result,
+        "state": memories.state_of(event_id, actor["id"] if actor else None),
+        "message": message,
     }
 
 

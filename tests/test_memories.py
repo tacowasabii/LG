@@ -9,6 +9,7 @@
     2. 더한 기억은 원본을 덮어쓰지 않는다
     3. 다르게 기억해도 한쪽을 정답으로 정하지 않는다
     4. 나도 기억나요는 눌렀다 뗄 수 있고, 아무도 안 눌러도 추억은 그대로다
+    5. 남긴 기억은 거둘 수 있다. 문장만 지워지고 원본은 추억에 남는다
 
 그래프를 실제로 바꾸므로 만든 것은 끝에서 지운다. 데모 데이터를 더럽히지 않는다.
 
@@ -17,6 +18,7 @@
 """
 
 import sys
+from datetime import datetime
 from pathlib import Path
 
 ROOT_DIR = Path(__file__).resolve().parent.parent
@@ -235,6 +237,139 @@ def test_media_attaches_only_when_asked():
         _cleanup()
 
 
+def test_memory_can_be_removed_by_the_person_who_left_it():
+    """남긴 기억은 거둘 수 있다. 함께 올린 원본은 추억에 남는다"""
+    photos = [
+        m for m in graph_manager.get_media_for_event(EVENT)
+        if m.get("media_type") == "photo"
+    ]
+    assert photos, "시드 사건에 사진이 없다"
+    photo = photos[0]
+
+    memory = memories.add_contribution(
+        EVENT,
+        OTHER,
+        "지웠다가 다시 생각나면 또 적을 수 있어야 해요.",
+        media_ids=[photo["id"]],
+    )
+    assert memory, "기억을 더하지 못했다"
+    _created.append(memory["id"])
+
+    try:
+        result = memories.delete_memory(EVENT, memory["id"])
+        assert result, "지우지 못했다"
+        assert graph_manager.get_node(memory["id"]) is None, "기억이 남아 있다"
+
+        # 문장에 매달렸던 관계도 함께 끊긴다 (근거 · 남긴 사람 · 사건)
+        assert not any(
+            memory["id"] in (e["source"], e["target"])
+            for e in graph_manager.get_all_edges()
+        ), "지운 기억의 엣지가 남았다"
+
+        # 원본은 추억에 그대로 있다 — 원본을 지우는 자리는 사진첩이다
+        assert result["kept_media"] == [photo["id"]], result["kept_media"]
+        assert graph_manager.get_node(photo["id"]), "사진이 함께 지워졌다"
+
+        detail = memories.detail(EVENT, OTHER)
+        assert any(m["id"] == photo["id"] for m in detail["media"]), detail["media"]
+        assert all(
+            m["id"] != memory["id"] for m in detail["contributions"]
+        ), "상세에 지운 기억이 남아 있다"
+        print("  기억 삭제 OK (원본은 남는다)")
+    finally:
+        _cleanup()
+
+
+def test_deleted_author_memory_does_not_promote_someone_elses():
+    """작성자가 첫 기억을 거두면 남의 기억이 그 자리로 올라오지 않는다"""
+    event = memories.create_memory(
+        author_id=AUTHOR,
+        title="테스트 추억 (첫 기억 삭제)",
+        description="내가 처음 적은 문장입니다.",
+        person_ids=[AUTHOR, OTHER],
+    )
+    _created.append(event["id"])
+
+    first = memories.author_memory(event["id"])
+    assert first, "최초 작성자의 기억이 없다"
+    _created.append(first["id"])
+
+    added = memories.add_contribution(event["id"], OTHER, "저는 이렇게 기억해요.")
+    assert added, "기억을 더하지 못했다"
+    _created.append(added["id"])
+
+    try:
+        assert memories.delete_memory(event["id"], first["id"]), "지우지 못했다"
+
+        detail = memories.detail(event["id"], AUTHOR)
+        assert detail["author_memory"] is None, detail["author_memory"]
+        assert [m["id"] for m in detail["contributions"]] == [added["id"]], (
+            detail["contributions"]
+        )
+        # 한 사람이 남긴 문장 하나뿐이다. "함께 기억"으로 읽히면 안 된다.
+        assert detail["state"] == MemoryState.ALONE.value, detail["state"]
+        print("  작성자 자리 보존 OK")
+    finally:
+        _cleanup()
+
+
+def test_deleting_memory_clears_a_story_that_quotes_it():
+    """지운 문장을 담은 "함께 기억한 이야기"는 함께 지운다"""
+    kept = {
+        key: graph_manager.get_node(EVENT).get(key)
+        for key in ("together_story", "together_story_at", "together_story_basis")
+    }
+    try:
+        quoted = memories.add_contribution(EVENT, OTHER, "이야기에 이 문장이 들어갑니다.")
+        assert quoted, "기억을 더하지 못했다"
+        _created.append(quoted["id"])
+
+        # 이 기억보다 뒤에 쓰인 이야기 — 문장을 담고 있다
+        graph_manager.update_node(EVENT, {
+            "together_story": "가족이 남긴 기억입니다. " + quoted["content"],
+            "together_story_at": datetime.now().isoformat(),
+            "together_story_basis": 2,
+        })
+        result = memories.delete_memory(EVENT, quoted["id"])
+        assert result and result["story_cleared"] is True, result
+        assert not graph_manager.get_node(EVENT).get("together_story"), "이야기가 남았다"
+
+        # 기억보다 앞서 쓰인 이야기는 그 문장을 볼 수 없었다. 지울 이유가 없다.
+        graph_manager.update_node(EVENT, {
+            "together_story": "예전에 쓴 이야기",
+            "together_story_at": "2020-01-01T00:00:00",
+            "together_story_basis": 1,
+        })
+        later = memories.add_contribution(EVENT, OTHER, "이야기보다 나중에 남긴 기억입니다.")
+        assert later, "기억을 더하지 못했다"
+        _created.append(later["id"])
+
+        result = memories.delete_memory(EVENT, later["id"])
+        assert result and result["story_cleared"] is False, result
+        assert graph_manager.get_node(EVENT).get("together_story") == "예전에 쓴 이야기"
+        print("  이야기 정리 OK")
+    finally:
+        graph_manager.update_node(EVENT, kept)
+        _cleanup()
+
+
+def test_memory_of_another_event_is_not_deletable_here():
+    """사건을 함께 받는다 — 다른 사건의 기억은 여기서 지워지지 않는다"""
+    memory = memories.add_contribution(EVENT, OTHER, "이 기억은 E01의 것입니다.")
+    assert memory, "기억을 더하지 못했다"
+    _created.append(memory["id"])
+
+    try:
+        others = [e["id"] for e in graph_manager.get_events() if e["id"] != EVENT]
+        assert others, "다른 사건이 없다"
+
+        assert memories.delete_memory(others[0], memory["id"]) is None, "다른 사건에서 지워졌다"
+        assert graph_manager.get_node(memory["id"]), "지워지면 안 되는 기억이 지워졌다"
+        print("  사건 확인 OK")
+    finally:
+        _cleanup()
+
+
 TESTS = [
     test_new_memory_is_published_immediately,
     test_contribution_does_not_overwrite_original,
@@ -242,6 +377,10 @@ TESTS = [
     test_echo_toggles_and_is_optional,
     test_feed_puts_others_memories_first,
     test_media_attaches_only_when_asked,
+    test_memory_can_be_removed_by_the_person_who_left_it,
+    test_deleted_author_memory_does_not_promote_someone_elses,
+    test_deleting_memory_clears_a_story_that_quotes_it,
+    test_memory_of_another_event_is_not_deletable_here,
 ]
 
 

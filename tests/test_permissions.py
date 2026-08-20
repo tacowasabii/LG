@@ -265,6 +265,62 @@ def test_delete_is_limited_to_owner_and_admin():
         _restore()
 
 
+def test_memory_delete_is_limited_to_its_author_and_admin():
+    """기억을 거두는 것은 남긴 사람과 가족 관리자뿐이다
+
+    문장에도 주인이 있다 (contributor_id). 남의 기억을 대신 거둘 수 있으면
+    "누가 남긴 기억인지"가 무너진다 — 원본 삭제와 같은 판정을 지난다.
+    """
+    _setup_roles()
+
+    def _leave(person_id: str) -> str:
+        with TestClient(app) as client:
+            res = client.post(
+                f"/api/memories/{EVENT}/memory",
+                json={"content": "권한 시험으로 남긴 기억입니다."},
+                headers=_as(person_id),
+            )
+        assert res.status_code == 200, res.text
+        memory_id = res.json()["memory_id"]
+        _created.append(memory_id)
+        return memory_id
+
+    try:
+        mine = _leave(WRITER)
+        with TestClient(app) as client:
+            # 남이 남긴 기억은 기록자여도 못 지운다
+            other = client.delete(
+                f"/api/memories/{EVENT}/memory/{mine}", headers=_as("P02")
+            )
+            assert other.status_code == 403, other.status_code
+            assert graph_manager.get_node(mine), "차단했는데 지워졌다"
+
+            # 열람자도 못 지운다
+            viewer = client.delete(
+                f"/api/memories/{EVENT}/memory/{mine}", headers=_as(VIEWER)
+            )
+            assert viewer.status_code == 403, viewer.status_code
+
+            # 남긴 사람은 지울 수 있다
+            own = client.delete(
+                f"/api/memories/{EVENT}/memory/{mine}", headers=_as(WRITER)
+            )
+            assert own.status_code == 200, own.text
+            assert graph_manager.get_node(mine) is None, "삭제가 반영되지 않았다"
+
+        # 가족 관리자도 지울 수 있다 (남이 남긴 기억이라도)
+        second = _leave(WRITER)
+        with TestClient(app) as client:
+            admin = client.delete(
+                f"/api/memories/{EVENT}/memory/{second}", headers=_as(OWNER_PERSON)
+            )
+            assert admin.status_code == 200, admin.text
+            assert graph_manager.get_node(second) is None, "삭제가 반영되지 않았다"
+        print("  기억 삭제 권한 OK (남·열람자 차단 · 남긴 사람·관리자 허용)")
+    finally:
+        _restore()
+
+
 def test_visibility_change_requires_owner_or_admin():
     _setup_roles()
     graph_manager.update_node(MEDIA, {"owner_id": WRITER})
@@ -324,6 +380,7 @@ TESTS = [
     test_admin_action_without_actor_is_refused,
     test_person_can_toggle_own_private_request,
     test_delete_is_limited_to_owner_and_admin,
+    test_memory_delete_is_limited_to_its_author_and_admin,
     test_visibility_change_requires_owner_or_admin,
     test_hidden_record_delete_returns_404_not_403,
     test_write_without_actor_still_works,
