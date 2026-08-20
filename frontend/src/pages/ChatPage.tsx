@@ -40,16 +40,13 @@ interface Message {
 
 /** 백엔드가 내려주는 신뢰도 값을 사용자가 읽을 문장으로 바꾼다 */
 const CONFIDENCE_LABEL: Record<string, string> = {
-  confirmed: '확인된 기록 기반',
-  supported: '두 사람 이상의 기억으로 뒷받침됨',
-  conflicted: '기억이 갈리는 사건 · 양쪽 보존',
-  inferred: 'AI 추정 포함 · 아직 확인되지 않았습니다',
+  confirmed: '가족 기록 기반',
+  ai_inferred: 'AI 추정 포함 · 기록에 없는 부분이 있습니다',
   none: '근거 없음 · 추측하지 않았습니다',
 }
 
 function confidenceColor(confidence: string): string {
   if (confidence === 'confirmed') return 'var(--positive-ink)'
-  if (confidence === 'conflicted') return 'var(--critical-ink)'
   return 'var(--ink-400)'
 }
 
@@ -214,8 +211,8 @@ export default function ChatPage() {
           const isUser = msg.role === 'user'
           const eventIds = eventIdsOf(msg.sources)
           const clips = eventIds.flatMap((id) => clipsForEvent(id))
-          const conflicted = eventIds.some((id) => eventById(id)?.state === 'conflicted')
-          const grounded = msg.confidence === 'confirmed' || msg.confidence === 'supported'
+          const varied = eventIds.some((id) => eventById(id)?.state === 'varied')
+          const grounded = msg.confidence === 'confirmed'
           const needsMore = !isUser && !!msg.confidence && (!msg.sources?.length || !grounded)
 
           return (
@@ -294,22 +291,22 @@ export default function ChatPage() {
                   </p>
                 )}
 
-                {/* 기억이 갈리는 사건이면 숨기지 않고 알린다 */}
-                {conflicted && (
+                {/* 가족이 다르게 기억하는 추억이면 숨기지 않고 알린다 */}
+                {varied && (
                   <div
                     className="mt-2.5 rounded-lg px-4 py-3.5"
                     style={{ background: 'var(--critical-soft)' }}
                   >
                     <p className="t-body-sm m-0" style={{ color: 'var(--critical-ink)' }}>
-                      이 사건은 가족의 기억이 서로 다릅니다. 한쪽으로 정리하지 않고 둘 다 남겨
-                      두었습니다.
+                      가족들이 이 추억을 조금 다르게 기억하고 있어요. 한쪽으로 정리하지 않고
+                      모두 남겨 두었습니다.
                     </p>
                     <Link
-                      to="/verify"
+                      to={eventIds[0] ? `/memory/${eventIds[0]}` : '/continue'}
                       className="mt-2 inline-block text-xs"
                       style={{ color: 'var(--critical-ink)', textDecoration: 'underline' }}
                     >
-                      양쪽 기억 보기 →
+                      여러 기억 함께 보기 →
                     </Link>
                   </div>
                 )}
@@ -325,8 +322,8 @@ export default function ChatPage() {
                       <Link to="/interview" className="btn-outline no-underline hover:no-underline">
                         지금 기억 남기기
                       </Link>
-                      <Link to="/verify" className="btn-quiet no-underline hover:no-underline">
-                        확인이 필요한 사건 보기
+                      <Link to="/continue" className="btn-quiet no-underline hover:no-underline">
+                        가족의 추억에 기억 더하기
                       </Link>
                     </div>
                   </div>

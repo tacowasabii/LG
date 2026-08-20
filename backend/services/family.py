@@ -70,13 +70,15 @@ def _counts_for(person_id: str) -> dict:
         if memory.get("contributor_id") == person_id:
             memories += 1
 
-    verified = 0
+    # 다른 가족의 추억에 "나도 기억나요"를 남긴 횟수. 확인 수를 대신한다 —
+    # 확인이라는 절차 자체가 없어졌기 때문이다 (services/memories.py).
+    echoes = 0
     for event in graph_manager.get_events():
-        for record in event.get("verifications") or []:
+        for record in event.get("echoes") or []:
             if record.get("person_id") == person_id:
-                verified += 1
+                echoes += 1
 
-    return {"asset_count": assets, "memory_count": memories, "verified_count": verified}
+    return {"asset_count": assets, "memory_count": memories, "echo_count": echoes}
 
 
 def list_members() -> list[dict]:

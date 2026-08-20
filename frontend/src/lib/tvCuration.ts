@@ -92,7 +92,7 @@ function placeKey(event: EventListItem): string {
 }
 
 /**
- * 프리셋. TV에서 고를 수 있는 갈래는 시기 / 장소 / 사람 / 목소리 / 확인 대기면
+ * 프리셋. TV에서 고를 수 있는 갈래는 시기 / 장소 / 사람 / 목소리 / 한 사람의 기억이면
  * 충분하다. 더 늘리면 리모컨으로 훑는 시간이 재생 시간을 넘는다.
  *
  * 사건 id를 박지 않고 데이터에서 뽑는다 — 사진을 더 올리면 프리셋도 바뀐다.
@@ -191,16 +191,18 @@ export function tvPresets(events: EventListItem[], clips: VoiceClip[] = []): TVP
     })
   }
 
-  // 6. 확인이 필요한 기억 — 보다가 바로 물어볼 수 있게
-  const needsCheck = events.filter((e) => e.state === 'inferred' || e.state === 'conflicted')
-  if (needsCheck.length > 0) {
+  // 6. 아직 한 사람만 기억하는 추억 — 함께 보다가 기억을 더할 수 있게.
+  //    예전에는 "확인이 필요한 기억"이었다. TV 앞에 모인 가족에게 확인 과제를
+  //    내밀지 않는다 — 보다가 떠오르면 말하면 된다.
+  const alone = events.filter((e) => e.state === 'alone')
+  if (alone.length > 0) {
     presets.push({
-      id: 'needs-check',
-      label: '확인이 필요한 기억',
-      sublabel: needsCheck.length + '개 사건 · 가족에게 물어볼 것',
-      query: needsCheck[0].title,
-      thumb: thumbOf(needsCheck),
-      event_ids: needsCheck.map((e) => e.id),
+      id: 'alone',
+      label: '한 사람만 기억하는 추억',
+      sublabel: alone.length + '개 · 함께 보면 기억이 떠오를지도',
+      query: alone[0].title,
+      thumb: thumbOf(alone),
+      event_ids: alone.map((e) => e.id),
     })
   }
 

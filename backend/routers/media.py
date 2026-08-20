@@ -8,14 +8,13 @@ from pathlib import Path
 
 from backend.config import MEDIA_DIR
 from backend.models.schemas import (
-    MediaUploadResponse, MediaListItem, MediaDetail, MediaSupplementRequest,
-    MediaPersonTagRequest,
+    MediaUploadResponse, MediaListItem, MediaDetail, MediaPersonTagRequest,
 )
 from backend.models.graph_models import (
     NodeType, MediaType, RelationType, Edge, Confidence, SourceType,
 )
 from backend.services.media_analyzer import analyze_media, generate_thumbnail
-from backend.services.event_resolver import resolve_event_for_media, set_media_persons
+from backend.services.event_resolver import set_media_persons
 from backend.services.graph_manager import graph_manager
 from backend.services import permissions, visibility
 from backend.services.permissions import current_actor
@@ -126,8 +125,14 @@ async def upload_media(
             relation=RelationType.NARRATED_BY,
         ))
 
-    # 어느 사건의 기록인지 화면이 알려준 경우(녹음 등) 그대로 잇는다.
-    # 없으면 EXIF로 자동 매칭하고, 그것도 없으면 사용자 입력을 기다린다.
+    # 어느 추억의 기록인지 화면이 알려준 경우(녹음 등)만 잇는다.
+    #
+    # 예전에는 EXIF를 읽어 사건을 자동으로 찾거나 없으면 새로 만들었다. 그것을
+    # 없앤 이유는 두 가지다. (1) 자동으로 기억을 병합하지 않는다 — 어느 추억에
+    # 속하는지는 올린 사람이 고른다. (2) 올리자마자 "2015년 기록" 같은 이름의
+    # 빈 사건이 생겨 가족 공간이 제목 없는 껍데기로 채워졌다.
+    #
+    # 이제 업로드 다음 단계는 AI 초안이다 (POST /api/memories/draft).
     linked_event_id = None
     if event_id:
         event_node = graph_manager.get_node(event_id)
@@ -139,10 +144,7 @@ async def upload_media(
                 relation=RelationType.CAPTURED_DURING,
             ))
 
-    has_exif = bool(media_node.exif_date)
-    if not linked_event_id and has_exif:
-        linked_event_id = resolve_event_for_media(media_node)
-
+    # 아직 어떤 추억에도 붙지 않았다는 뜻이다 (초안을 만들 차례).
     needs_info = not linked_event_id
 
     return MediaUploadResponse(
@@ -158,7 +160,11 @@ async def upload_media(
         scene_description=media_node.scene_description,
         linked_event_id=linked_event_id,
         needs_info=needs_info,
-        message="업로드 완료. 추가 정보를 입력해주세요." if needs_info else "업로드 및 분석 완료",
+        message=(
+            "업로드 완료. AI가 초안을 만들 차례입니다."
+            if needs_info
+            else "업로드 완료. 이 추억의 기록으로 이었습니다."
+        ),
     )
 
 
@@ -361,63 +367,3 @@ async def delete_media(
     # Graph에서 삭제
     graph_manager.delete_node(media_id)
     return {"message": "삭제 완료", "id": media_id}
-
-
-@router.post("/supplement")
-async def supplement_media_info(
-    request: MediaSupplementRequest,
-    actor: Optional[dict] = Depends(current_actor),
-):
-    """EXIF 없는 미디어에 사용자가 추가 정보 제공 → 이벤트 연결"""
-    permissions.require_writer(actor)
-
-    node = graph_manager.get_node(request.media_id)
-    if not node or node.get("node_type") != NodeType.MEDIA:
-        raise HTTPException(status_code=404, detail="미디어를 찾을 수 없습니다.")
-
-    updates = {}
-
-    # 날짜 업데이트
-    if request.date:
-        updates["exif_date"] = request.date
-        updates["confidence"] = Confidence.CONFIRMED
-
-    # 설명 업데이트
-    if request.description:
-        updates["scene_description"] = request.description
-
-    if updates:
-        graph_manager.update_node(request.media_id, updates)
-
-    # 이벤트 연결
-    linked_event_id = None
-    if request.event_id:
-        # 기존 이벤트에 직접 연결
-        event = graph_manager.get_node(request.event_id)
-        if event and event.get("node_type") == NodeType.EVENT:
-            graph_manager.add_edge(Edge(
-                source=request.media_id,
-                target=request.event_id,
-                relation=RelationType.CAPTURED_DURING,
-            ))
-            linked_event_id = request.event_id
-    elif request.date:
-        # 날짜 기반으로 Event Resolver 재실행
-        updated_node = graph_manager.get_node(request.media_id)
-        from backend.services.media_analyzer import analyze_media
-        from backend.services.event_resolver import resolve_event_for_media
-        from backend.models.graph_models import MediaNode
-
-        # 간이 MediaNode 생성 (resolve용)
-        temp_media = MediaNode(
-            id=request.media_id,
-            exif_date=request.date,
-            file_path=node.get("file_path", ""),
-        )
-        linked_event_id = resolve_event_for_media(temp_media)
-
-    return {
-        "message": "정보가 업데이트되었습니다.",
-        "media_id": request.media_id,
-        "linked_event_id": linked_event_id,
-    }

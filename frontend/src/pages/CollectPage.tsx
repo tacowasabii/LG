@@ -1,136 +1,149 @@
 /**
- * 모으기 — 올리고, 못 읽은 것을 채우고, 첫 질문에 답하는 한 화면
+ * 모으기 — 올리면 AI가 초안을 쓰고, 확인하면 그 자리에서 추억이 된다
  *
- * 예전에는 "시작하기"와 "업로드"가 따로 있었고 둘 다 같은 일(uploadMedia)을 했다.
- * 나뉘어 있는 동안 기능이 한쪽에만 붙었다 — 시작하기에서는 EXIF 없는 사진을 그
- * 자리에서 채울 수 없고(업로드 화면으로 보냈다), 답변에서 무엇이 그래프에 붙었는지
- * 보여주지도 않았다. 첫 사용자가 보는 화면에서 그 둘이 빠져 있던 셈이다.
+ * 예전 흐름은 "올리기 → 채우기 → 첫 질문"이었다. 올린 사진은 EXIF로 사건에
+ * 자동으로 묶이고(또는 "2015년 기록" 같은 빈 사건이 새로 생기고), 그 추정은
+ * 확인 요청으로 넘어가 가족이 판정해야 했다.
  *
- * 그래서 하나로 합쳤다. 화면은 하나고, 그래프가 비어 있을 때만 말투가 달라진다
- * (단계 알약 + "사진 3장으로 시작"). 온보딩은 화면이 아니라 상태다.
+ * 지금은 이렇다.
  *
- * AI 인터뷰는 합치지 않았다. 사진이 없어도 성립하는 활동이고(부모님 이야기만
- * 녹음하는 경우가 기획안이 말한 핵심 독자 데이터다), 녹음·파형·5문 진행을 여기
- * 얹으면 한 화면이 두 일을 하게 된다. 여기서는 첫 질문 하나만 받고 나머지는
- * 인터뷰 화면으로 넘긴다.
+ *   올리기 → AI 초안(제목·날짜·장소·함께한 가족·설명) → 고치거나 그대로 저장
+ *
+ * 저장하면 끝이다. 다른 가족의 승인을 기다리지 않는다. 대신 AI가 무엇을 근거로
+ * 그렇게 썼는지 화면에 그대로 펼친다 — 촬영 시점, 좌표, 지목된 사람, 기존 가족
+ * 기록. 사용자가 어디까지가 사실이고 어디부터가 추정인지 볼 수 있어야 한다.
+ *
+ * 확정하지 않는 것 둘.
+ *   1. 인물 추정은 "이 사진들에 엄마도 있나요?"로 되묻는다 (기획안 06).
+ *   2. 기존 추억과 관련 있어 보이면 알려 주고, 붙일지 새로 만들지는 사용자가
+ *      고른다. 자동으로 병합하지 않는다 (기획안 08).
  */
 
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useState } from 'react'
 import { Link } from 'react-router-dom'
+import { Sparkles } from 'lucide-react'
 import {
-  EventListItem,
-  ExtractedFromAnswer,
-  InterviewStartResult,
+  MemoryDraft,
   MediaUploadResult,
-  getEvents,
+  addMediaToMemory,
+  createMemory,
+  draftMemory,
   mediaUrl,
   setMediaPersons,
-  startInterview,
-  submitInterviewAnswer,
-  supplementMedia,
   uploadMedia,
 } from '../lib/api'
 import { useCurrentUser } from '../lib/currentUser'
 import { invalidateEvents } from '../lib/useGraphData'
-import LearnedFromAnswer from '../components/LearnedFromAnswer'
-import RichText from '../components/RichText'
-import { Page, PageHeader, StatRow } from '../components/Page'
+import { Page, PageHeader } from '../components/Page'
 
 const MEDIA_TYPE_LABEL: Record<string, string> = {
-  // 서버가 내려주는 값은 photo다 (MediaType.PHOTO). image로 적어 두면 알약에
-  // 영문이 그대로 노출된다.
   photo: '사진',
   video: '영상',
   audio: '음성',
 }
 
-/** 기획안이 정한 콜드스타트 크기 — "사진 3장으로 시작" */
+/** 콜드스타트 크기 — "사진 3장으로 시작" */
 const FIRST_PICK = 3
 
-const STEPS = ['올리기', '채우기', '첫 질문']
-
-interface SupplementForm {
-  date: string
-  event_id: string
+interface DraftForm {
+  title: string
+  date_start: string
+  place_name: string
+  /** 그래프에 있는 장소를 그대로 쓰는 경우. 이름을 고치면 비워진다 */
+  place_id: string | null
   description: string
+  person_ids: string[]
 }
 
 export default function CollectPage() {
   const { current, members } = useCurrentUser()
-  const [events, setEvents] = useState<EventListItem[]>([])
-  /** 그래프가 비었는가 — 말투를 정한다 (첫 사용인지 아닌지) */
-  const [firstTime, setFirstTime] = useState(false)
 
   const [dragOver, setDragOver] = useState(false)
   const [uploading, setUploading] = useState(false)
   const [results, setResults] = useState<MediaUploadResult[]>([])
   const [error, setError] = useState<string | null>(null)
-  const [supplementForms, setSupplementForms] = useState<Record<string, SupplementForm>>({})
+
   /** 기록별로 지목된 사람. 얼굴 인식이 없으므로 여기가 detected_faces의 출처다 */
   const [personTags, setPersonTags] = useState<Record<string, string[]>>({})
-  /** 지금 저장 중인 기록 — 연달아 누를 때 응답이 엇갈리지 않게 */
   const [tagging, setTagging] = useState<string | null>(null)
 
-  // 올린 뒤 이어지는 첫 질문 (실제 인터뷰 세션이다)
-  const [session, setSession] = useState<InterviewStartResult | null>(null)
-  const [answer, setAnswer] = useState('')
-  const [submitting, setSubmitting] = useState(false)
-  const [learned, setLearned] = useState<ExtractedFromAnswer | null>(null)
-  const [answered, setAnswered] = useState(false)
+  // AI 초안
+  const [draft, setDraft] = useState<MemoryDraft | null>(null)
+  const [form, setForm] = useState<DraftForm | null>(null)
+  const [drafting, setDrafting] = useState(false)
+  const [saving, setSaving] = useState(false)
+  /** 만들어진 추억 (여기까지 오면 이미 가족 공간에 게시된 상태다) */
+  const [created, setCreated] = useState<{ id: string; title: string } | null>(null)
+  const [attachedTo, setAttachedTo] = useState<{ id: string; title: string } | null>(null)
+  /** 인물 후보 중 "아니요"로 넘긴 사람 (다시 묻지 않는다) */
+  const [dismissed, setDismissed] = useState<string[]>([])
 
-  useEffect(() => {
-    getEvents()
-      .then((list) => {
-        setEvents(list)
-        setFirstTime(list.length === 0)
-      })
-      .catch(console.error)
+  const visualIds = results.filter((r) => r.media_type !== 'audio').map((r) => r.id)
+
+  const buildForm = (next: MemoryDraft): DraftForm => ({
+    title: next.title,
+    date_start: (next.date_start || '').slice(0, 10),
+    place_name: next.place?.name || '',
+    place_id: next.place?.id || null,
+    description: next.description,
+    person_ids: next.person_ids,
+  })
+
+  const makeDraft = useCallback(async (mediaIds: string[]) => {
+    if (mediaIds.length === 0) return
+    setDrafting(true)
+    setError(null)
+    try {
+      const next = await draftMemory(mediaIds)
+      setDraft(next)
+      setForm(buildForm(next))
+    } catch (e) {
+      console.error(e)
+      setError('초안을 만들지 못했습니다. 아래에서 직접 적어도 됩니다.')
+    } finally {
+      setDrafting(false)
+    }
   }, [])
 
-  const handleFiles = useCallback(async (files: FileList | null) => {
-    if (!files || files.length === 0) return
-    setUploading(true)
-    setError(null)
+  const handleFiles = useCallback(
+    async (files: FileList | null) => {
+      if (!files || files.length === 0) return
+      setUploading(true)
+      setError(null)
+      setCreated(null)
+      setAttachedTo(null)
 
-    const uploaded: MediaUploadResult[] = []
-    for (const file of Array.from(files)) {
-      try {
-        uploaded.push(await uploadMedia(file))
-      } catch (e) {
-        console.error(e)
-        setError(`${file.name} 을 올리지 못했습니다. 파일 형식을 확인해 주세요.`)
+      const uploaded: MediaUploadResult[] = []
+      for (const file of Array.from(files)) {
+        try {
+          uploaded.push(await uploadMedia(file))
+        } catch (e) {
+          console.error(e)
+          setError(`${file.name} 을 올리지 못했습니다. 파일 형식을 확인해 주세요.`)
+        }
       }
-    }
 
-    setResults((prev) => [...uploaded, ...prev])
-    setPersonTags((prev) => {
-      const next = { ...prev }
-      uploaded.forEach((r) => {
-        next[r.id] = r.detected_faces ?? []
+      setResults((prev) => [...uploaded, ...prev])
+      setPersonTags((prev) => {
+        const next = { ...prev }
+        uploaded.forEach((r) => {
+          next[r.id] = r.detected_faces ?? []
+        })
+        return next
       })
-      return next
-    })
-    setUploading(false)
+      setUploading(false)
 
-    if (uploaded.length === 0) return
+      if (uploaded.length === 0) return
 
-    // 올린 것이 사건에 붙었으니 다른 화면도 다시 받아야 한다
-    invalidateEvents()
-    getEvents().then(setEvents).catch(console.error)
-
-    // 올린 것을 바탕으로 AI가 물을 것을 고른다. 질문을 못 가져와도 올린 것은 남는다.
-    if (!session) {
-      try {
-        setSession(await startInterview('auto'))
-      } catch (e) {
-        console.error(e)
-      }
-    }
-  }, [session])
+      // 올린 것 전체로 초안을 만든다 (한 묶음이 하나의 추억이 되는 것이 기본이다)
+      const all = [...uploaded, ...results].map((r) => r.id)
+      await makeDraft(all)
+    },
+    [makeDraft, results],
+  )
 
   /**
    * 이 기록에 있는 사람을 켜고 끈다. 켠 결과 전체를 서버에 보낸다.
-   *
    * 낙관적으로 먼저 칠하고 실패하면 되돌린다 — 여러 번 누르는 조작이라 매번
    * 응답을 기다리면 누른 것이 반응하지 않는 것처럼 보인다.
    */
@@ -143,10 +156,22 @@ export default function CollectPage() {
     setPersonTags((prev) => ({ ...prev, [mediaId]: next }))
     setTagging(mediaId)
     try {
-      // 서버가 걸러낸 결과로 맞춘다 (그래프에 없는 사람은 버려진다)
       const res = await setMediaPersons(mediaId, next)
       setPersonTags((prev) => ({ ...prev, [mediaId]: res.detected_faces }))
-      invalidateEvents()
+      // 초안의 "함께한 가족"도 따라간다 (같은 사실을 두 곳에서 따로 관리하지 않는다)
+      setForm((prev) =>
+        prev
+          ? {
+              ...prev,
+              person_ids: Array.from(
+                new Set([
+                  ...prev.person_ids.filter((id) => id !== personId),
+                  ...(res.detected_faces.includes(personId) ? [personId] : []),
+                ]),
+              ),
+            }
+          : prev,
+      )
     } catch (e) {
       console.error(e)
       setPersonTags((prev) => ({ ...prev, [mediaId]: before }))
@@ -156,102 +181,93 @@ export default function CollectPage() {
     }
   }
 
-  const patchForm = (id: string, patch: Partial<SupplementForm>) =>
-    setSupplementForms((prev) => {
-      const base = prev[id] ?? { date: '', event_id: '', description: '' }
-      return { ...prev, [id]: { ...base, ...patch } }
-    })
+  /** AI가 되물은 인물을 "네"로 받는다 — 추억의 함께한 가족에 넣고 사진에도 지목한다 */
+  const acceptCandidate = async (personId: string) => {
+    setForm((prev) =>
+      prev ? { ...prev, person_ids: Array.from(new Set([...prev.person_ids, personId])) } : prev,
+    )
+    setDismissed((prev) => [...prev, personId])
 
-  const saveSupplement = async (result: MediaUploadResult) => {
-    const form = supplementForms[result.id]
-    if (!form?.date && !form?.event_id) return
+    for (const mediaId of visualIds) {
+      const current = personTags[mediaId] ?? []
+      if (current.includes(personId)) continue
+      try {
+        const res = await setMediaPersons(mediaId, [...current, personId])
+        setPersonTags((prev) => ({ ...prev, [mediaId]: res.detected_faces }))
+      } catch (e) {
+        console.error(e)
+      }
+    }
+  }
+
+  const save = async () => {
+    if (!form || saving) return
+    setSaving(true)
+    setError(null)
     try {
-      const res = await supplementMedia({
-        media_id: result.id,
-        date: form.date || undefined,
-        event_id: form.event_id || undefined,
-        description: form.description || undefined,
+      const res = await createMemory({
+        title: form.title,
+        description: form.description,
+        date_start: form.date_start || null,
+        place_id: form.place_id,
+        place_name: form.place_id ? null : form.place_name || null,
+        lat: draft?.lat ?? null,
+        lng: draft?.lng ?? null,
+        person_ids: form.person_ids,
+        media_ids: results.map((r) => r.id),
       })
-      setResults((prev) =>
-        prev.map((r) =>
-          r.id === result.id
-            ? {
-                ...r,
-                needs_info: false,
-                linked_event_id: res.linked_event_id || r.linked_event_id,
-                exif_date: form.date || r.exif_date,
-              }
-            : r,
-        ),
-      )
       invalidateEvents()
+      setCreated({ id: res.event_id, title: form.title })
+      setDraft(null)
+      setForm(null)
     } catch (e) {
       console.error(e)
-      setError('정보를 저장하지 못했습니다.')
-    }
-  }
-
-  const submitAnswer = async () => {
-    if (!session || !answer.trim() || submitting) return
-    setSubmitting(true)
-    try {
-      const result = await submitInterviewAnswer(session.session_id, answer.trim(), current?.id)
-      setLearned(result.extracted ?? null)
-      setAnswered(true)
-      setAnswer('')
-      invalidateEvents()
-    } catch (e) {
-      console.error(e)
-      setError('기억을 남기지 못했습니다. 다시 시도해 주세요.')
+      setError('추억을 만들지 못했습니다. 다시 시도해 주세요.')
     } finally {
-      setSubmitting(false)
+      setSaving(false)
     }
   }
 
-  const eventTitle = (id: string) => events.find((e) => e.id === id)?.title || id
-  const linkedCount = results.filter((r) => r.linked_event_id).length
-  const needsInfo = results.filter((r) => r.needs_info).length
+  /** 기존 추억에 사진만 더한다 (새 추억을 만들지 않는다) */
+  const attachToExisting = async (eventId: string, title: string) => {
+    setSaving(true)
+    setError(null)
+    try {
+      await addMediaToMemory(eventId, results.map((r) => r.id))
+      invalidateEvents()
+      setAttachedTo({ id: eventId, title })
+      setDraft(null)
+      setForm(null)
+    } catch (e) {
+      console.error(e)
+      setError('기존 추억에 더하지 못했습니다.')
+    } finally {
+      setSaving(false)
+    }
+  }
 
-  // 단계 표시는 실제 상태에서 파생한다 (가짜 진행률을 쓰지 않는다)
-  const step = answered ? 3 : results.length === 0 ? 0 : needsInfo > 0 ? 1 : 2
+  const reset = () => {
+    setResults([])
+    setPersonTags({})
+    setDraft(null)
+    setForm(null)
+    setCreated(null)
+    setAttachedTo(null)
+    setDismissed([])
+  }
+
+  const firstTime = results.length === 0 && !created && !attachedTo
+  const candidates = (draft?.person_candidates || []).filter(
+    (c) => !dismissed.includes(c.id) && !(form?.person_ids || []).includes(c.id),
+  )
 
   return (
     <Page width={820}>
       <PageHeader
         eyebrow="Collect"
-        title={firstTime ? '사진 3장으로 시작합니다' : '기록 모으기'}
-        lead={
-          firstTime
-            ? '한 번에 전부 정리하지 않아도 됩니다. 첫 기록만 올리고, 나머지는 질문에 답하면서 채워집니다.'
-            : '사진·영상·음성을 올리면 촬영 시점과 장소를 읽어 사건에 연결합니다. 읽을 정보가 없으면 추측하지 않고 물어봅니다.'
-        }
+        title="사진을 올리면 AI가 추억을 씁니다"
+        lead="촬영 시점·장소·함께한 가족과 기존 가족 기록을 읽어 초안을 만듭니다. 확인하고 저장하면 바로 가족 공간에 남습니다 — 다른 가족의 확인을 기다리지 않습니다."
       />
-
-      {/* 첫 사용일 때만 단계를 세워 준다. 이미 쌓인 가족에게는 군더더기다 */}
-      {firstTime && (
-        <div className="mt-8 flex flex-wrap items-center gap-2">
-          {STEPS.map((label, i) => (
-            <span
-              key={label}
-              className="flex items-center gap-[7px] rounded-full px-3.5 py-[7px] text-xs"
-              style={
-                i === step
-                  ? {
-                      background: 'var(--accent-soft)',
-                      color: 'var(--accent-ink)',
-                      fontWeight: 600,
-                    }
-                  : i < step
-                    ? { background: 'var(--positive-soft)', color: 'var(--positive-ink)' }
-                    : { background: 'var(--ink-50)', color: 'var(--ink-300)' }
-              }
-            >
-              <span className="t-mono text-[10px] text-current">{i < step ? '✓' : i + 1}</span>
-              {label}
-            </span>
-          ))}
-        </div>
-      )}
 
       <div
         onDragOver={(e) => {
@@ -277,7 +293,7 @@ export default function CollectPage() {
         </p>
         <p className="t-caption m-0 mt-2">
           {firstTime
-            ? `가장 오래된 사진 ${FIRST_PICK}장으로 시작해도 충분합니다 · JPG · PNG · MP4 · M4A`
+            ? `사진 ${FIRST_PICK}장으로 시작해도 충분합니다 · JPG · PNG · MP4 · M4A`
             : '사진 JPG · PNG / 영상 MP4 · MOV / 음성 MP3 · M4A'}
         </p>
         <input
@@ -290,11 +306,10 @@ export default function CollectPage() {
         />
       </div>
 
-      {firstTime && results.length === 0 && (
+      {firstTime && (
         <p className="t-caption mt-4 max-w-[62ch]">
-          촬영 시점이 남아 있는 사진이면 AI가 사건을 스스로 묶습니다. 스캔한 옛 사진처럼
-          시점이 없으면 이 화면에서 바로 알려주면 됩니다. 추정한 정보는 확정하지 않고 확인
-          요청으로 넘어갑니다.
+          한 번에 올린 사진은 하나의 추억 초안으로 묶입니다. 촬영 시점이 없는 옛 사진이면
+          날짜 칸을 비워 두고 아는 것만 적으면 됩니다 — 추측해서 채우지 않습니다.
         </p>
       )}
 
@@ -304,249 +319,339 @@ export default function CollectPage() {
         </p>
       )}
 
+      {/* 올린 기록 — 무엇을 읽었는지, 누가 있는지 */}
       {results.length > 0 && (
         <div className="mt-9">
           <div
             className="flex items-baseline justify-between pb-3"
             style={{ borderBottom: '2px solid var(--ink-700)' }}
           >
-            <p className="t-eyebrow m-0">읽은 결과</p>
-            <button onClick={() => setResults([])} className="btn-link">
+            <p className="t-eyebrow m-0">올린 기록 {results.length}개</p>
+            <button onClick={reset} className="btn-link">
               목록 비우기
             </button>
           </div>
 
-          {results.map((result) => {
-            const form = supplementForms[result.id]
-            const needsForm = result.needs_info && !result.linked_event_id
+          {results.map((result) => (
+            <div
+              key={result.id}
+              className="px-1 py-5"
+              style={{ borderBottom: '1px solid var(--border)' }}
+            >
+              <div className="flex items-start gap-5">
+                {result.thumbnail_path ? (
+                  <img
+                    src={mediaUrl(result.thumbnail_path)}
+                    alt=""
+                    className="h-[72px] w-[72px] shrink-0 rounded bg-ink-50 object-cover"
+                  />
+                ) : (
+                  <span
+                    className="flex h-[72px] w-[72px] shrink-0 items-center justify-center
+                               rounded bg-ink-50 text-[11px] text-ink-300"
+                  >
+                    {MEDIA_TYPE_LABEL[result.media_type] || result.media_type}
+                  </span>
+                )}
 
-            return (
-              <div
-                key={result.id}
-                className="px-1 py-5"
-                style={{ borderBottom: '1px solid var(--border)' }}
-              >
-                <div className="flex items-start gap-5">
-                  {result.thumbnail_path ? (
-                    <img
-                      src={mediaUrl(result.thumbnail_path)}
-                      alt=""
-                      className="h-[72px] w-[72px] shrink-0 rounded bg-ink-50 object-cover"
-                    />
-                  ) : (
-                    <span
-                      className="flex h-[72px] w-[72px] shrink-0 items-center justify-center
-                                 rounded bg-ink-50 text-[11px] text-ink-300"
-                    >
+                <div className="min-w-0 flex-1">
+                  <p className="t-mono m-0 text-xs text-ink-700">{result.original_filename}</p>
+                  <div className="mt-2.5 flex flex-wrap gap-1.5">
+                    <span className="pill bg-ink-50 font-normal text-ink-500">
                       {MEDIA_TYPE_LABEL[result.media_type] || result.media_type}
                     </span>
-                  )}
-
-                  <div className="min-w-0 flex-1">
-                    <p className="t-mono m-0 text-xs text-ink-700">{result.original_filename}</p>
-                    <div className="mt-2.5 flex flex-wrap gap-1.5">
+                    {result.exif_date && (
                       <span className="pill bg-ink-50 font-normal text-ink-500">
-                        {MEDIA_TYPE_LABEL[result.media_type] || result.media_type}
+                        촬영 {result.exif_date.slice(0, 10)}
                       </span>
-                      {result.exif_date && (
-                        <span className="pill bg-ink-50 font-normal text-ink-500">
-                          촬영 {result.exif_date.slice(0, 10)}
-                        </span>
-                      )}
-                      {result.exif_lat != null && (
-                        <span className="pill bg-ink-50 font-normal text-ink-500">
-                          GPS 좌표 있음
-                        </span>
-                      )}
-                      {result.linked_event_id && (
-                        <span
-                          className="pill font-normal"
-                          style={{
-                            background: 'var(--accent-soft)',
-                            color: 'var(--accent-ink)',
-                          }}
-                        >
-                          사건 연결 · {eventTitle(result.linked_event_id)}
-                        </span>
-                      )}
-                    </div>
+                    )}
+                    {result.exif_lat != null && (
+                      <span className="pill bg-ink-50 font-normal text-ink-500">
+                        GPS 좌표 있음
+                      </span>
+                    )}
+                    {!result.exif_date && (
+                      <span className="pill bg-ink-50 font-normal text-ink-500">
+                        촬영 시점 없음
+                      </span>
+                    )}
                   </div>
-
-                  <span
-                    className="pill px-2.5 py-1"
-                    style={
-                      result.needs_info
-                        ? {
-                            background: 'var(--critical-soft)',
-                            color: 'var(--critical-ink)',
-                          }
-                        : {
-                            background: 'var(--positive-soft)',
-                            color: 'var(--positive-ink)',
-                          }
-                    }
-                  >
-                    {result.needs_info ? '추가 정보 필요' : '자동 연결 완료'}
-                  </span>
                 </div>
-
-                {/* 누가 있는지는 자동으로 알 수 없다 — 가족이 직접 지목한다.
-                    음성은 찍힌 사람이 아니라 말한 사람이므로 여기서 다루지 않는다
-                    (녹음은 speaker_id로 이어진다). */}
-                {result.media_type !== 'audio' && members.length > 0 && (
-                  <div className="ml-[92px] mt-4">
-                    <p className="t-caption m-0">
-                      이 {MEDIA_TYPE_LABEL[result.media_type] || '기록'}에 누가 있나요? 지목한
-                      사람만 그래프에 이어집니다.
-                    </p>
-                    <div className="mt-2 flex flex-wrap gap-1.5">
-                      {members.map((m) => {
-                        const on = (personTags[result.id] ?? []).includes(m.id)
-                        return (
-                          <button
-                            key={m.id}
-                            onClick={() => togglePerson(result.id, m.id)}
-                            disabled={tagging === result.id}
-                            className="pill px-2.5 py-1 disabled:opacity-50"
-                            style={
-                              on
-                                ? {
-                                    background: 'var(--accent-soft)',
-                                    color: 'var(--accent-ink)',
-                                  }
-                                : {
-                                    background: 'var(--ink-50)',
-                                    color: 'var(--ink-500)',
-                                    fontWeight: 400,
-                                  }
-                            }
-                          >
-                            {m.name}
-                          </button>
-                        )
-                      })}
-                    </div>
-                  </div>
-                )}
-
-                {/* EXIF가 없는 기록 — 추측해서 채우지 않고 아는 것만 받는다 */}
-                {needsForm && (
-                  <div className="ml-[92px] mt-4 rounded-lg bg-ink-50 p-5">
-                    <p className="t-body-sm m-0 mb-3">
-                      EXIF 정보가 없습니다. 추측해서 채우지 않습니다. 아는 것만 알려주세요.
-                    </p>
-                    <div className="flex flex-col gap-2">
-                      <input
-                        type="date"
-                        value={form?.date || ''}
-                        onChange={(e) => patchForm(result.id, { date: e.target.value })}
-                        className="field field-sm"
-                      />
-                      <select
-                        value={form?.event_id || ''}
-                        onChange={(e) => patchForm(result.id, { event_id: e.target.value })}
-                        className="field field-sm"
-                      >
-                        <option value="">기존 사건에 연결 (선택)</option>
-                        {events.map((ev) => (
-                          <option key={ev.id} value={ev.id}>
-                            {ev.title}
-                            {ev.date_start ? ` (${ev.date_start})` : ''}
-                          </option>
-                        ))}
-                      </select>
-                      <input
-                        type="text"
-                        placeholder="사진 설명 (선택)"
-                        value={form?.description || ''}
-                        onChange={(e) => patchForm(result.id, { description: e.target.value })}
-                        className="field field-sm"
-                      />
-                      <button
-                        onClick={() => saveSupplement(result)}
-                        disabled={!form?.date && !form?.event_id}
-                        className="btn-primary mt-1 self-start px-[18px] py-2.5 text-[13px]"
-                      >
-                        정보 저장
-                      </button>
-                    </div>
-                  </div>
-                )}
               </div>
-            )
-          })}
 
-          {firstTime && (
-            <div className="mt-7">
-              <StatRow
-                size={36}
-                cells={[
-                  { value: results.length, label: '올린 기록' },
-                  { value: linkedCount, label: '사건 연결' },
-                  { value: needsInfo, label: '정보 필요' },
-                ]}
-              />
+              {/* 누가 있는지는 자동으로 알 수 없다 — 가족이 직접 지목한다.
+                  음성은 찍힌 사람이 아니라 말한 사람이므로 여기서 다루지 않는다. */}
+              {result.media_type !== 'audio' && members.length > 0 && (
+                <div className="ml-[92px] mt-4">
+                  <p className="t-caption m-0">
+                    이 {MEDIA_TYPE_LABEL[result.media_type] || '기록'}에 누가 있나요? 지목한
+                    사람만 그래프에 이어집니다.
+                  </p>
+                  <div className="mt-2 flex flex-wrap gap-1.5">
+                    {members.map((m) => {
+                      const on = (personTags[result.id] ?? []).includes(m.id)
+                      return (
+                        <button
+                          key={m.id}
+                          onClick={() => togglePerson(result.id, m.id)}
+                          disabled={tagging === result.id}
+                          className="pill px-2.5 py-1 disabled:opacity-50"
+                          style={
+                            on
+                              ? { background: 'var(--accent-soft)', color: 'var(--accent-ink)' }
+                              : {
+                                  background: 'var(--ink-50)',
+                                  color: 'var(--ink-500)',
+                                  fontWeight: 400,
+                                }
+                          }
+                        >
+                          {m.name}
+                        </button>
+                      )
+                    })}
+                  </div>
+                </div>
+              )}
             </div>
+          ))}
+
+          {!draft && !created && !attachedTo && (
+            <button
+              onClick={() => makeDraft(results.map((r) => r.id))}
+              disabled={drafting}
+              className="btn-primary mt-6 flex items-center gap-1.5 disabled:opacity-40"
+            >
+              <Sparkles size={15} />
+              {drafting ? '초안을 쓰는 중…' : 'AI 초안 만들기'}
+            </button>
           )}
         </div>
       )}
 
-      {/* 올린 것을 바탕으로 AI가 묻는 첫 질문. 나머지 질문은 인터뷰 화면에서 */}
-      {session && !answered && (
+      {/* AI 초안 — 고치거나 그대로 저장한다 */}
+      {form && draft && (
         <div className="surface mt-9 p-7">
-          <p className="t-caption m-0">
-            {current?.name ?? '지금 쓰는 사람'}님께 묻습니다 · 이 답변은 그 사람의 기억으로
-            저장됩니다
-          </p>
-          <p className="m-0 mt-2.5 whitespace-pre-wrap text-[19px] font-semibold leading-normal text-ink-900">
-            <RichText text={session.question} />
-          </p>
-
-          <textarea
-            value={answer}
-            onChange={(e) => setAnswer(e.target.value)}
-            rows={3}
-            placeholder="말하듯이 적어도 됩니다."
-            className="field mt-5 w-full"
-          />
-
-          <div className="mt-4 flex flex-wrap items-center justify-between gap-4">
-            <Link to="/interview" className="t-caption text-accent-ink">
-              목소리로 남기려면 AI 인터뷰에서 말로 답하기 →
-            </Link>
+          <div className="flex flex-wrap items-baseline justify-between gap-3">
+            <p className="t-eyebrow m-0">AI 초안</p>
             <button
-              onClick={submitAnswer}
-              disabled={!answer.trim() || submitting}
+              onClick={() => makeDraft(results.map((r) => r.id))}
+              disabled={drafting}
+              className="btn-link disabled:opacity-40"
+            >
+              {drafting ? '다시 쓰는 중…' : '다시 만들기'}
+            </button>
+          </div>
+          <p className="t-caption m-0 mt-2 max-w-[62ch]">
+            {draft.ai_used
+              ? 'AI가 읽어낸 사실만으로 썼습니다. 마음에 들지 않으면 고치세요 — 저장하는 것은 고친 결과입니다.'
+              : '모델을 부르지 못해 읽어낸 사실로만 만들었습니다. 문장은 직접 다듬어 주세요.'}
+          </p>
+
+          {/* 무엇을 근거로 썼는가 */}
+          {draft.evidence.length > 0 && (
+            <div className="mt-5 rounded bg-ink-50 px-4 py-3.5">
+              {draft.evidence.map((item) => (
+                <p key={item.label} className="t-body-sm m-0 text-ink-700">
+                  <span className="t-caption mr-2 text-ink-300">{item.label}</span>
+                  {item.detail}
+                </p>
+              ))}
+            </div>
+          )}
+
+          <div className="mt-5 flex flex-col gap-2.5">
+            <label className="flex flex-wrap items-center gap-2.5">
+              <span className="t-caption w-[68px] shrink-0">제목</span>
+              <input
+                value={form.title}
+                onChange={(e) => setForm({ ...form, title: e.target.value })}
+                className="field field-sm min-w-0 flex-1"
+              />
+            </label>
+
+            <label className="flex flex-wrap items-center gap-2.5">
+              <span className="t-caption w-[68px] shrink-0">날짜</span>
+              <input
+                type="date"
+                value={form.date_start}
+                onChange={(e) => setForm({ ...form, date_start: e.target.value })}
+                className="field field-sm min-w-0 flex-1"
+              />
+            </label>
+
+            <label className="flex flex-wrap items-center gap-2.5">
+              <span className="t-caption w-[68px] shrink-0">장소</span>
+              <input
+                value={form.place_name}
+                placeholder="예: 부산 해운대"
+                onChange={(e) =>
+                  // 이름을 고치면 더 이상 그래프의 그 장소가 아니다
+                  setForm({ ...form, place_name: e.target.value, place_id: null })
+                }
+                className="field field-sm min-w-0 flex-1"
+              />
+            </label>
+
+            <label className="flex flex-wrap items-start gap-2.5">
+              <span className="t-caption mt-2 w-[68px] shrink-0">설명</span>
+              <textarea
+                value={form.description}
+                onChange={(e) => setForm({ ...form, description: e.target.value })}
+                rows={3}
+                className="field min-w-0 flex-1 resize-y text-sm"
+              />
+            </label>
+
+            <div className="flex flex-wrap items-start gap-2.5">
+              <span className="t-caption mt-1.5 w-[68px] shrink-0">함께한 가족</span>
+              <div className="flex min-w-0 flex-1 flex-wrap gap-1.5">
+                {members.map((m) => {
+                  const on = form.person_ids.includes(m.id)
+                  return (
+                    <button
+                      key={m.id}
+                      onClick={() =>
+                        setForm({
+                          ...form,
+                          person_ids: on
+                            ? form.person_ids.filter((id) => id !== m.id)
+                            : [...form.person_ids, m.id],
+                        })
+                      }
+                      className="pill px-2.5 py-1"
+                      style={
+                        on
+                          ? { background: 'var(--accent-soft)', color: 'var(--accent-ink)' }
+                          : {
+                              background: 'var(--ink-50)',
+                              color: 'var(--ink-500)',
+                              fontWeight: 400,
+                            }
+                      }
+                    >
+                      {m.name}
+                    </button>
+                  )
+                })}
+              </div>
+            </div>
+          </div>
+
+          {/* 인물 추정 — 확정하지 않고 되묻는다 (기획안 06) */}
+          {candidates.length > 0 && (
+            <div className="mt-6 pt-5" style={{ borderTop: '1px solid var(--border)' }}>
+              <p className="t-eyebrow m-0 mb-3 text-ink-300">AI가 묻습니다</p>
+              {candidates.map((candidate) => (
+                <div
+                  key={candidate.id}
+                  className="mb-2.5 flex flex-wrap items-center gap-3"
+                >
+                  {candidate.thumbnail_url ? (
+                    <img
+                      src={mediaUrl(candidate.thumbnail_url)}
+                      alt=""
+                      className="h-8 w-8 rounded-full bg-ink-50 object-cover"
+                    />
+                  ) : (
+                    <span
+                      className="flex h-8 w-8 items-center justify-center rounded-full bg-ink-50
+                                 text-[11px] text-ink-300"
+                    >
+                      {candidate.name.slice(0, 1)}
+                    </span>
+                  )}
+                  <span className="min-w-0 flex-1">
+                    <span className="t-body-sm block text-ink-700">
+                      이 사진에 {candidate.relation || candidate.name}(
+                      {candidate.name})도 있나요?
+                      {candidate.confidence === 'maybe' && ' (확실하지 않습니다)'}
+                    </span>
+                    <span className="t-caption block">{candidate.reason}</span>
+                  </span>
+                  <span className="flex gap-1.5">
+                    <button
+                      onClick={() => acceptCandidate(candidate.id)}
+                      className="cursor-pointer whitespace-nowrap rounded bg-transparent px-3
+                                 py-1.5 text-xs"
+                      style={{
+                        border: '1px solid var(--positive)',
+                        color: 'var(--positive-ink)',
+                      }}
+                    >
+                      네, 맞아요
+                    </button>
+                    <button
+                      onClick={() => setDismissed((prev) => [...prev, candidate.id])}
+                      className="btn-quiet px-3 py-1.5"
+                    >
+                      아니요
+                    </button>
+                  </span>
+                </div>
+              ))}
+            </div>
+          )}
+
+          {/* 기존 추억과의 관계 — 자동으로 병합하지 않는다 (기획안 08) */}
+          {draft.related.length > 0 && (
+            <div className="mt-6 pt-5" style={{ borderTop: '1px solid var(--border)' }}>
+              <p className="t-eyebrow m-0 mb-3 text-ink-300">기존 추억과 관련 있어 보여요</p>
+              {draft.related.map((item) => (
+                <div key={item.event_id} className="mb-3">
+                  <p className="t-body-sm m-0 text-ink-700">
+                    이 기록은 ‘{item.title}’과 관련 있어 보여요.
+                  </p>
+                  <p className="t-caption m-0 mt-0.5">
+                    {item.reason}
+                    {item.date_start ? ` · ${item.date_start}` : ''}
+                  </p>
+                  <button
+                    onClick={() => attachToExisting(item.event_id, item.title)}
+                    disabled={saving}
+                    className="btn-outline mt-2 disabled:opacity-40"
+                  >
+                    기존 추억에 추가
+                  </button>
+                </div>
+              ))}
+              <p className="t-caption m-0">
+                아니면 아래에서 새 추억으로 만들면 됩니다. 자동으로 합치지 않습니다.
+              </p>
+            </div>
+          )}
+
+          <div className="mt-6 flex flex-wrap items-center gap-3">
+            <button
+              onClick={save}
+              disabled={!form.title.trim() || saving}
               className="btn-primary disabled:opacity-40"
             >
-              {submitting ? '남기는 중…' : '기억 남기기'}
+              {saving ? '만드는 중…' : '이 추억 만들기'}
             </button>
+            <p className="t-caption m-0">
+              {current?.name ?? '지금 쓰는 사람'}님이 만든 추억으로 바로 게시됩니다
+            </p>
           </div>
         </div>
       )}
 
-      {answered && (
+      {/* 만든 뒤 */}
+      {created && (
         <div className="mt-9">
           <p className="m-0 text-2xl font-bold tracking-[-0.02em] text-ink-900">
-            {firstTime ? '첫 기록이 들어왔습니다' : '기억이 기록되었습니다'}
+            가족 공간에 올라갔습니다
+          </p>
+          <p className="t-body-sm mt-2 max-w-[62ch]">
+            ‘{created.title}’이 가족 기록으로 남았습니다. 다른 가족은 확인할 의무가 없고,
+            기억나는 것이 있을 때만 자기 기억을 더합니다.
           </p>
 
-          {/* 답변에서 무엇이 그래프에 붙었는지 — 인터뷰 화면과 같은 것을 보여준다 */}
-          {learned && <LearnedFromAnswer learned={learned} className="mt-4" />}
-
-          {needsInfo > 0 && (
-            <p className="t-body-sm mt-5 max-w-[62ch]">
-              촬영 시점이 없는 기록 {needsInfo}개는 아직 사건에 붙지 못했습니다. 위 목록에서
-              날짜나 사건을 알려주면 연결됩니다.
-            </p>
-          )}
-
-          <p className="t-eyebrow mb-3 mt-9">이어서 하면 좋은 것</p>
-          <div className="grid grid-cols-3 gap-3">
+          <div className="mt-7 grid grid-cols-3 gap-3">
             {[
-              { to: '/interview', label: '이어서 질문에 답하기' },
-              { to: '/verify', label: 'AI가 추정한 것을 확인하기' },
-              { to: '/chat', label: '기억에 물어보기' },
+              { to: `/memory/${created.id}`, label: '만든 추억 보기' },
+              { to: '/continue', label: '가족의 추억에 기억 더하기' },
+              { to: '/interview', label: '이야기를 목소리로 남기기' },
             ].map((next) => (
               <Link
                 key={next.to}
@@ -560,16 +665,31 @@ export default function CollectPage() {
             ))}
           </div>
 
-          <button
-            onClick={() => {
-              setAnswered(false)
-              setLearned(null)
-              setSession(null)
-            }}
-            className="btn-link mt-6"
-          >
+          <button onClick={reset} className="btn-link mt-6">
             기록을 더 올리기
           </button>
+        </div>
+      )}
+
+      {attachedTo && (
+        <div className="mt-9">
+          <p className="m-0 text-2xl font-bold tracking-[-0.02em] text-ink-900">
+            기존 추억에 더했습니다
+          </p>
+          <p className="t-body-sm mt-2 max-w-[62ch]">
+            ‘{attachedTo.title}’에 올린 기록이 들어갔습니다. 원래 있던 기억은 그대로입니다.
+          </p>
+          <div className="mt-5 flex gap-3">
+            <Link
+              to={`/memory/${attachedTo.id}`}
+              className="btn-primary no-underline hover:no-underline"
+            >
+              그 추억 보기
+            </Link>
+            <button onClick={reset} className="btn-quiet">
+              기록을 더 올리기
+            </button>
+          </div>
         </div>
       )}
     </Page>

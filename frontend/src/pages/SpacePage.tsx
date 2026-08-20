@@ -262,9 +262,9 @@ export default function SpacePage() {
                         m.asset_count +
                         '개 · 기억 ' +
                         m.memory_count +
-                        '개 · 확인 ' +
-                        m.verified_count +
-                        '건'}
+                        '개 · 함께 기억 ' +
+                        m.echo_count +
+                        '개'}
                   </p>
                   <p className="t-caption m-0 mt-[3px] text-ink-300">{ROLE_DESC[role]}</p>
                 </div>

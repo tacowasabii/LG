@@ -7,8 +7,8 @@ import CollectPage from './pages/CollectPage'
 import GraphPage from './pages/GraphPage'
 import ChatPage from './pages/ChatPage'
 import InterviewPage from './pages/InterviewPage'
-import GapsPage from './pages/GapsPage'
-import VerifyPage from './pages/VerifyPage'
+import ContinuePage from './pages/ContinuePage'
+import MemoryDetailPage from './pages/MemoryDetailPage'
 import TVViewPage from './pages/TVViewPage'
 import FamilyPage from './pages/FamilyPage'
 import JoinPage from './pages/JoinPage'
@@ -42,8 +42,13 @@ function App() {
           <Route path="chat" element={<ChatPage />} />
           <Route path="film" element={<FilmPage />} />
           <Route path="interview" element={<InterviewPage />} />
-          <Route path="gaps" element={<GapsPage />} />
-          <Route path="verify" element={<VerifyPage />} />
+          {/* 기억 이어가기 — 예전 "확인 요청"과 "Memory Gap"이 있던 자리.
+              둘 다 처리해야 할 과제 목록이었고, 이제는 기억을 더하는 자리 하나다.
+              예전 주소는 문서·다른 화면 링크가 살아 있게 리다이렉트한다. */}
+          <Route path="continue" element={<ContinuePage />} />
+          <Route path="memory/:eventId" element={<MemoryDetailPage />} />
+          <Route path="verify" element={<Navigate to="/continue" replace />} />
+          <Route path="gaps" element={<Navigate to="/continue" replace />} />
           <Route path="family" element={<FamilyPage />} />
           <Route path="space" element={<SpacePage />} />
           {/* 초대 링크가 도착하는 자리 (backend/services/family.py join) */}

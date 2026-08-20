@@ -41,15 +41,17 @@ backend/
 │   ├── graph.py         # Graph 조회, Person/Event CRUD
 │   ├── chat.py          # Memory Chat
 │   ├── interview.py     # AI Interview
-│   ├── gaps.py          # Memory Gap 탐지
+│   ├── memories.py      # 추억 초안·만들기·기억 이어가기
 │   └── tv.py            # TV Journey
 ├── services/            # 비즈니스 로직
 │   ├── graph_manager.py # Graph CRUD + 검색
 │   ├── media_analyzer.py# EXIF 추출, 썸네일
-│   ├── event_resolver.py# 이벤트 자동 매칭/생성
+│   ├── event_resolver.py# 미디어→인물·장소 연결
 │   ├── chat_engine.py   # EXAONE + Graph RAG
 │   ├── interview_engine.py
-│   ├── gap_detector.py
+│   ├── memories.py      # 추억 게시·기억 더하기·함께 기억한 이야기
+│   ├── memory_drafter.py# 사진에서 초안 + 인물 추정 + 기존 추억 연결
+│   ├── question_picker.py
 │   └── tv_curator.py
 └── models/
     ├── graph_models.py  # 노드/엣지 dataclass
@@ -100,11 +102,20 @@ Base URL: `http://localhost:8000`
 | POST | `/api/interview/answer` | 답변 제출 → 다음 질문 |
 | GET | `/api/interview/status/{session_id}` | 세션 상태 |
 
-### Gaps
+### Memories (추억 · 기억 이어가기)
 | Method | Path | 설명 |
 |--------|------|------|
-| GET | `/api/gaps` | Memory Gap 목록 |
-| GET | `/api/gaps/{id}` | Gap 상세 |
+| POST | `/api/memories/draft` | 올린 사진·영상으로 추억 초안 |
+| POST | `/api/memories` | 추억 만들기 (저장 즉시 게시) |
+| GET | `/api/memories/feed` | 기억 이어가기 목록 |
+| GET | `/api/memories/{id}` | 추억 상세 |
+| POST | `/api/memories/{id}/echo` | 나도 기억나요 (토글) |
+| POST | `/api/memories/{id}/memory` | 내 기억 더하기 |
+| POST | `/api/memories/{id}/media` | 기존 추억에 사진·영상 추가 |
+| POST | `/api/memories/{id}/story` | 함께 기억한 이야기 생성 |
+
+확인(맞음/모름/이견) 엔드포인트는 없다. 추억은 한 사람이 만들면 게시되고,
+다른 가족의 승인을 요구하지 않는다.
 
 ### Memory Film
 | Method | Path | 설명 |
@@ -230,25 +241,52 @@ Response:
 }
 ```
 
-### GET /api/gaps
-Response:
+### POST /api/memories/draft
+```json
+{ "media_ids": ["media_a1b2c3d4", "media_e5f6g7h8"] }
+```
+Response (초안이므로 확정이 아니다):
 ```json
 {
-  "gaps": [
+  "title": "작년 엄마아빠와 부산여행",
+  "date_start": "2025-08-13",
+  "place": { "id": "place_E01", "name": "부산 해운대" },
+  "person_ids": ["P01", "P02"],
+  "person_candidates": [
     {
-      "id": "gap_E01_single_perspective",
-      "event_id": "E01",
-      "event_title": "1998 부산 가족여행",
-      "gap_type": "single_perspective",
-      "description": "'1998 부산 가족여행'에 대해 김지우의 기억이 없습니다.",
-      "suggested_question": "김지우님, '1998 부산 가족여행' 때 어떤 기억이 있으세요?",
-      "target_person": "김지우",
-      "priority": 4
+      "id": "P05", "name": "박서연", "relation": "엄마",
+      "confidence": "likely", "score": 4.0,
+      "reason": "같은 날 같은 장소의 사진에 있던 사람"
     }
   ],
-  "total": 5
+  "description": "작년 여름 부산에서 이틀을 보냈습니다.",
+  "evidence": [
+    { "label": "촬영 시점", "detail": "2025-08-13 ~ 2025-08-14" },
+    { "label": "좌표", "detail": "35.1587, 129.1604 · 부산 해운대 근처" }
+  ],
+  "related": [
+    {
+      "event_id": "E01", "title": "1998 부산 가족여행",
+      "score": 5, "reason": "장소가 같아요 (부산 해운대)"
+    }
+  ],
+  "ai_used": true
 }
 ```
+
+### POST /api/memories/{id}/memory
+```json
+{
+  "content": "이때 아빠가 렌터카 길을 잘못 들어서 엄청 돌아갔던 게 기억나요.",
+  "person_id": "P02",
+  "media_ids": [],
+  "differs": false,
+  "source_type": "user_input"
+}
+```
+`source_type`이 `ai_stt`면 서버가 읽기 좋은 문장으로 정리해 `polished`로 돌려주고,
+원문(`content`)은 그대로 보존한다. `differs: true`면 사건을 고치지 않고
+"가족들이 조금 다르게 기억하고 있어요" 표시만 붙는다.
 
 ### POST /api/tv/journey
 ```json
@@ -312,12 +350,13 @@ cd frontend && npm run build
 ### 페이지 구성
 | 경로 | 페이지 | 호출 API |
 |------|--------|----------|
-| `/` | 홈 (타임라인 + 통계) | GET events, media, gaps |
-| `/upload` | 미디어 업로드 | POST upload, POST supplement |
+| `/` | 홈 (타임라인 + 통계) | GET events, media, memories/feed |
+| `/collect` | 모으기 (업로드 → AI 초안 → 추억 만들기) | POST upload, POST memories/draft, POST memories |
 | `/graph` | Graph 시각화 | GET graph |
 | `/chat` | Memory Chat | POST chat |
 | `/interview` | AI Interview | POST start, POST answer |
-| `/gaps` | Memory Gap 목록 | GET gaps |
+| `/continue` | 기억 이어가기 | GET memories/feed, POST echo, POST memory |
+| `/memory/:id` | 추억 상세 | GET memories/{id}, POST story |
 | `/tv` | TV Memory Journey | POST journey |
 | `/family` | 가족 구성원 관리 | GET persons, POST person |
 

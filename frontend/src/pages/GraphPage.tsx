@@ -307,16 +307,16 @@ export default function GraphPage() {
               {selected.id} · 연결 {connCount}개
             </p>
 
-            {/* 사건이면 가족 확인 상태를 함께 보여준다 */}
+            {/* 추억이면 기억이 얼마나 쌓였는지 함께 보여준다 */}
             {selectedEvent && (
               <span
                 className="pill mt-3"
                 style={{
-                  background: STATE_CONFIG[selectedEvent.state].bg,
-                  color: STATE_CONFIG[selectedEvent.state].fg,
+                  background: (STATE_CONFIG[selectedEvent.state] ?? STATE_CONFIG.alone).bg,
+                  color: (STATE_CONFIG[selectedEvent.state] ?? STATE_CONFIG.alone).fg,
                 }}
               >
-                {STATE_CONFIG[selectedEvent.state].label}
+                {(STATE_CONFIG[selectedEvent.state] ?? STATE_CONFIG.alone).label}
               </span>
             )}
 

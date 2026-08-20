@@ -195,7 +195,7 @@ def filter_media(nodes: Iterable[dict], viewer_id: Optional[str]) -> list[dict]:
 def filter_memories(nodes: Iterable[dict], viewer_id: Optional[str]) -> list[dict]:
     """기억 목록에서 볼 수 없는 것을 걷어낸다
 
-    사건 상세 · 인물 상세 · 확인 목록 · 내보내기가 모두 이걸 지난다.
+    추억 상세 · 인물 상세 · 기억 이어가기 목록 · 내보내기가 모두 이걸 지난다.
     """
     return _filter(nodes, viewer_id)
 

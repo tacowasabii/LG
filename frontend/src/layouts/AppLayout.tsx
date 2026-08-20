@@ -1,15 +1,14 @@
 import { Outlet, NavLink } from 'react-router-dom'
 import {
-  AlertCircle,
   BarChart3,
   Download,
   Film,
+  Heart,
   Home,
   Lock,
   MapPin,
   MessageCircle,
   Mic,
-  ShieldCheck,
   Share2,
   Tv,
   Upload,
@@ -18,15 +17,18 @@ import {
 } from 'lucide-react'
 import { mediaUrl } from '../lib/api'
 import { useCurrentUser } from '../lib/currentUser'
-import { useEvents } from '../lib/useGraphData'
 
 /**
- * 사이드바를 기획안의 가치 흐름(모으기 → 이해 → 확인 → 경험)대로 묶었다.
- * 화면이 16개로 늘어나 평면 목록으로는 무엇을 하는 앱인지 읽히지 않는다.
+ * 사이드바를 가치 흐름(모으기 → 이해 → 이어가기 → 경험)대로 묶었다.
+ * 화면이 여럿이라 평면 목록으로는 무엇을 하는 앱인지 읽히지 않는다.
  *
  * 묶음 제목은 대문자 라벨로 작게 눌러 두고 항목만 읽히게 한다. 지금 있는
  * 화면은 강조색을 옅게 깐 면으로 표시한다 — 사이드바에서 색을 쓰는 곳은
- * 여기와 확인 대기 건수뿐이다.
+ * 여기뿐이다.
+ *
+ * 예전에는 "확인" 묶음에 확인 요청과 Memory Gap이 있었고, 확인 대기 건수를
+ * 강조색 뱃지로 달았다. 둘 다 없앴다. 남의 기억을 확인해 줄 의무가 사라졌고,
+ * 밀린 건수를 뱃지로 세우면 그 순간 이 앱은 다시 할 일 목록이 된다.
  */
 const navGroups = [
   {
@@ -46,11 +48,8 @@ const navGroups = [
     ],
   },
   {
-    title: '확인',
-    items: [
-      { to: '/verify', icon: ShieldCheck, label: '확인 요청', badge: true },
-      { to: '/gaps', icon: AlertCircle, label: 'Memory Gap' },
-    ],
+    title: '이어가기',
+    items: [{ to: '/continue', icon: Heart, label: '기억 이어가기' }],
   },
   {
     title: '경험',
@@ -73,12 +72,6 @@ const navGroups = [
 
 export default function AppLayout() {
   const { current, error: familyError } = useCurrentUser()
-
-  // 확인 대기 건수 — 사건 목록이 확인 상태를 함께 내려준다
-  const { events } = useEvents()
-  const pending = events.filter(
-    (e) => e.state === 'inferred' || e.state === 'conflicted',
-  ).length
 
   return (
     <div className="flex h-screen overflow-hidden bg-paper">
@@ -164,14 +157,6 @@ export default function AppLayout() {
                     >
                       <item.icon size={17} strokeWidth={1.75} className="shrink-0 opacity-80" />
                       <span className="flex-1">{item.label}</span>
-                      {'badge' in item && item.badge && pending > 0 && (
-                        <span
-                          className="t-mono rounded-full px-1.5 py-px text-[10px]"
-                          style={{ background: 'var(--accent)', color: 'var(--accent-fg)' }}
-                        >
-                          {pending}
-                        </span>
-                      )}
                     </NavLink>
                   </li>
                 ))}

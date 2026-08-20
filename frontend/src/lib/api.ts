@@ -46,7 +46,6 @@ async function fetchJSON<T>(url: string, options?: RequestInit): Promise<T> {
       '/api/graph/events': '/mock/events.json',
       '/api/graph/persons': '/mock/persons.json',
       '/api/graph': '/mock/graph.json',
-      '/api/gaps': '/mock/gaps.json',
     };
     // 이벤트 상세 패턴 매칭
     const eventMatch = url.match(/\/api\/graph\/event\/(.+)/);
@@ -252,18 +251,6 @@ export async function setMediaPersons(
   });
 }
 
-export async function supplementMedia(data: {
-  media_id: string;
-  date?: string;
-  event_id?: string;
-  description?: string;
-}): Promise<{ message: string; linked_event_id?: string }> {
-  return fetchJSON(`${BASE_URL}/media/supplement`, {
-    method: 'POST',
-    body: JSON.stringify(data),
-  });
-}
-
 // --- Graph ---
 
 export interface GraphNode {
@@ -327,7 +314,10 @@ export interface EventListItem {
   media_thumbs: string[];
   memory_count: number;
   voice_count: number;
-  state: VerificationState;
+  /** 기억이 쌓인 정도 (확인 상태가 아니다) */
+  state: MemoryState;
+  /** 나도 기억나요를 누른 사람 수 */
+  echo_count: number;
 }
 
 export interface PersonData {
@@ -481,28 +471,6 @@ export async function submitInterviewAnswer(
   });
 }
 
-// --- Gaps ---
-
-export interface GapItem {
-  id: string;
-  event_id?: string | null;
-  event_title?: string | null;
-  gap_type: string;
-  description: string;
-  suggested_question: string;
-  target_person?: string | null;
-  priority: number;
-}
-
-export interface GapsResponse {
-  gaps: GapItem[];
-  total: number;
-}
-
-export async function getGaps(): Promise<GapsResponse> {
-  return fetchJSON(`${BASE_URL}/gaps`);
-}
-
 // --- TV Journey ---
 
 export interface TVSlide {
@@ -548,7 +516,8 @@ export interface FamilyMember {
   private_request: boolean;
   asset_count: number;
   memory_count: number;
-  verified_count: number;
+  /** 다른 가족의 추억에 "나도 기억나요"를 남긴 횟수 */
+  echo_count: number;
 }
 
 export interface FamilyInvite {
@@ -813,99 +782,250 @@ export async function getTrustReport(): Promise<TrustReport> {
   return fetchJSON(`${BASE_URL}/trust/report`);
 }
 
-// --- Verification (가족 확인) ---
+// --- 추억 · 기억 이어가기 ---
 
-export type VerificationState = 'confirmed' | 'supported' | 'inferred' | 'conflicted';
+/**
+ * 추억 하나에 기억이 얼마나 쌓였는가.
+ *
+ * 예전의 확인 상태(confirmed/supported/inferred/conflicted)를 대신한다. 추억은
+ * 한 사람이 만들면 그 순간 게시되므로 "확인 대기"가 없다. varied는 문제가
+ * 아니라 보존해야 할 사실이다 — 가족이 조금 다르게 기억한다는 뜻이다.
+ */
+export type MemoryState = 'alone' | 'shared' | 'varied';
 
-export interface VerifierRef {
+export interface MemoryMediaRef {
   id: string;
-  name: string;
+  media_type: string;
+  file_path: string;
+  thumbnail_path?: string | null;
+  duration_sec?: number | null;
+  transcript?: string | null;
+  waveform?: number[];
+  speaker_id?: string | null;
 }
 
-export interface InboxMemory {
+/** 기억 한 줄 (최초 작성자의 것이든 가족이 더한 것이든 같은 모양) */
+export interface MemoryEntry {
   id: string;
+  /** 사람이 말하거나 적은 원문 */
   content: string;
-  contributor_id?: string | null;
-  contributor_name?: string | null;
+  /** AI가 읽기 좋게 다듬은 문장. 원문은 content에 그대로 남아 있다 */
+  polished?: string | null;
+  /** author = 최초 작성자의 기억, contribution = 가족이 더한 기억 */
+  kind: string;
+  /** 조금 다르게 기억한다고 밝힌 기억 */
+  differs: boolean;
+  source_type?: string | null;
+  created_at?: string | null;
+  contributor?: PersonRef | null;
+  media: MemoryMediaRef[];
+}
+
+export interface MemoryFeedItem {
+  event_id: string;
+  title: string;
+  date_start?: string | null;
+  place?: PlaceOption | null;
+  author?: PersonRef | null;
+  participants: Array<{ id: string; name: string; relation: string }>;
+  thumbs: string[];
+  media_count: number;
+  author_memory?: MemoryEntry | null;
+  contributions: MemoryEntry[];
+  state: MemoryState;
+  varied: boolean;
+  echo_count: number;
+  echoed_by: PersonRef[];
+  /** 내가 이미 "나도 기억나요"를 눌렀는가 */
+  i_echoed: boolean;
+  /** 내가 이미 기억을 더했는가 */
+  i_added: boolean;
+  /** 내가 만든 추억인가 */
+  mine: boolean;
+  created_at?: string | null;
+}
+
+export interface MemoryDetail {
+  id: string;
+  title: string;
+  description?: string;
+  date_start?: string | null;
+  date_end?: string | null;
+  place?: PlaceOption | null;
+  created_at?: string | null;
+  author?: PersonRef | null;
+  participants: Array<{
+    id: string;
+    name: string;
+    relation: string;
+    thumbnail_url?: string | null;
+  }>;
+  media: MemoryMediaRef[];
+  author_memory?: MemoryEntry | null;
+  contributions: MemoryEntry[];
+  state: MemoryState;
+  varied: boolean;
+  echo_count: number;
+  echoed_by: PersonRef[];
+  i_echoed: boolean;
+  i_added: boolean;
+  /** AI가 여러 사람의 기억을 엮어 쓴 이야기 */
+  together_story?: string | null;
+  together_story_at?: string | null;
+  /** 이야기를 쓴 뒤 기억이 더 쌓였는가 */
+  together_story_stale: boolean;
 }
 
 export interface PlaceOption {
   id: string;
   name: string;
+  distance_km?: number;
 }
 
-/** 무엇이 무엇으로 바뀌었는가 */
-export interface FieldChange {
-  field: string;
-  before?: string | null;
-  after?: string | null;
-}
-
-export interface CorrectionRecord {
-  person_id: string;
-  person_name: string;
-  at?: string | null;
-  changes: FieldChange[];
-}
-
-export interface InboxItem {
-  event_id: string;
-  event_title: string;
+/** AI가 사진·영상에서 읽어낸 추억 초안 (기획안 05) */
+export interface MemoryDraft {
+  media: Array<{
+    id: string;
+    media_type: string;
+    file_path: string;
+    thumbnail_path?: string | null;
+    original_filename: string;
+    exif_date?: string | null;
+    exif_lat?: number | null;
+    exif_lng?: number | null;
+  }>;
+  title: string;
   date_start?: string | null;
-  /** 수정 폼을 채울 지금 값 */
-  description?: string;
+  date_end?: string | null;
   place?: PlaceOption | null;
-  state: VerificationState;
-  confirmed_by: VerifierRef[];
-  corrected_by: VerifierRef[];
-  disputed_by: VerifierRef[];
-  unknown_by: VerifierRef[];
-  participants: Array<{ id: string; name: string; relation: string }>;
-  memories: InboxMemory[];
-  /** 누가 언제 무엇을 고쳤는가 (출처 보존) */
-  corrections: CorrectionRecord[];
+  lat?: number | null;
+  lng?: number | null;
+  person_ids: string[];
+  /** "사진 속 이분이 엄마인가요?" — 확정하지 않고 되묻는 후보 */
+  person_candidates: Array<{
+    id: string;
+    name: string;
+    relation: string;
+    thumbnail_url?: string | null;
+    score: number;
+    confidence: 'likely' | 'maybe';
+    reason: string;
+  }>;
+  description: string;
+  /** 무엇을 근거로 이 초안을 썼는가 */
+  evidence: Array<{ label: string; detail: string }>;
+  /** 기존 추억과 관련 있어 보이는 것 (자동으로 붙이지 않는다) */
+  related: Array<{
+    event_id: string;
+    title: string;
+    date_start?: string | null;
+    place?: string | null;
+    score: number;
+    reason: string;
+  }>;
+  /** 초안을 모델이 썼는가. false면 읽어낸 사실로만 만든 것이다 */
+  ai_used: boolean;
 }
 
-export interface VerifyResult {
-  event_id: string;
-  verification: {
-    state: VerificationState;
-    confirmed_by: VerifierRef[];
-    corrected_by: VerifierRef[];
-    disputed_by: VerifierRef[];
-    unknown_by: VerifierRef[];
-  };
-  created_memory_id?: string | null;
-  changes: FieldChange[];
-  message: string;
-}
-
-export async function getVerificationInbox(): Promise<{
-  items: InboxItem[];
-  total: number;
-  /** 장소는 새로 적지 않고 그래프에 있는 것을 고른다 */
-  places: PlaceOption[];
-}> {
-  return fetchJSON(`${BASE_URL}/graph/verify`);
-}
-
-/** 확인 화면에서 고칠 수 있는 값 (서버가 이 넷만 받는다) */
-export interface EventCorrections {
-  title?: string;
-  date_start?: string | null;
-  description?: string;
-  location_id?: string | null;
-}
-
-export async function verifyEvent(
-  eventId: string,
-  personId: string,
-  action: 'confirm' | 'correct' | 'unknown' | 'dispute',
-  note?: string,
-  corrections?: EventCorrections,
-): Promise<VerifyResult> {
-  return fetchJSON(`${BASE_URL}/graph/event/${eventId}/verify`, {
+export async function draftMemory(mediaIds: string[]): Promise<MemoryDraft> {
+  return fetchJSON(`${BASE_URL}/memories/draft`, {
     method: 'POST',
-    body: JSON.stringify({ person_id: personId, action, note, corrections }),
+    body: JSON.stringify({ media_ids: mediaIds }),
   });
+}
+
+export interface MemoryCreateInput {
+  title: string;
+  description?: string;
+  date_start?: string | null;
+  place_id?: string | null;
+  place_name?: string | null;
+  lat?: number | null;
+  lng?: number | null;
+  person_ids?: string[];
+  media_ids?: string[];
+}
+
+/** 추억 만들기. 저장하는 즉시 가족 공간에 게시된다 (승인 절차가 없다) */
+export async function createMemory(
+  input: MemoryCreateInput,
+): Promise<{ event_id: string; memory: MemoryDetail; message: string }> {
+  return fetchJSON(`${BASE_URL}/memories`, {
+    method: 'POST',
+    body: JSON.stringify({ ...input, author_id: viewerId }),
+  });
+}
+
+export async function getMemoryFeed(): Promise<{
+  items: MemoryFeedItem[];
+  total: number;
+  /** 내가 아직 아무 말도 얹지 않은 남의 추억 수 (안내일 뿐 과제가 아니다) */
+  open_count: number;
+}> {
+  return fetchJSON(withViewer(`${BASE_URL}/memories/feed`));
+}
+
+export async function getMemoryDetail(eventId: string): Promise<MemoryDetail> {
+  return fetchJSON(withViewer(`${BASE_URL}/memories/${eventId}`));
+}
+
+/** 나도 기억나요 (다시 부르면 취소된다) */
+export async function echoMemory(
+  eventId: string,
+): Promise<{
+  event_id: string;
+  echoed: boolean;
+  echo_count: number;
+  echoed_by: PersonRef[];
+  message: string;
+}> {
+  const url = viewerId
+    ? `${BASE_URL}/memories/${eventId}/echo?person_id=${encodeURIComponent(viewerId)}`
+    : `${BASE_URL}/memories/${eventId}/echo`;
+  return fetchJSON(url, { method: 'POST' });
+}
+
+export interface ContributionInput {
+  content: string;
+  media_ids?: string[];
+  audio_media_id?: string;
+  /** 조금 다르게 기억한다고 밝히는 경우 */
+  differs?: boolean;
+  /** 'ai_stt'면 서버가 읽기 좋게 정리하고 원문도 그대로 남긴다 */
+  source_type?: string;
+}
+
+/** 내 기억 더하기. 원본을 고치지 않고 나란히 쌓인다 */
+export async function addMemoryContribution(
+  eventId: string,
+  input: ContributionInput,
+): Promise<{
+  event_id: string;
+  memory_id: string;
+  polished?: string | null;
+  polished_by_ai: boolean;
+  message: string;
+}> {
+  return fetchJSON(`${BASE_URL}/memories/${eventId}/memory`, {
+    method: 'POST',
+    body: JSON.stringify({ ...input, person_id: viewerId }),
+  });
+}
+
+/** 기존 추억에 사진·영상 더하기 (AI가 자동으로 붙이지 않는다) */
+export async function addMediaToMemory(
+  eventId: string,
+  mediaIds: string[],
+): Promise<{ event_id: string; attached: string[]; message: string }> {
+  return fetchJSON(`${BASE_URL}/memories/${eventId}/media`, {
+    method: 'POST',
+    body: JSON.stringify({ media_ids: mediaIds }),
+  });
+}
+
+/** 함께 기억한 이야기 만들기 (AI는 누가 맞는지 판단하지 않는다) */
+export async function composeTogetherStory(
+  eventId: string,
+): Promise<{ event_id: string; story: string; at: string; basis: number; ai_used: boolean }> {
+  return fetchJSON(withViewer(`${BASE_URL}/memories/${eventId}/story`), { method: 'POST' });
 }

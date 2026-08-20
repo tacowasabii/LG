@@ -4,11 +4,11 @@ import {
   getEventDetail,
   getEvents,
   getMediaList,
-  getGaps,
+  getMemoryFeed,
   getGraph,
   EventListItem,
   MediaItem,
-  GapsResponse,
+  MemoryFeedItem,
   mediaUrl,
 } from '../lib/api'
 import { STATE_CONFIG, STATE_ORDER } from '../components/StatusPill'
@@ -33,7 +33,8 @@ function shortTitle(title: string): string {
 export default function HomePage() {
   const [events, setEvents] = useState<EventListItem[]>([])
   const [media, setMedia] = useState<MediaItem[]>([])
-  const [gaps, setGaps] = useState<GapsResponse | null>(null)
+  /** 기억을 더할 수 있는 가족의 추억 (과제 목록이 아니라 초대다) */
+  const [openMemories, setOpenMemories] = useState<MemoryFeedItem[]>([])
   const [memoryCount, setMemoryCount] = useState<number | null>(null)
   const [loading, setLoading] = useState(true)
   const [expandedEvent, setExpandedEvent] = useState<string | null>(null)
@@ -63,15 +64,20 @@ export default function HomePage() {
   useEffect(() => {
     // 기억 개수는 전용 엔드포인트가 없어 Graph에서 센다.
     // 정적 모드에서도 mock/graph.json으로 동작한다.
-    Promise.all([getEvents(), getMediaList(), getGaps(), getGraph()])
-      .then(([e, m, g, graph]) => {
+    Promise.all([getEvents(), getMediaList(), getGraph()])
+      .then(([e, m, graph]) => {
         setEvents(e)
         setMedia(m)
-        setGaps(g)
         setMemoryCount(graph.nodes.filter((n) => n.node_type === 'memory').length)
       })
       .catch(console.error)
       .finally(() => setLoading(false))
+
+    // 기억 이어가기 목록은 따로 받는다. 이 하나가 실패해도 타임라인은 그려져야
+    // 한다 — 한 묶음으로 묶으면 권유 카드 하나 때문에 홈 전체가 빈다.
+    getMemoryFeed()
+      .then((feed) => setOpenMemories(feed.items.filter((i) => !i.mine && !i.i_added)))
+      .catch((e) => console.error('[home] 기억 이어가기 목록을 불러오지 못했습니다', e))
   }, [])
 
   if (loading) {
@@ -88,7 +94,7 @@ export default function HomePage() {
     .sort()
   const span = years.length > 0 ? `${years[0]} — ${years[years.length - 1]} · ` : ''
 
-  // 확인 상태 막대 — 사건 목록이 상태를 함께 내려준다
+  // 기억이 쌓인 정도 막대 — 추억 목록이 상태를 함께 내려준다
   const stateBar = STATE_ORDER.map((state) => ({
     state,
     count: events.filter((e) => e.state === state).length,
@@ -98,18 +104,21 @@ export default function HomePage() {
     <Page width={1040}>
       <PageHeader
         large
-        eyebrow={`${span}사건 ${events.length}개`}
+        eyebrow={`${span}추억 ${events.length}개`}
         title="우리의 기억"
-        lead="사진과 이야기로 연결된 사람들의 시간. 무엇이 확인된 사실이고 무엇이 아직 추정인지 함께 표시합니다."
+        lead="사진과 이야기로 연결된 사람들의 시간. 한 사람이 만든 추억에 가족이 기억을 더하면서 쌓입니다."
       />
 
       <div className="mt-12">
         <StatRow
           cells={[
-            { value: events.length, label: '사건' },
+            { value: events.length, label: '추억' },
             { value: media.length, label: '사진 · 영상' },
             { value: memoryCount ?? '—', label: '기억 문장' },
-            { value: gaps?.total ?? 0, label: '채워야 할 기억', accent: true },
+            {
+              value: events.reduce((sum, e) => sum + (e.echo_count || 0), 0),
+              label: '나도 기억나요',
+            },
           ]}
         />
       </div>
@@ -123,15 +132,15 @@ export default function HomePage() {
         <span className="flex-1">
           <span className="block text-[15px] font-semibold text-ink-900">처음이신가요?</span>
           <span className="t-body-sm mt-1 block text-ink-400">
-            사진 3장으로 첫 사건을 만들어 봅니다. 나머지는 질문에 답하면서 채워집니다.
+            사진 3장을 올리면 AI가 첫 추억의 초안을 씁니다. 확인하면 바로 가족 기록이 됩니다.
           </span>
         </span>
         <span className="text-xl text-accent-ink">→</span>
       </Link>
 
-      {/* 확인 상태 — 무엇이 사실이고 무엇이 추정인지 한눈에 (기획안 03장) */}
+      {/* 기억이 쌓인 모습 — 확인 여부가 아니라 "가족이 얼마나 함께 기억하는가" */}
       <section className="mt-14">
-        <SectionHead title="확인 상태" to="/verify" linkLabel="확인하러 가기" />
+        <SectionHead title="기억이 쌓인 모습" to="/continue" linkLabel="기억 이어가기" />
 
         {/*
           막대를 하나로 이어 붙이지 않고 2px씩 띄운다. 상태가 서로 섞이는 값이
@@ -163,7 +172,8 @@ export default function HomePage() {
         </div>
 
         <p className="t-caption mt-4">
-          추정한 정보는 확정하지 않습니다. 가족이 확인해야 사실이 됩니다.
+          한 사람의 기억으로 남아 있어도 그대로 가족 기록입니다. 확인을 기다리는 추억은
+          없습니다.
         </p>
       </section>
 
@@ -172,14 +182,14 @@ export default function HomePage() {
 
         {events.length === 0 ? (
           <div className="py-12 text-center">
-            <p className="t-body-sm m-0 text-ink-300">아직 사건이 없습니다.</p>
-            <Link to="/upload" className="btn-primary mt-5 inline-block no-underline hover:no-underline">
+            <p className="t-body-sm m-0 text-ink-300">아직 추억이 없습니다.</p>
+            <Link to="/collect" className="btn-primary mt-5 inline-block no-underline hover:no-underline">
               사진 올리기
             </Link>
           </div>
         ) : (
           events.map((event) => {
-            const config = STATE_CONFIG[event.state]
+            const config = STATE_CONFIG[event.state] ?? STATE_CONFIG.alone
             const open = expandedEvent === event.id
             const counts = [
               `사진 ${event.media_count}`,
@@ -244,6 +254,12 @@ export default function HomePage() {
                             <span className="t-caption block text-ink-300">
                               {event.participants.map((p) => p.name).join(' · ')}
                             </span>
+                            <Link
+                              to={`/memory/${event.id}`}
+                              className="t-caption mt-1.5 block text-accent-ink"
+                            >
+                              이 추억 자세히 보기 →
+                            </Link>
                           </span>
                         </>
                       ) : (
@@ -285,16 +301,36 @@ export default function HomePage() {
         )}
       </section>
 
-      {gaps && gaps.total > 0 && (
+      {/*
+        예전에 "채워야 할 기억"(Memory Gap)이 있던 자리다. 빈칸을 과제로 세우는
+        대신, 다른 가족이 만든 추억을 보여 주고 기억나면 더하라고 권한다.
+        아무것도 하지 않아도 된다는 문장을 함께 둔다.
+      */}
+      {openMemories.length > 0 && (
         <section className="mt-14">
-          <SectionHead title="채워야 할 기억" to="/gaps" linkLabel="전체 보기" />
+          <SectionHead title="기억 이어가기" to="/continue" linkLabel="전체 보기" />
+          <p className="t-caption mt-2">
+            가족이 만든 추억입니다. 기억나는 것이 있을 때만 더하면 됩니다.
+          </p>
           <div className="mt-5 grid grid-cols-2 gap-4">
-            {gaps.gaps.slice(0, 4).map((gap) => (
-              <div key={gap.id} className="surface p-5">
-                <p className="t-mono m-0 text-[11px] text-ink-300">{gap.event_title}</p>
-                <p className="m-0 mt-2 text-sm font-semibold text-ink-700">{gap.description}</p>
-                <p className="t-body-sm m-0 mt-2 text-ink-400">{gap.suggested_question}</p>
-              </div>
+            {openMemories.slice(0, 4).map((item) => (
+              <Link
+                key={item.event_id}
+                to={`/memory/${item.event_id}`}
+                className="surface hover-border-accent p-5 no-underline hover:no-underline"
+              >
+                <p className="t-mono m-0 text-[11px] text-ink-300">
+                  {item.author?.name ? `${item.author.name}님이 만든 추억` : '가족의 추억'}
+                  {item.date_start ? ` · ${item.date_start}` : ''}
+                </p>
+                <p className="m-0 mt-2 text-sm font-semibold text-ink-700">{item.title}</p>
+                {item.author_memory && (
+                  <p className="t-body-sm m-0 mt-2 text-ink-400">
+                    {item.author_memory.polished || item.author_memory.content}
+                  </p>
+                )}
+                <span className="t-caption mt-3 block text-accent-ink">내 기억 더하기 →</span>
+              </Link>
             ))}
           </div>
         </section>

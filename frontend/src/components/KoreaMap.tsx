@@ -14,7 +14,7 @@
  */
 
 import { useState } from 'react'
-import type { VerificationState } from '../lib/api'
+import type { MemoryState } from '../lib/api'
 
 export interface MapPoint {
   id: string
@@ -23,7 +23,7 @@ export interface MapPoint {
   lng: number
   /** 마커 크기에 반영할 기록 수 */
   count: number
-  state?: VerificationState
+  state?: MemoryState
 }
 
 const VIEW_W = 320

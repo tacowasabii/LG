@@ -13,7 +13,7 @@ from backend.config import (
 )
 from backend.services.graph_manager import graph_manager
 from backend.routers import (
-    media, graph, chat, interview, gaps, tv, film, trust, family, export,
+    media, graph, chat, interview, memories, tv, film, trust, family, export,
 )
 
 # 프로세스가 언제 떴는지. 배포가 실제로 새 컨테이너로 갈렸는지 밖에서 구분하려면
@@ -47,7 +47,7 @@ app.include_router(media.router, prefix="/api/media", tags=["Media"])
 app.include_router(graph.router, prefix="/api/graph", tags=["Graph"])
 app.include_router(chat.router, prefix="/api/chat", tags=["Chat"])
 app.include_router(interview.router, prefix="/api/interview", tags=["Interview"])
-app.include_router(gaps.router, prefix="/api/gaps", tags=["Gaps"])
+app.include_router(memories.router, prefix="/api/memories", tags=["Memories"])
 app.include_router(tv.router, prefix="/api/tv", tags=["TV"])
 app.include_router(film.router, prefix="/api/film", tags=["Film"])
 app.include_router(trust.router, prefix="/api/trust", tags=["Trust"])

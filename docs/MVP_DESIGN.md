@@ -1,6 +1,12 @@
 # Family Memory Graph — MVP 설계 문서
 
-> 예선 MVP 범위: Memory Graph + Memory Chat + AI Interview + Memory Gap + TV Memory Journey
+> 예선 MVP 범위: Memory Graph + Memory Chat + AI Interview + 추억 초안·기억 이어가기 + TV Memory Journey
+>
+> **기획 변경 (Memory Gap → 기억 이어가기)**: 이 문서의 초판은 빈칸을 "Memory Gap"
+> 목록으로 보여주고 가족 전원이 확인해야 사건이 완료되는 구조였다. 가족에는 앱이
+> 익숙하지 않은 고령자와 아이가 함께 있어 그 완료 조건이 성립하지 않는다. 그래서
+> 추억은 한 사람이 만들면 즉시 게시되고, 다른 가족은 의무 없이 기억을 더하기만 한다.
+> 아래 2.5절과 화면 구성이 그 변경을 반영한다.
 
 ---
 
@@ -118,22 +124,31 @@ Base URL: `http://localhost:8000/api`
 | `GET` | `/interview/status` | 현재 인터뷰 진행 상태 |
 
 **Flow:**
-1. Memory Gap이 있는 Event/Media 기반으로 질문 생성
+1. 아직 덜 채워진 Event/Media 기반으로 질문 생성 (`services/question_picker.py`)
 2. 사용자 답변 → 구조화 → Memory 노드 생성 → Graph 연결
 3. 추가 질문 or 종료 판단
 
-### 2.5 Memory Gap
+### 2.5 추억 초안 · 기억 이어가기
 
 | Method | Path | 설명 |
 |--------|------|------|
-| `GET` | `/gaps` | 탐지된 Memory Gap 목록 |
-| `GET` | `/gaps/{id}` | Gap 상세 + 추천 질문 |
+| `POST` | `/memories/draft` | 올린 사진·영상으로 추억 초안 (제목·날짜·장소·인물·근거) |
+| `POST` | `/memories` | 추억 만들기 — 저장 즉시 게시 (승인 없음) |
+| `GET` | `/memories/feed` | 기억 이어가기 목록 |
+| `POST` | `/memories/{id}/echo` | 나도 기억나요 (토글) |
+| `POST` | `/memories/{id}/memory` | 내 기억 더하기 (원본 보존) |
+| `POST` | `/memories/{id}/story` | 함께 기억한 이야기 (누가 맞는지 판정하지 않음) |
 
-**Gap 탐지 규칙:**
-- Event에 날짜/장소/인물/설명 중 빈 필드 존재
-- Event에 연결된 Media가 0개
-- Event에 한 사람의 Memory만 있고 다른 참여자 Memory 없음
-- 시간적으로 가까운 Media가 Event에 미연결
+**초안 규칙 (services/memory_drafter.py):**
+- 읽는 것: EXIF 촬영 시점·GPS, 지목된 인물, scene_description, 기존 가족 기록
+- 못 읽은 값은 비워 둔다 (추측해서 채우지 않는다)
+- 인물 추정은 동시 등장 통계로 순위를 매기고 "이 사진에 엄마도 있나요?"로 되묻는다
+- 기존 추억과 관련 있어 보이면 알리고, 붙일지 새로 만들지는 사용자가 고른다
+
+**기억 상태 (services/memories.state_of):**
+- alone   만든 사람의 기억만 있다 (결함이 아니다)
+- shared  가족이 기억을 더했다
+- varied  조금 다르게 기억하는 내용이 함께 있다 — 한쪽을 정답으로 정하지 않는다
 
 ### 2.6 TV Memory Journey
 
@@ -179,7 +194,8 @@ Base URL: `http://localhost:8000/api`
 | **Graph View** | `/graph` | Memory Graph 시각화 (노드·엣지) | `GET /graph` |
 | **Chat** | `/chat` | Memory Chat 대화 UI | `POST /chat` |
 | **Interview** | `/interview` | AI 인터뷰 (질문-답변 flow) | `/interview/*` |
-| **Gaps** | `/gaps` | Memory Gap 목록 + 상세 | `GET /gaps` |
+| **기억 이어가기** | `/continue` | 가족의 추억 목록 + 내 기억 더하기 | `GET /memories/feed` |
+| **추억 상세** | `/memory/:id` | 여러 사람의 기억이 쌓이는 곳 | `GET /memories/{id}` |
 | **TV View** | `/tv` | TV Memory Journey (16:9, 풀스크린) | `/tv/journey` |
 | **Family** | `/family` | 가족 구성원 관리 | `GET /graph/person/*` |
 
@@ -193,7 +209,8 @@ src/
 │   ├── GraphPage.tsx         # 인터랙티브 Graph 시각화
 │   ├── ChatPage.tsx          # 채팅 UI (메시지 + 미디어 카드)
 │   ├── InterviewPage.tsx     # 질문-답변 플로우
-│   ├── GapsPage.tsx          # Gap 카드 리스트
+│   ├── ContinuePage.tsx      # 기억 이어가기 목록
+│   ├── MemoryDetailPage.tsx  # 추억 상세
 │   ├── TVViewPage.tsx        # 풀스크린 슬라이드쇼
 │   └── FamilyPage.tsx        # 가족 구성원 카드
 ├── components/
@@ -216,7 +233,7 @@ src/
 - **Chat 답변**: 텍스트 + 근거 미디어 카드 + confidence 뱃지 함께 표시
 - **Graph 시각화**: Person/Event/Place 노드를 색상으로 구분, 클릭 시 상세
 - **TV View**: 리모컨 UX 시뮬레이션 (키보드 좌/우로 슬라이드 이동)
-- **Gap 카드**: "이 기억이 부족해요" + "질문하기" 버튼 → Interview로 연결
+- **추억 카드**: 사진 + 최초 작성자의 기억 + `나도 기억나요` · `내 기억 더하기`
 - **Upload 후**: 자동 분석 결과 프리뷰 (감지된 인물, 장소, 매칭된 Event)
 
 ---
@@ -233,7 +250,7 @@ family_memory_graph/
 │   │   ├── graph.py            # /api/graph/*
 │   │   ├── chat.py             # /api/chat
 │   │   ├── interview.py        # /api/interview/*
-│   │   ├── gaps.py             # /api/gaps/*
+│   │   ├── memories.py         # /api/memories/*
 │   │   └── tv.py               # /api/tv/*
 │   ├── services/
 │   │   ├── media_analyzer.py   # EXIF 추출, AI 분석 호출
@@ -241,7 +258,9 @@ family_memory_graph/
 │   │   ├── event_resolver.py   # 미디어 → 이벤트 매칭/생성
 │   │   ├── chat_engine.py      # EXAONE 질의 + Graph RAG
 │   │   ├── interview_engine.py # 질문 생성 + 답변 구조화
-│   │   ├── gap_detector.py     # Gap 탐지 로직
+│   │   ├── memories.py         # 추억 게시 · 기억 더하기
+│   │   ├── memory_drafter.py   # 초안 · 인물 추정 · 기존 추억 연결
+│   │   ├── question_picker.py  # 인터뷰가 물어볼 대상 고르기
 │   │   └── tv_curator.py       # Journey 큐레이션
 │   ├── models/
 │   │   ├── schemas.py          # Pydantic 모델 (Request/Response)
@@ -286,7 +305,7 @@ family_memory_graph/
 | ② Graph 생성 | Graph 페이지 | 자동 생성된 노드·엣지 시각화 확인 |
 | ③ Chat 질의 | Chat 페이지 | "부산 여행 언제 갔어?" 질문 |
 | ④ 근거 답변 | Chat 페이지 | 답변 + 사진 카드 + confidence 표시 |
-| ⑤ Gap 탐지 | Gaps 페이지 | "엄마의 기억이 빠져있어요" 카드 |
+| ⑤ 기억 이어가기 | 기억 이어가기 페이지 | "이때 아빠가 길을 잘못 들었어요" 기억이 더해지는 것 |
 | ⑥ Interview | Interview 페이지 | AI 질문 → 답변 입력 |
 | ⑦ Graph 업데이트 | Graph 페이지 | 새 Memory 노드 추가된 것 확인 |
 | ⑧ TV Journey | TV View | "우리 가족의 2015년" 풀스크린 슬라이드 |

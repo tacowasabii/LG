@@ -51,7 +51,7 @@ def _restore():
         graph_manager.update_node(
             person_id, {"role": FamilyRole.CONTRIBUTOR.value, "private_request": False}
         )
-    graph_manager.update_node(EVENT, {"verifications": []})
+    graph_manager.update_node(EVENT, {"echoes": []})
     graph_manager.update_node(
         MEDIA, {"visibility": "family", "allowed_ids": [], "owner_id": None}
     )
@@ -98,33 +98,34 @@ def _make_temp_media(owner_id=None, visibility="family") -> MediaNode:
 # --- 열람자는 기록을 바꾸지 못한다 -------------------------------------------
 
 
-def test_viewer_cannot_verify():
+def test_viewer_cannot_add_memory():
     _setup_roles()
     try:
         with TestClient(app) as client:
             res = client.post(
-                f"/api/graph/event/{EVENT}/verify",
-                json={"person_id": VIEWER, "action": "confirm"},
+                f"/api/memories/{EVENT}/memory",
+                json={"person_id": VIEWER, "content": "열람자가 남기려는 기억"},
                 headers=_as(VIEWER),
             )
             assert res.status_code == 403, res.status_code
             assert "열람자" in res.json()["detail"], res.json()
-        print("  열람자 확인 차단 OK")
+        print("  열람자 기억 더하기 차단 OK")
     finally:
         _restore()
 
 
-def test_writer_can_verify():
+def test_writer_can_add_memory():
     _setup_roles()
     try:
         with TestClient(app) as client:
             res = client.post(
-                f"/api/graph/event/{EVENT}/verify",
-                json={"person_id": WRITER, "action": "confirm"},
+                f"/api/memories/{EVENT}/memory",
+                json={"person_id": WRITER, "content": "기록자가 더한 기억"},
                 headers=_as(WRITER),
             )
             assert res.status_code == 200, res.text
-        print("  기록자 확인 통과 OK")
+            _created.append(res.json()["memory_id"])
+        print("  기록자 기억 더하기 통과 OK")
     finally:
         _restore()
 
@@ -307,10 +308,7 @@ def test_write_without_actor_still_works():
     _setup_roles()
     try:
         with TestClient(app) as client:
-            res = client.post(
-                f"/api/graph/event/{EVENT}/verify",
-                json={"person_id": WRITER, "action": "unknown"},
-            )
+            res = client.post(f"/api/memories/{EVENT}/echo?person_id={WRITER}")
             assert res.status_code == 200, res.text
         print("  익명 쓰기 통과 OK (문서화된 한계)")
     finally:
@@ -318,8 +316,8 @@ def test_write_without_actor_still_works():
 
 
 TESTS = [
-    test_viewer_cannot_verify,
-    test_writer_can_verify,
+    test_viewer_cannot_add_memory,
+    test_writer_can_add_memory,
     test_viewer_cannot_add_person,
     test_viewer_cannot_submit_interview_answer,
     test_only_admin_changes_roles,

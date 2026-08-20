@@ -118,24 +118,19 @@ class Visibility(str, Enum):
     PRIVATE = "private"  # 올린 사람만
 
 
-class VerifyAction(str, Enum):
-    """가족이 사건을 확인할 때 할 수 있는 행동
+class MemoryState(str, Enum):
+    """추억 하나에 기억이 얼마나 쌓였는가 (저장하지 않고 기억에서 파생한다)
 
-    기획안: "맞음 / 수정 / 모름". 이견(dispute)은 사실을 지우는 대신 다른 버전의
-    기억으로 보존한다.
+    확인 상태(맞음/모름/이견)를 대신한다. 추억은 한 사람이 만들면 그 순간
+    가족 공간에 게시되므로 "확인 대기"라는 상태가 없다. 남는 질문은 하나뿐이다 —
+    이 기억에 가족이 얼마나 함께 있는가.
+
+    VARIED는 문제 표시가 아니다. 가족이 다르게 기억하는 것은 고쳐야 할 오류가
+    아니라 그대로 보존할 사실이다. 한쪽을 정답으로 정하지 않는다.
     """
-    CONFIRM = "confirm"      # 맞음
-    CORRECT = "correct"      # 값이 틀렸다 — 고치고 누가 고쳤는지 남긴다
-    UNKNOWN = "unknown"      # 모르겠어요 (확인 불가도 정보다)
-    DISPUTE = "dispute"      # 내 기억은 다르다
-
-
-class VerificationState(str, Enum):
-    """사건의 확인 상태 (저장하지 않고 verifications·기억에서 파생한다)"""
-    CONFIRMED = "confirmed"    # 가족 확인 완료
-    SUPPORTED = "supported"    # 다중 근거 일치
-    INFERRED = "inferred"      # AI 추정·확인 필요
-    CONFLICTED = "conflicted"  # 기억 또는 근거 충돌
+    ALONE = "alone"    # 만든 사람의 기억만 있다
+    SHARED = "shared"  # 가족이 기억을 더했다
+    VARIED = "varied"  # 조금 다르게 기억하는 내용이 함께 있다
 
 
 @dataclass
@@ -149,10 +144,19 @@ class EventNode:
     location_id: Optional[str] = None
     confidence: str = Confidence.USER_UNVERIFIED
     source: str = SourceType.USER_INPUT
-    # 가족 확인 이력. 확인자와 확인 시점을 함께 남긴다 (기획안 공통 속성).
-    # [{"person_id": "P01", "action": "confirm", "at": "...", "note": "..."}]
-    # confidence(자료 출처의 신뢰도)와는 별개 축이다.
-    verifications: list = field(default_factory=list)
+    # 이 추억을 만든 사람. 한 명이 만들면 그 자리에서 가족 공간에 게시된다 —
+    # 다른 가족의 승인을 기다리지 않는다.
+    author_id: Optional[str] = None
+    # "나도 기억나요". 확인이 아니라 공감이다. 아무도 누르지 않아도 추억은 그대로
+    # 남는다. [{"person_id": "P01", "at": "..."}]
+    echoes: list = field(default_factory=list)
+    # AI가 여러 사람의 기억을 엮어 쓴 "함께 기억한 이야기". 누가 맞는지 가리지
+    # 않고 서로 다른 관점을 그대로 서술한다. 기억이 더 쌓이면 다시 쓴다.
+    together_story: Optional[str] = None
+    together_story_at: Optional[str] = None
+    # 그 이야기를 쓸 때 근거로 삼은 기억 개수. 지금 개수보다 작으면 이야기가
+    # 낡은 것이다 (새로 더해진 기억이 아직 들어가지 않았다).
+    together_story_basis: int = 0
     created_at: str = field(default_factory=lambda: datetime.now().isoformat())
 
 
@@ -209,6 +213,16 @@ class MediaNode:
     allowed_ids: list = field(default_factory=list)
 
 
+class MemoryKind(str, Enum):
+    """이 기억이 추억에서 어떤 자리인가
+
+    상세 화면이 "최초 작성자의 기억"과 "가족이 더한 기억"을 따로 세워 보여주기
+    때문에 구분이 필요하다. 더한 기억은 원본을 덮어쓰지 않는다.
+    """
+    AUTHOR = "author"              # 추억을 만든 사람이 처음 쓴 기억
+    CONTRIBUTION = "contribution"  # 가족이 나중에 더한 기억
+
+
 @dataclass
 class MemoryNode:
     id: str = field(default_factory=lambda: _gen_id("memory"))
@@ -217,6 +231,16 @@ class MemoryNode:
     source_type: str = SourceType.USER_INPUT
     contributor_id: Optional[str] = None  # person_id
     confidence: str = Confidence.CONFIRMED
+    # author = 만든 사람의 첫 기억, contribution = 가족이 더한 기억
+    kind: str = MemoryKind.CONTRIBUTION
+    # AI가 읽기 좋게 다듬은 문장. content(사람이 말한 원문)는 덮어쓰지 않는다 —
+    # 화면은 원문을 함께 되짚을 수 있게 둔다 (출처 보존).
+    polished: Optional[str] = None
+    # 다른 가족과 조금 다르게 기억한다고 밝힌 기억. 한쪽을 정답으로 정하지 않고
+    # 화면에는 "가족들이 조금 다르게 기억하고 있어요"로만 알린다.
+    differs: bool = False
+    # 이 기억과 함께 올린 사진·영상 (EVIDENCED_BY 엣지와 함께 저장한다)
+    media_ids: list = field(default_factory=list)
     created_at: str = field(default_factory=lambda: datetime.now().isoformat())
 
 

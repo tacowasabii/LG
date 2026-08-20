@@ -100,7 +100,7 @@ def seed():
         "graduation": EventNode(
             id="event_graduation",
             title="민준이 초등학교 졸업",
-            description="",  # 설명 없음 → Gap 탐지 대상
+            description="",  # 설명 없음 (인터뷰가 물어볼 자리)
             date_start="2013-02-15",
             location_id="place_school",
             confidence=Confidence.CONFIRMED,
@@ -118,9 +118,9 @@ def seed():
         "new_year_2023": EventNode(
             id="event_new_year_2023",
             title="2023 설날",
-            description="",  # Gap
+            description="",  # 설명 없음
             date_start="2023-01-22",
-            location_id=None,  # 장소 없음 → Gap
+            location_id=None,  # 장소 없음
             confidence=Confidence.AI_INFERRED,
             source=SourceType.AI_VISION,
         ),
@@ -161,7 +161,7 @@ def seed():
         Edge(source="person_mom", target="event_birthday_2020", relation=RelationType.PARTICIPATED_IN, properties={"role": "참여자"}),
         Edge(source="person_son", target="event_birthday_2020", relation=RelationType.PARTICIPATED_IN, properties={"role": "참여자"}),
         Edge(source="person_daughter", target="event_birthday_2020", relation=RelationType.PARTICIPATED_IN, properties={"role": "주인공"}),
-        # 설날 - 아빠, 엄마만 (나머지 참여자 없음 → Gap)
+        # 설날 - 아빠, 엄마만 (나머지 참여자는 아직 기록에 없다)
         Edge(source="person_dad", target="event_new_year_2023", relation=RelationType.PARTICIPATED_IN, properties={"role": "참여자"}),
         Edge(source="person_mom", target="event_new_year_2023", relation=RelationType.PARTICIPATED_IN, properties={"role": "참여자"}),
     ]

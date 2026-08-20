@@ -48,14 +48,6 @@ class MediaPersonTagRequest(BaseModel):
     person_ids: list[str] = []
 
 
-class MediaSupplementRequest(BaseModel):
-    """EXIF 없는 미디어에 사용자가 추가 정보를 제공"""
-    media_id: str
-    date: Optional[str] = None  # ISO date (예: "2015-07-20")
-    event_id: Optional[str] = None  # 기존 이벤트에 연결
-    description: Optional[str] = None
-
-
 class MediaListItem(BaseModel):
     id: str
     media_type: str
@@ -134,27 +126,53 @@ class EventResponse(BaseModel):
     participants: list[dict] = []
     media: list[dict] = []
     memories: list[dict] = []
-    # 가족 확인 상태 (confidence와 다른 축: 자료 출처 vs 가족이 확인했는지)
-    verification: Optional[dict] = None
+    # 이 추억에 기억이 얼마나 쌓였는가 (alone | shared | varied).
+    # 확인 상태가 아니다 — 추억은 만든 순간 게시되고 확인 대기가 없다.
+    memory_state: Optional[dict] = None
 
 
-class VerifyRequest(BaseModel):
-    person_id: str
-    action: str  # "confirm" | "correct" | "unknown" | "dispute"
-    # 이견일 때 그 사람의 기억. 사실을 덮어쓰지 않고 별도 Memory로 보존된다.
-    note: Optional[str] = None
-    # 수정일 때 고칠 값. title · date_start · description · location_id 만 받는다
-    # (확인 화면이 그래프 편집기가 되지 않게).
-    corrections: Optional[dict] = None
+class MemoryDraftRequest(BaseModel):
+    """올린 사진·영상으로 초안을 만들어 달라는 요청"""
+    media_ids: list[str] = []
 
 
-class VerifyResponse(BaseModel):
-    event_id: str
-    verification: dict
-    created_memory_id: Optional[str] = None
-    # 수정일 때 무엇이 무엇으로 바뀌었는지 [{field, before, after}]
-    changes: list[dict] = []
-    message: str
+class MemoryCreateRequest(BaseModel):
+    """추억 만들기 (AI 초안을 그대로 쓰거나 고친 결과)
+
+    저장되는 즉시 가족 공간에 게시된다. 승인 절차가 없다.
+    """
+    title: str
+    description: str = ""
+    date_start: Optional[str] = None
+    # 그래프에 있는 장소를 고르면 place_id, 새 이름을 적으면 place_name
+    place_id: Optional[str] = None
+    place_name: Optional[str] = None
+    lat: Optional[float] = None
+    lng: Optional[float] = None
+    person_ids: list[str] = []
+    media_ids: list[str] = []
+    # 만든 사람. 없으면 X-Viewer-Id로 들어온 사람이 만든 것으로 본다.
+    author_id: Optional[str] = None
+
+
+class ContributionRequest(BaseModel):
+    """내 기억 더하기 (원본을 덮어쓰지 않는다)"""
+    content: str
+    person_id: Optional[str] = None
+    # 함께 올린 사진·영상
+    media_ids: list[str] = []
+    # 음성으로 남긴 경우 그 녹음 id (기억의 근거로 이어진다)
+    audio_media_id: Optional[str] = None
+    # 다른 가족과 조금 다르게 기억한다고 밝힌 경우.
+    # 한쪽을 정답으로 정하지 않고 안내문만 뜬다.
+    differs: bool = False
+    # user_input | ai_stt — ai_stt면 AI가 읽기 좋게 정리하고 원문도 남긴다
+    source_type: Optional[str] = None
+
+
+class MemoryMediaRequest(BaseModel):
+    """기존 추억에 사진·영상 추가 (사용자가 고른 경우에만)"""
+    media_ids: list[str] = []
 
 
 class PlaceRef(BaseModel):
@@ -192,8 +210,11 @@ class EventListItem(BaseModel):
     media_thumbs: list[str] = []
     memory_count: int = 0
     voice_count: int = 0
-    # 가족 확인 상태: confirmed | supported | inferred | conflicted
-    state: str = "inferred"
+    # 기억이 쌓인 정도: alone(만든 사람의 기억만) | shared(가족이 더했다) |
+    # varied(조금 다르게 기억하는 내용이 있다)
+    state: str = "alone"
+    # 나도 기억나요를 누른 사람 수
+    echo_count: int = 0
 
 
 # --- Chat ---
@@ -241,7 +262,7 @@ class InterviewStartResponse(BaseModel):
 class InterviewAnswerRequest(BaseModel):
     session_id: str
     answer: str
-    # 누구의 기억으로 저장할지. 없으면 Gap이 지목한 인물에게 귀속한다.
+    # 누구의 기억으로 저장할지. 없으면 질문이 지목한 인물에게 귀속한다.
     # 기획안 08장의 귀속 원칙 — 답한 사람이 화면에서 정해지므로 그대로 받는다.
     speaker_id: Optional[str] = None
     # 말로 답한 경우 먼저 업로드된 음성 미디어 id.
@@ -274,24 +295,6 @@ class InterviewAnswerResponse(BaseModel):
     message: str = ""
 
 
-# --- Gaps ---
-
-class GapItem(BaseModel):
-    id: str
-    event_id: Optional[str] = None
-    event_title: Optional[str] = None
-    gap_type: str  # "missing_date" | "missing_place" | "missing_person_memory" | "no_media" | "single_perspective"
-    description: str
-    suggested_question: str
-    target_person: Optional[str] = None  # 질문 대상
-    priority: int = 1  # 1~5
-
-
-class GapsResponse(BaseModel):
-    gaps: list[GapItem]
-    total: int
-
-
 # --- Family Space / 공개 범위 ---
 
 class FamilyMemberItem(BaseModel):
@@ -307,7 +310,8 @@ class FamilyMemberItem(BaseModel):
     private_request: bool = False
     asset_count: int = 0
     memory_count: int = 0
-    verified_count: int = 0
+    # 다른 가족의 추억에 "나도 기억나요"를 남긴 횟수
+    echo_count: int = 0
 
 
 class InviteItem(BaseModel):

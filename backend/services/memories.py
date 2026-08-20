@@ -1,0 +1,748 @@
+"""추억과 기억 이어가기
+
+이 파일이 예전 `verification.py`를 대신한다. 바뀐 것은 구조가 아니라 전제다.
+
+    예전: AI가 추정한 사실을 가족 전원이 맞음/모름/이견으로 판정해야 완료됐다.
+    지금: 한 사람이 만들면 그 순간 가족 공간에 게시된다. 나머지 가족은
+          의무가 없고, 기억이 떠오를 때만 자기 기억을 더한다.
+
+전원 확인을 버린 이유는 사용자 구성이다. 가족에는 앱이 익숙하지 않은 고령자와
+어린아이가 함께 있다. 모두의 응답을 완료 조건으로 걸면 추억은 영원히 미완으로
+남고, 만든 사람은 자기가 남긴 기록이 왜 반쪽인지 알 수 없다.
+
+그래서 남은 것은 두 행동뿐이다.
+
+    나도 기억나요 (echo)          누르기만 한다. 판정이 아니라 공감이다.
+    내 기억 더하기 (contribution) 원본을 건드리지 않고 나란히 쌓인다.
+
+기억이 서로 어긋나도 하나를 정답으로 고르지 않는다. "환갑 여행"과 "여름휴가"는
+둘 다 남고, 화면은 "가족들이 조금 다르게 기억하고 있어요"라고만 알린다.
+누가 맞는지는 AI도 가족도 여기서 판정하지 않는다.
+"""
+
+from __future__ import annotations
+
+from datetime import datetime
+from typing import Optional
+
+from backend.config import EXAONE_PLANNER_MODEL
+from backend.models.graph_models import (
+    Confidence,
+    Edge,
+    EventNode,
+    MemoryKind,
+    MemoryNode,
+    MemoryState,
+    NodeType,
+    PlaceNode,
+    RelationType,
+    SourceType,
+)
+from backend.services import llm_client, visibility
+from backend.services.graph_manager import graph_manager
+
+
+# --- 상태 파생 ---------------------------------------------------------------
+
+
+def _person_ref(person_id: Optional[str]) -> Optional[dict]:
+    if not person_id:
+        return None
+    person = graph_manager.get_node(person_id)
+    if not person:
+        return {"id": person_id, "name": person_id, "relation": ""}
+    return {
+        "id": person_id,
+        "name": person.get("name", person_id),
+        "relation": person.get("relation", ""),
+        "thumbnail_url": person.get("thumbnail_url"),
+    }
+
+
+def memories_of(event_id: str, viewer_id: Optional[str] = None) -> list[dict]:
+    """이 추억에 붙은 기억 문장 (오래된 것부터)
+
+    공개 범위를 지난다 — 기억 문장이 목록에서만 걸러지고 상세에서 새어 나가면
+    가려 준다는 말이 거짓이 된다 (기획안 08장).
+    """
+    nodes = [
+        node
+        for node in graph_manager.get_connected_nodes(event_id)
+        if node.get("node_type") == NodeType.MEMORY
+    ]
+    nodes = visibility.filter_memories(nodes, viewer_id)
+    return sorted(nodes, key=lambda m: m.get("created_at") or "")
+
+
+def author_memory(event_id: str, memories: Optional[list[dict]] = None) -> Optional[dict]:
+    """최초 작성자의 기억
+
+    kind로 표시된 것을 먼저 찾고, 없으면 가장 오래된 기억을 작성자의 것으로 본다.
+    시드 데이터와 예전에 쌓인 기억에는 kind가 없기 때문이다 — 마이그레이션을
+    돌리지 않고도 상세 화면이 "최초 작성자의 기억"을 세울 수 있어야 한다.
+    """
+    items = memories if memories is not None else memories_of(event_id)
+    for memory in items:
+        if memory.get("kind") == MemoryKind.AUTHOR:
+            return memory
+    return items[0] if items else None
+
+
+def state_of(event_id: str, viewer_id: Optional[str] = None) -> Optional[dict]:
+    """추억 하나에 기억이 얼마나 쌓였는가
+
+    상태는 저장하지 않고 매번 기억에서 파생한다. 저장하면 기억이 더해져도
+    상태가 갱신되지 않아 화면과 데이터가 어긋난다.
+    """
+    event = graph_manager.get_node(event_id)
+    if not event or event.get("node_type") != NodeType.EVENT:
+        return None
+
+    items = memories_of(event_id, viewer_id)
+    first = author_memory(event_id, items)
+    added = [m for m in items if m.get("id") != (first or {}).get("id")]
+    differs = any(m.get("differs") for m in items)
+
+    contributors: list[str] = []
+    for memory in items:
+        person_id = memory.get("contributor_id")
+        if person_id and person_id not in contributors:
+            contributors.append(person_id)
+
+    if differs:
+        state = MemoryState.VARIED
+    elif added or len(contributors) >= 2:
+        state = MemoryState.SHARED
+    else:
+        state = MemoryState.ALONE
+
+    echoes = event.get("echoes") or []
+
+    return {
+        "state": state.value,
+        "author": _person_ref(event.get("author_id") or (first or {}).get("contributor_id")),
+        "contributors": [_person_ref(pid) for pid in contributors],
+        "memory_count": len(items),
+        "added_count": len(added),
+        "echo_count": len(echoes),
+        "echoed_by": [_person_ref(e.get("person_id")) for e in echoes if e.get("person_id")],
+        # 서로 다르게 기억하는 내용이 있는가. 화면은 이 값으로 안내문 한 줄만 띄운다.
+        "varied": differs,
+    }
+
+
+# --- 추억 만들기 -------------------------------------------------------------
+
+
+def _resolve_place_by_name(name: str) -> Optional[str]:
+    """이름으로 장소를 찾고, 없으면 만든다
+
+    같은 이름이 이미 있으면 재사용한다. 새로 만들면 같은 장소가 둘이 되고
+    지도에 점이 겹친다.
+    """
+    name = (name or "").strip()
+    if not name:
+        return None
+    for place in graph_manager.get_places():
+        if (place.get("name") or "").strip() == name:
+            return place["id"]
+    place = PlaceNode(name=name)
+    graph_manager.add_place(place)
+    return place.id
+
+
+def create_memory(
+    author_id: Optional[str],
+    title: str,
+    description: str = "",
+    date_start: Optional[str] = None,
+    place_id: Optional[str] = None,
+    place_name: Optional[str] = None,
+    person_ids: Optional[list[str]] = None,
+    media_ids: Optional[list[str]] = None,
+    lat: Optional[float] = None,
+    lng: Optional[float] = None,
+) -> dict:
+    """추억 하나를 만든다. 만드는 즉시 가족 공간에 게시된다
+
+    다른 가족의 승인을 받지 않는다. AI 초안을 그대로 쓰든 고쳐 쓰든, 저장은
+    한 번이고 그 순간부터 가족이 함께 본다.
+
+    설명(description)은 사건에 남고, 같은 문장이 작성자의 기억으로도 남는다.
+    상세 화면이 "최초 작성자의 기억"을 세우려면 사람에게 귀속된 문장이 있어야
+    한다 — 사건 설명은 누구의 것도 아니다.
+    """
+    title = (title or "").strip() or "제목 없는 추억"
+    description = (description or "").strip()
+
+    if not place_id and place_name:
+        place_id = _resolve_place_by_name(place_name)
+    if place_id and not graph_manager.get_node(place_id):
+        place_id = None
+    if place_id and lat is not None and lng is not None:
+        place = graph_manager.get_node(place_id) or {}
+        if place.get("lat") is None or place.get("lng") is None:
+            graph_manager.update_node(place_id, {"lat": lat, "lng": lng})
+
+    event = EventNode(
+        title=title,
+        description=description,
+        date_start=(date_start or None),
+        location_id=place_id,
+        # 가족이 직접 만든 추억이다. AI가 초안을 썼더라도 사람이 확인하고
+        # 저장을 눌렀으므로 추정이 아니다.
+        confidence=Confidence.CONFIRMED,
+        source=SourceType.USER_INPUT,
+        author_id=author_id,
+    )
+    graph_manager.add_event(event)
+
+    if place_id:
+        graph_manager.add_edge(Edge(
+            source=event.id, target=place_id, relation=RelationType.LOCATED_AT,
+        ))
+
+    for person_id in _valid_persons(person_ids):
+        graph_manager.add_edge(Edge(
+            source=person_id,
+            target=event.id,
+            relation=RelationType.PARTICIPATED_IN,
+            properties={"role": "참여자"},
+        ))
+
+    attach_media(event.id, media_ids or [])
+
+    if description and author_id:
+        # 사진은 추억에 이미 붙어 있다. 작성자의 기억에까지 매달면 상세 화면에서
+        # 같은 사진이 위 갤러리와 기억 아래에 두 번 나온다. 기억에 사진을 매다는
+        # 것은 "이 기억과 함께 올린 사진"이 있을 때뿐이다 (가족이 더한 기억).
+        add_contribution(
+            event.id,
+            author_id,
+            description,
+            kind=MemoryKind.AUTHOR,
+        )
+
+    return graph_manager.get_node(event.id) or {}
+
+
+def _valid_persons(person_ids: Optional[list[str]]) -> list[str]:
+    """그래프에 있는 인물만 남긴다 (없는 사람을 만들지 않는다)"""
+    result: list[str] = []
+    for person_id in person_ids or []:
+        person_id = (person_id or "").strip()
+        if not person_id or person_id in result:
+            continue
+        node = graph_manager.get_node(person_id)
+        if node and node.get("node_type") == NodeType.PERSON:
+            result.append(person_id)
+    return result
+
+
+def attach_media(event_id: str, media_ids: list[str]) -> list[str]:
+    """사진·영상을 이 추억에 잇는다 (CAPTURED_DURING)
+
+    자동으로 묶지 않는다. 어느 추억에 붙일지는 올린 사람이 화면에서 고른 결과가
+    여기로 온다 (기획안 08: 자동으로 기억을 병합하지 않는다).
+    """
+    event = graph_manager.get_node(event_id)
+    if not event or event.get("node_type") != NodeType.EVENT:
+        return []
+
+    attached: list[str] = []
+    for media_id in media_ids or []:
+        media_id = (media_id or "").strip()
+        if not media_id or media_id in attached:
+            continue
+        media = graph_manager.get_node(media_id)
+        if not media or media.get("node_type") != NodeType.MEDIA:
+            continue
+        graph_manager.add_edge(Edge(
+            source=media_id, target=event_id, relation=RelationType.CAPTURED_DURING,
+        ))
+        attached.append(media_id)
+
+        # 사진에 지목된 사람은 그 사건에 함께 있던 사람이기도 하다
+        for person_id in media.get("detected_faces") or []:
+            if graph_manager.get_node(person_id):
+                graph_manager.add_edge(Edge(
+                    source=person_id,
+                    target=event_id,
+                    relation=RelationType.PARTICIPATED_IN,
+                    properties={"role": "참여자"},
+                ))
+
+    return attached
+
+
+# --- 기억 더하기 -------------------------------------------------------------
+
+
+def add_contribution(
+    event_id: str,
+    person_id: str,
+    content: str,
+    media_ids: Optional[list[str]] = None,
+    differs: bool = False,
+    source_type: str = SourceType.USER_INPUT,
+    polished: Optional[str] = None,
+    audio_media_id: Optional[str] = None,
+    kind: str = MemoryKind.CONTRIBUTION,
+) -> Optional[dict]:
+    """다른 가족이 만든 추억에 내 기억을 더한다
+
+    원본을 수정하거나 덮어쓰지 않는다. 별도 기억으로 저장하고 사건에 잇는다 —
+    상세 화면에서 최초 작성자의 기억 아래에 나란히 쌓인다.
+
+    사진·영상을 함께 올린 경우 그 기록은 사건에도 붙고(CAPTURED_DURING), 이
+    기억의 근거로도 이어진다(EVIDENCED_BY). 문장에서 원본으로 되짚을 수 있어야
+    한다.
+
+    Returns:
+        만들어진 기억 노드. 사건이나 사람이 없으면 None.
+    """
+    event = graph_manager.get_node(event_id)
+    if not event or event.get("node_type") != NodeType.EVENT:
+        return None
+    person = graph_manager.get_node(person_id)
+    if not person or person.get("node_type") != NodeType.PERSON:
+        return None
+
+    content = (content or "").strip()
+    if not content:
+        return None
+
+    attached = attach_media(event_id, media_ids or [])
+    if audio_media_id:
+        audio = graph_manager.get_node(audio_media_id)
+        if audio and audio.get("node_type") == NodeType.MEDIA and audio_media_id not in attached:
+            attached.append(audio_media_id)
+
+    memory = MemoryNode(
+        content=content,
+        source_type=source_type,
+        contributor_id=person_id,
+        confidence=Confidence.CONFIRMED,
+        kind=kind,
+        polished=(polished or "").strip() or None,
+        differs=bool(differs),
+        media_ids=attached,
+    )
+    graph_manager.add_memory(memory)
+
+    graph_manager.add_edge(Edge(
+        source=memory.id, target=event_id, relation=RelationType.ABOUT,
+    ))
+    graph_manager.add_edge(Edge(
+        source=person_id, target=memory.id, relation=RelationType.REMEMBERS,
+    ))
+    for media_id in attached:
+        graph_manager.add_edge(Edge(
+            source=memory.id, target=media_id, relation=RelationType.EVIDENCED_BY,
+        ))
+
+    # 기억을 남긴 사람은 그 자리에 함께 있던 사람이다
+    graph_manager.add_edge(Edge(
+        source=person_id,
+        target=event_id,
+        relation=RelationType.PARTICIPATED_IN,
+        properties={"role": "참여자"},
+    ))
+
+    return graph_manager.get_node(memory.id)
+
+
+def toggle_echo(event_id: str, person_id: str) -> Optional[dict]:
+    """나도 기억나요 (누르면 켜지고 다시 누르면 꺼진다)
+
+    확인이 아니다. 아무도 누르지 않아도 추억은 그대로 게시된 상태다.
+    """
+    event = graph_manager.get_node(event_id)
+    if not event or event.get("node_type") != NodeType.EVENT:
+        return None
+    if not graph_manager.get_node(person_id):
+        return None
+
+    echoes = list(event.get("echoes") or [])
+    already = any(e.get("person_id") == person_id for e in echoes)
+
+    if already:
+        echoes = [e for e in echoes if e.get("person_id") != person_id]
+        echoed = False
+    else:
+        echoes.append({"person_id": person_id, "at": datetime.now().isoformat()})
+        echoed = True
+
+    graph_manager.update_node(event_id, {"echoes": echoes})
+    return {
+        "event_id": event_id,
+        "echoed": echoed,
+        "echo_count": len(echoes),
+        "echoed_by": [_person_ref(e.get("person_id")) for e in echoes if e.get("person_id")],
+    }
+
+
+# --- 화면이 쓰는 모양 --------------------------------------------------------
+
+
+def _memory_view(memory: dict) -> dict:
+    """기억 하나를 화면 모양으로
+
+    원문(content)과 AI가 다듬은 문장(polished)을 함께 내려준다. 화면은 다듬은
+    쪽을 보여주되 원문을 되짚을 수 있게 둔다 — 사람이 말한 그대로가 자산이다.
+    """
+    media = []
+    for media_id in memory.get("media_ids") or []:
+        node = graph_manager.get_node(media_id)
+        if not node or node.get("node_type") != NodeType.MEDIA:
+            continue
+        media.append({
+            "id": node["id"],
+            "media_type": node.get("media_type", "photo"),
+            "file_path": node.get("file_path", ""),
+            "thumbnail_path": node.get("thumbnail_path"),
+            "duration_sec": node.get("duration_sec"),
+            "transcript": node.get("transcript"),
+            "waveform": node.get("waveform") or [],
+        })
+
+    return {
+        "id": memory["id"],
+        "content": memory.get("content", ""),
+        "polished": memory.get("polished"),
+        "kind": memory.get("kind") or MemoryKind.CONTRIBUTION.value,
+        "differs": bool(memory.get("differs")),
+        "source_type": memory.get("source_type"),
+        "created_at": memory.get("created_at"),
+        "contributor": _person_ref(memory.get("contributor_id")),
+        "media": media,
+    }
+
+
+def detail(event_id: str, viewer_id: Optional[str] = None) -> Optional[dict]:
+    """추억 상세 (기획안 09 기억 상세 화면 구조)
+
+    사진·영상 / 제목·날짜·장소·함께한 사람 / 최초 작성자의 기억 / 나도 기억나요 /
+    가족이 더한 기억 / 다르게 기억한다는 안내 / 함께 기억한 이야기를 한 번에
+    내려준다. 화면이 조각마다 서버를 다시 부르지 않게 하는 것이 목적이다.
+    """
+    event = graph_manager.get_node(event_id)
+    if not event or event.get("node_type") != NodeType.EVENT:
+        return None
+
+    connected = graph_manager.get_connected_nodes(event_id)
+    participants = [n for n in connected if n.get("node_type") == NodeType.PERSON]
+    media = visibility.filter_media(
+        [n for n in connected if n.get("node_type") == NodeType.MEDIA], viewer_id
+    )
+    place = graph_manager.get_node(event.get("location_id") or "")
+    if place and place.get("node_type") != NodeType.PLACE:
+        place = None
+
+    items = memories_of(event_id, viewer_id)
+    first = author_memory(event_id, items)
+    state = state_of(event_id, viewer_id) or {}
+
+    return {
+        "id": event["id"],
+        "title": event.get("title", ""),
+        "description": event.get("description", ""),
+        "date_start": event.get("date_start"),
+        "date_end": event.get("date_end"),
+        "place": {"id": place["id"], "name": place.get("name", "")} if place else None,
+        "created_at": event.get("created_at"),
+        "author": state.get("author"),
+        "participants": [
+            {
+                "id": p["id"],
+                "name": p.get("name", ""),
+                "relation": p.get("relation", ""),
+                "thumbnail_url": p.get("thumbnail_url"),
+            }
+            for p in participants
+        ],
+        "media": [
+            {
+                "id": m["id"],
+                "media_type": m.get("media_type", "photo"),
+                "file_path": m.get("file_path", ""),
+                "thumbnail_path": m.get("thumbnail_path"),
+                "duration_sec": m.get("duration_sec"),
+                "transcript": m.get("transcript"),
+                "waveform": m.get("waveform") or [],
+                "speaker_id": m.get("speaker_id"),
+            }
+            for m in media
+        ],
+        "author_memory": _memory_view(first) if first else None,
+        "contributions": [
+            _memory_view(m) for m in items if m.get("id") != (first or {}).get("id")
+        ],
+        "state": state.get("state", MemoryState.ALONE.value),
+        "varied": state.get("varied", False),
+        "echo_count": state.get("echo_count", 0),
+        "echoed_by": state.get("echoed_by", []),
+        "i_echoed": bool(viewer_id) and any(
+            e.get("person_id") == viewer_id for e in (event.get("echoes") or [])
+        ),
+        "i_added": bool(viewer_id) and any(
+            m.get("contributor_id") == viewer_id for m in items
+        ),
+        "together_story": event.get("together_story"),
+        "together_story_at": event.get("together_story_at"),
+        # 이야기를 쓴 뒤에 기억이 더 쌓였는가 (화면이 "다시 만들기"를 권한다)
+        "together_story_stale": bool(
+            event.get("together_story")
+            and (event.get("together_story_basis") or 0) < len(items)
+        ),
+    }
+
+
+def feed(viewer_id: Optional[str] = None, limit: int = 30) -> list[dict]:
+    """기억 이어가기 목록
+
+    처리해야 할 확인 요청 목록이 아니다. 다른 가족이 만든 추억을 보고, 기억이
+    떠오르면 더하는 자리다. 그래서 정렬은 "급한 것"이 아니라 "내가 아직 아무
+    말도 얹지 않은 최근 추억"이 앞이다. 아무것도 하지 않아도 된다.
+    """
+    items = []
+    for event in graph_manager.get_events():
+        state = state_of(event["id"], viewer_id)
+        if not state:
+            continue
+
+        memories = memories_of(event["id"], viewer_id)
+        first = author_memory(event["id"], memories)
+        connected = graph_manager.get_connected_nodes(event["id"])
+        media = visibility.filter_media(
+            [n for n in connected if n.get("node_type") == NodeType.MEDIA], viewer_id
+        )
+        photos = [m for m in media if m.get("media_type") != "audio"]
+        place = graph_manager.get_node(event.get("location_id") or "")
+        if place and place.get("node_type") != NodeType.PLACE:
+            place = None
+
+        author = state.get("author") or {}
+        mine = bool(viewer_id) and author.get("id") == viewer_id
+        i_added = bool(viewer_id) and any(
+            m.get("contributor_id") == viewer_id for m in memories
+        )
+
+        items.append({
+            "event_id": event["id"],
+            "title": event.get("title", ""),
+            "date_start": event.get("date_start"),
+            "place": {"id": place["id"], "name": place.get("name", "")} if place else None,
+            "author": state.get("author"),
+            "participants": [
+                {"id": p["id"], "name": p.get("name", ""), "relation": p.get("relation", "")}
+                for p in connected
+                if p.get("node_type") == NodeType.PERSON
+            ],
+            "thumbs": [
+                m.get("thumbnail_path") or m.get("file_path", "")
+                for m in photos[:3]
+                if m.get("thumbnail_path") or m.get("file_path")
+            ],
+            "media_count": len(media),
+            "author_memory": _memory_view(first) if first else None,
+            "contributions": [
+                _memory_view(m) for m in memories if m.get("id") != (first or {}).get("id")
+            ],
+            "state": state["state"],
+            "varied": state["varied"],
+            "echo_count": state["echo_count"],
+            "echoed_by": state["echoed_by"],
+            "i_echoed": bool(viewer_id) and any(
+                e.get("person_id") == viewer_id for e in (event.get("echoes") or [])
+            ),
+            "i_added": i_added,
+            "mine": mine,
+            "created_at": event.get("created_at"),
+        })
+
+    # 내가 만든 추억은 뒤로 (여기는 남의 기억에 얹는 자리다), 아직 아무 말도
+    # 얹지 않은 것을 앞으로, 그 안에서는 최근 것 먼저.
+    items.sort(
+        key=lambda i: (i.get("created_at") or "", i.get("date_start") or ""),
+        reverse=True,
+    )
+    items.sort(key=lambda i: (1 if i["mine"] else 0, 1 if i["i_added"] else 0))
+    return items[:limit]
+
+
+# --- AI ---------------------------------------------------------------------
+
+
+_FILLER = ("음,", "어,", "그,", "저기,", "뭐,", "음…", "어…")
+
+
+def _tidy_fallback(raw: str) -> str:
+    """모델 없이 문장을 다듬는다 (군말 제거 + 마침표)
+
+    LLM이 없어도 화면이 비지 않아야 한다. 대신 사람 말을 다시 쓰지는 않는다 —
+    할 수 있는 것은 군말 제거와 공백 정리뿐이고, 그 이상은 원문을 그대로 둔다.
+    """
+    text = " ".join((raw or "").split())
+    for filler in _FILLER:
+        if text.startswith(filler):
+            text = text[len(filler):].strip()
+    if text and text[-1] not in ".!?…":
+        text += "."
+    return text
+
+
+async def polish(raw: str) -> tuple[str, bool]:
+    """음성을 옮긴 글을 읽기 좋은 문장으로 정리한다
+
+    원문은 건드리지 않는다. 여기서 나온 문장은 MemoryNode.polished에 따로 들어가고,
+    화면은 원문을 함께 되짚을 수 있게 둔다 (기획안 07: 원본 음성·텍스트 유지).
+
+    Returns:
+        (다듬은 문장, AI가 썼는지)
+    """
+    raw = (raw or "").strip()
+    if not raw:
+        return "", False
+
+    if not llm_client.is_enabled("extract"):
+        return _tidy_fallback(raw), False
+
+    result = await llm_client.complete(
+        [
+            {
+                "role": "system",
+                "content": (
+                    "너는 가족이 말한 기억을 읽기 좋게 다듬는 편집자야.\n"
+                    "규칙:\n"
+                    "1. 내용을 더하거나 빼지 마. 없는 사실을 만들지 마.\n"
+                    "2. 말투는 남기고 군말(음, 어, 그)과 반복만 정리해.\n"
+                    "3. 한두 문장으로. 한국어로.\n"
+                    "4. 설명 없이 다듬은 문장만 출력해."
+                ),
+            },
+            {"role": "user", "content": raw},
+        ],
+        max_tokens=300,
+        thinking=False,
+        temperature=0.2,
+        purpose="extract",
+    )
+
+    if not result:
+        return _tidy_fallback(raw), False
+
+    cleaned = " ".join(result.split()).strip().strip('"')
+    return (cleaned or _tidy_fallback(raw)), bool(cleaned)
+
+
+def _story_fallback(title: str, entries: list[dict]) -> str:
+    """모델 없이 여러 기억을 잇는다
+
+    문장을 새로 쓰지 않고 누가 무엇을 기억하는지 나열한다. AI가 없을 때 이야기를
+    지어내면 그게 가장 나쁜 실패다 — 가족사가 근거 없이 불어난다.
+    """
+    lines = []
+    for entry in entries:
+        name = entry.get("name") or "가족"
+        text = entry.get("text") or ""
+        if text:
+            lines.append(f"{name}: {text}")
+    if not lines:
+        return ""
+    head = f"'{title}'에 대해 가족이 남긴 기억입니다."
+    tail = "누가 맞는지는 정하지 않았습니다. 서로 다른 기억도 그대로 함께 남아 있습니다."
+    return "\n".join([head] + lines + [tail])
+
+
+async def compose_together_story(event_id: str, viewer_id: Optional[str] = None) -> Optional[dict]:
+    """여러 사람의 기억을 엮어 "함께 기억한 이야기"를 쓴다
+
+    AI는 누가 맞는지 판정하지 않는다. 공통된 내용은 함께 서술하고, 갈리는 부분은
+    "누구는 이렇게, 누구는 저렇게 기억한다"로 남긴다. 이 규칙을 프롬프트에서
+    빼면 모델은 반드시 한쪽으로 정리한다.
+
+    결과는 사건 노드에 저장한다. 화면이 매번 모델을 부르지 않게 하고, 기억이 더
+    쌓이면 낡았다는 표시(together_story_stale)가 화면에 뜬다.
+    """
+    event = graph_manager.get_node(event_id)
+    if not event or event.get("node_type") != NodeType.EVENT:
+        return None
+
+    items = memories_of(event_id, viewer_id)
+    if not items:
+        return None
+
+    entries = []
+    for memory in items:
+        person = _person_ref(memory.get("contributor_id")) or {}
+        entries.append({
+            "name": person.get("name") or "가족",
+            "relation": person.get("relation") or "",
+            "text": memory.get("polished") or memory.get("content") or "",
+            "differs": bool(memory.get("differs")),
+        })
+
+    title = event.get("title", "")
+    place = graph_manager.get_node(event.get("location_id") or "") or {}
+    facts = [f"제목: {title}"]
+    if event.get("date_start"):
+        facts.append(f"날짜: {event['date_start']}")
+    if place.get("name"):
+        facts.append(f"장소: {place['name']}")
+
+    story = None
+    ai_used = False
+
+    if llm_client.is_enabled():
+        lines = "\n".join(
+            f"- {e['name']}({e['relation']}): {e['text']}"
+            + ("  [다르게 기억함]" if e["differs"] else "")
+            for e in entries
+        )
+        story = await llm_client.complete(
+            [
+                {
+                    "role": "system",
+                    "content": (
+                        "너는 한 가족의 기억을 모아 하나의 이야기로 정리하는 기록자야.\n"
+                        "규칙:\n"
+                        "1. 누가 맞는지 판단하지 마. 사실을 하나로 정하지 마.\n"
+                        "2. 여러 사람이 같이 말한 내용은 함께 서술해.\n"
+                        "3. 서로 다르게 기억하는 부분은 '누구는 ~로, 누구는 ~로 기억한다'처럼"
+                        " 양쪽을 모두 남겨.\n"
+                        "4. 주어진 기억에 없는 사실을 만들지 마.\n"
+                        "5. 3~5문장, 담담한 한국어 서술로. 제목이나 머리말 없이 본문만."
+                    ),
+                },
+                {
+                    "role": "user",
+                    "content": "[사건]\n" + "\n".join(facts) + "\n\n[가족이 남긴 기억]\n" + lines,
+                },
+            ],
+            max_tokens=700,
+            model=EXAONE_PLANNER_MODEL if len(entries) <= 2 else None,
+        )
+        ai_used = bool(story)
+
+    if not story:
+        story = _story_fallback(title, entries)
+
+    story = (story or "").strip()
+    if not story:
+        return None
+
+    now = datetime.now().isoformat()
+    graph_manager.update_node(event_id, {
+        "together_story": story,
+        "together_story_at": now,
+        "together_story_basis": len(items),
+    })
+
+    return {
+        "event_id": event_id,
+        "story": story,
+        "at": now,
+        "basis": len(items),
+        "ai_used": ai_used,
+    }

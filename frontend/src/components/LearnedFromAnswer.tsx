@@ -52,8 +52,8 @@ export default function LearnedFromAnswer({
           {learned.unmatched.join(' · ')} 은 아직 가족 공간에 없어 잇지 않았습니다.
         </p>
       )}
-      <Link to="/verify" className="t-caption text-accent-ink">
-        확인 요청에서 검토하기 →
+      <Link to="/continue" className="t-caption text-accent-ink">
+        기억 이어가기에서 보기 →
       </Link>
     </div>
   )

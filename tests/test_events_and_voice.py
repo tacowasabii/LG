@@ -97,13 +97,13 @@ def test_event_summary_has_place_and_participants():
 
 
 def test_event_summary_has_thumbs_and_state():
-    """타임라인 미리보기와 확인 상태 뱃지가 목데이터 없이 그려져야 한다"""
+    """타임라인 미리보기와 기억 상태 뱃지가 목데이터 없이 그려져야 한다"""
     events = asyncio.run(list_events())
     target = next(e for e in events if e.id == EVENT)
 
     assert len(target.media_thumbs) > 0, "썸네일이 없다"
     assert all(path.startswith("/media-files/") for path in target.media_thumbs), target.media_thumbs
-    assert target.state in ("confirmed", "supported", "inferred", "conflicted"), target.state
+    assert target.state in ("alone", "shared", "varied"), target.state
     assert target.memory_count >= 1, target.memory_count
     print("  썸네일", len(target.media_thumbs), "장 · 상태", target.state)
 
@@ -247,8 +247,11 @@ def test_interview_links_voice_as_evidence():
         _cleanup()
 
 
-def test_unknown_speaker_falls_back_to_gap_target():
-    """없는 사람 id가 와도 기억을 잃지 않는다"""
+def test_unknown_speaker_falls_back_to_question_target():
+    """없는 사람 id가 와도 기억을 잃지 않는다
+
+    인터뷰가 물어볼 대상을 고를 때 함께 지목한 인물(question_picker)에게 귀속한다.
+    """
     session = {
         "contributor_id": "P01",
         "target_node": graph_manager.get_node(EVENT),
@@ -314,7 +317,7 @@ TESTS = [
     test_photo_list_item_has_no_voice_fields,
     test_interview_attributes_answer_to_selected_speaker,
     test_interview_links_voice_as_evidence,
-    test_unknown_speaker_falls_back_to_gap_target,
+    test_unknown_speaker_falls_back_to_question_target,
     test_http_endpoints_serialize,
 ]
 

@@ -21,7 +21,8 @@
 | **Memory Graph** | 사진·영상·음성을 인물/이벤트/장소로 자동 연결하는 그래프 |
 | **Memory Chat** | 자연어 질문 → Graph 검색 + EXAONE 답변 생성 |
 | **AI Interview** | 기억의 빈 곳을 AI가 질문하며 새로운 기록 수집 (녹음 + 브라우저 전사) |
-| **Memory Gap** | 빠진 정보/한쪽 관점만 있는 기억 자동 탐지 |
+| **추억 초안** | 사진·영상을 올리면 촬영 시점·좌표·등장인물·기존 기록으로 초안 작성 |
+| **기억 이어가기** | 가족이 만든 추억에 글·목소리·사진으로 자기 기억을 더한다 (확인 의무 없음) |
 | **TV Memory Journey** | 조건 기반 사진 슬라이드쇼 (LG TV 시뮬레이션) |
 
 ---
@@ -50,15 +51,17 @@ prompthon-2026/
 │   │   ├── graph.py         # Graph 조회, Person/Event CRUD
 │   │   ├── chat.py          # Memory Chat (EXAONE)
 │   │   ├── interview.py     # AI Interview 세션
-│   │   ├── gaps.py          # Memory Gap 탐지
+│   │   ├── memories.py      # 추억 초안·만들기·기억 이어가기
 │   │   └── tv.py            # TV Memory Journey
 │   ├── services/            # 비즈니스 로직
 │   │   ├── graph_manager.py # NetworkX Graph CRUD + 검색 (싱글톤)
 │   │   ├── media_analyzer.py# EXIF 추출, 썸네일 생성
-│   │   ├── event_resolver.py# 미디어→이벤트 자동 매칭/생성
+│   │   ├── event_resolver.py# 미디어→인물·장소 연결 (사건 자동 생성은 하지 않음)
 │   │   ├── chat_engine.py   # Graph RAG + EXAONE 호출
 │   │   ├── interview_engine.py # 인터뷰 질문 생성 + 답변 구조화
-│   │   ├── gap_detector.py  # 6가지 Gap 유형 탐지
+│   │   ├── memories.py      # 추억 게시·기억 더하기·함께 기억한 이야기
+│   │   ├── memory_drafter.py# 사진에서 추억 초안 + 인물 추정 + 기존 추억 연결
+│   │   ├── question_picker.py # 인터뷰가 물어볼 대상 하나 고르기
 │   │   └── tv_curator.py    # 조건 기반 슬라이드쇼 큐레이션
 │   └── models/
 │       ├── graph_models.py  # 노드/엣지 dataclass (Person, Event, Place, Media, Memory)
@@ -71,11 +74,12 @@ prompthon-2026/
 │   │   ├── layouts/         # AppLayout (사이드바), TVLayout (풀스크린)
 │   │   └── pages/           # 화면들
 │   │       ├── HomePage.tsx       # 타임라인 + 통계 + 미디어 갤러리
-│   │       ├── CollectPage.tsx    # 모으기 — 업로드 + EXIF 보충 + 첫 질문 (시작하기 흡수)
+│   │       ├── CollectPage.tsx    # 모으기 — 업로드 → AI 초안 → 추억 만들기
 │   │       ├── GraphPage.tsx      # react-force-graph-2d 시각화
 │   │       ├── ChatPage.tsx       # 채팅 UI + 소스 뱃지
 │   │       ├── InterviewPage.tsx  # AI 인터뷰 Q&A 플로우
-│   │       ├── GapsPage.tsx       # Gap 카드 리스트
+│   │       ├── ContinuePage.tsx   # 기억 이어가기 (나도 기억나요 · 내 기억 더하기)
+│   │       ├── MemoryDetailPage.tsx # 추억 상세 (여러 사람의 기억이 쌓이는 곳)
 │   │       ├── TVViewPage.tsx     # 풀스크린 슬라이드쇼
 │   │       └── FamilyPage.tsx     # 가족 구성원 + 프로필 모달
 │   ├── public/mock/         # 정적 배포용 mock 데이터 + 사진
@@ -196,7 +200,7 @@ JSON(NetworkX)은 마지막 하나만 남깁니다. Postgres 쪽이 옳습니다
 # 회귀 테스트 (venv 활성화 상태에서)
 python tests/test_chat_search.py        # 검색 15개
 python tests/test_chat_graph.py         # 질의 계획 8개
-python tests/test_verification.py       # 가족 확인 9개
+python tests/test_memories.py           # 추억 게시·기억 더하기 6개
 python tests/test_events_and_voice.py   # 사건 요약·음성·화자 귀속 11개
 python tests/test_film.py               # Memory Film 9개
 python tests/test_family_visibility.py  # 가족 공간·초대 참여·공개 범위 18개
@@ -206,7 +210,7 @@ python tests/test_media_person_tags.py  # 기록에 있는 사람 지목 6개
 python tests/test_transcript_source.py  # 전사문 출처·녹음 분류 7개
 
 # 같은 테스트를 Postgres 저장소로도 돌립니다 (구현이 갈리지 않게)
-DATABASE_URL="postgresql://..." python tests/test_verification.py
+DATABASE_URL="postgresql://..." python tests/test_memories.py
 
 # Postgres 저장소 자체의 회귀 (검색 이스케이프·동시 쓰기·트랜잭션·순서)
 # 운영 DB를 건드리지 않으려고 별도 변수를 씁니다. 없으면 스스로 건너뜁니다.
@@ -329,8 +333,11 @@ JSON 파일은 그대로 남습니다. `DATABASE_URL`을 지우면 다시 파일
 | RELATED_TO | Person → Person |
 
 ### 신뢰도 모델
-- `confidence`: confirmed / ai_inferred / user_unverified
+- `confidence`: confirmed / ai_inferred / user_unverified — 자료 출처의 신뢰도
 - `source`: exif / user_input / ai_vision / ai_stt / interview
+- `state`: alone / shared / varied — 추억에 기억이 얼마나 쌓였는가.
+  확인 상태가 아니다. 추억은 한 사람이 만들면 그 순간 게시되고, `varied`(가족이
+  조금 다르게 기억함)도 해결할 문제가 아니라 그대로 보존하는 사실이다.
 
 ---
 
@@ -340,20 +347,24 @@ JSON 파일은 그대로 남습니다. `DATABASE_URL`을 지우면 다시 파일
 |--------|-----------|------|
 | Health | `GET /api/health` | 서버 상태 |
 | Media | `POST /api/media/upload` | 파일 업로드 + 자동 분석 (음성은 길이·파형·화자·사건을 함께 받음) |
-| | `POST /api/media/supplement` | EXIF 없는 미디어 정보 보충 |
 | | `PUT /api/media/{id}/persons` | 이 기록에 있는 사람 지목 (보낸 목록이 최종 상태) |
 | | `GET /api/media` | 미디어 목록 (`?media_type=audio&person_id=P02`) |
 | Graph | `GET /api/graph` | 전체 노드+엣지 |
-| | `GET /api/graph/events` | 사건 목록 + 장소 좌표·참여자·썸네일·확인 상태 |
+| | `GET /api/graph/events` | 사건 목록 + 장소 좌표·참여자·썸네일·기억 상태 |
 | | `GET /api/graph/event/{id}` | 이벤트 상세 |
-| | `GET /api/graph/verify` | 확인 요청 목록 |
-| | `POST /api/graph/event/{id}/verify` | 맞음·수정·모름·이견 기록 (수정은 `corrections`) |
 | | `GET /api/graph/persons` | 인물 목록 |
 | | `POST /api/graph/person` | 인물 추가 |
 | Chat | `POST /api/chat` | 자연어 질의 → 답변 |
 | Interview | `POST /api/interview/start` | 인터뷰 시작 |
 | | `POST /api/interview/answer` | 답변 제출 (`speaker_id`, `audio_media_id`) |
-| Gaps | `GET /api/gaps` | Gap 목록 |
+| Memories | `POST /api/memories/draft` | 올린 사진·영상으로 추억 초안 (제목·날짜·장소·인물·근거) |
+| | `POST /api/memories` | 추억 만들기 (저장 즉시 게시, 승인 없음) |
+| | `GET /api/memories/feed` | 기억 이어가기 목록 |
+| | `GET /api/memories/{id}` | 추억 상세 (작성자의 기억 + 가족이 더한 기억) |
+| | `POST /api/memories/{id}/echo` | 나도 기억나요 (토글) |
+| | `POST /api/memories/{id}/memory` | 내 기억 더하기 (글·목소리·사진, 원본 보존) |
+| | `POST /api/memories/{id}/media` | 기존 추억에 사진·영상 추가 |
+| | `POST /api/memories/{id}/story` | 함께 기억한 이야기 생성 (누가 맞는지 판정하지 않음) |
 | Film | `POST /api/film` | 사건 하나를 30~60초 이야기로 구성 |
 | | `GET /api/film/anniversaries` | 다가오는 기념일 |
 | Trust | `GET /api/trust/report` | 마지막 채점 리포트 |

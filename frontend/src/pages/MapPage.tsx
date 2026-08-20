@@ -168,7 +168,7 @@ export default function MapPage() {
           ) : null}
 
           {filtered.map((event) => {
-            const config = STATE_CONFIG[event.state]
+            const config = STATE_CONFIG[event.state] ?? STATE_CONFIG.alone
             const active = selectedId === event.id
 
             return (

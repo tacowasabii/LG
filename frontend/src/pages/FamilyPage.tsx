@@ -250,8 +250,9 @@ export default function FamilyPage() {
                   className="t-body-sm mt-6 pt-5"
                   style={{ borderTop: '1px solid var(--border)' }}
                 >
-                  확인해 준 사건 {selectedInfo.verified_count}건 · 올린 기록{' '}
-                  {selectedInfo.asset_count}개 · 남긴 기억 {selectedInfo.memory_count}개
+                  올린 기록 {selectedInfo.asset_count}개 · 남긴 기억{' '}
+                  {selectedInfo.memory_count}개 · 함께 기억한 추억{' '}
+                  {selectedInfo.echo_count}개
                 </p>
                 <p className="t-caption m-0 mt-1.5">
                   {selectedInfo.private_request

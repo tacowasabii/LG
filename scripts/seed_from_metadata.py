@@ -22,7 +22,7 @@ from backend.config import (
     VIDEO_DIR,
 )
 from backend.models.graph_models import (
-    PersonNode, EventNode, PlaceNode, MediaNode, MemoryNode,
+    PersonNode, EventNode, PlaceNode, MediaNode, MemoryNode, MemoryKind,
     Edge, RelationType, RelationCategory, Confidence, SourceType, MediaType,
 )
 from backend.services.graph_manager import graph_manager
@@ -220,19 +220,33 @@ def seed():
     print(f"  ✓ 사진 {photo_count}개 + 영상 {video_count}개")
 
     # === 5. Memories ===
+    # 사건마다 첫 기억을 남긴 사람이 그 추억을 만든 사람이다. kind=author로
+    # 표시해 두면 상세 화면이 "최초 작성자의 기억"을 세울 수 있다
+    # (backend/services/memories.author_memory).
+    authored: set = set()
+
     for mem in memories_data:
+        event_id = mem.get("event_id")
+        first = bool(event_id) and event_id not in authored
+
         memory = MemoryNode(
             id=mem["memory_id"],
             content=mem["content"],
             source_type=SourceType.INTERVIEW,
             contributor_id=mem.get("speaker"),
             confidence=Confidence.CONFIRMED,
+            kind=MemoryKind.AUTHOR if first else MemoryKind.CONTRIBUTION,
         )
         gm.add_memory(memory)
 
+        if first:
+            authored.add(event_id)
+            if mem.get("speaker"):
+                gm.update_node(event_id, {"author_id": mem["speaker"]})
+
         # Memory → Event
-        if mem.get("event_id"):
-            gm.add_edge(Edge(source=mem["memory_id"], target=mem["event_id"], relation=RelationType.ABOUT))
+        if event_id:
+            gm.add_edge(Edge(source=mem["memory_id"], target=event_id, relation=RelationType.ABOUT))
 
         # Person → Memory (REMEMBERS)
         if mem.get("speaker"):

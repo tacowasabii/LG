@@ -8,8 +8,8 @@
   1. 없는 사람을 만들지 않는다. 그래프에 이미 있는 인물·장소에만 잇는다 —
      "큰엄마"가 누구인지는 가족만 안다.
   2. 있는 값을 덮어쓰지 않는다. 비어 있는 자리(날짜 없음·장소 없음)만 채운다.
-  3. 이렇게 넣은 것은 추정이다. ai_inferred로 표시해 확인 목록에 올린다.
-     가족이 "맞음"을 누르는 순간에만 사실이 된다.
+  3. 이렇게 넣은 것은 추정이다. ai_inferred로 표시해 어디까지가 AI가 채운
+     것인지 데이터가 알고 있게 한다. 가족이 고칠 때 사람이 쓴 값으로 바뀐다.
 """
 
 from __future__ import annotations
@@ -24,7 +24,7 @@ from backend.models.graph_models import (
     MemoryNode, Edge, RelationType, SourceType, Confidence, NodeType,
 )
 from backend.services.graph_manager import graph_manager
-from backend.services.gap_detector import detect_gaps
+from backend.services.question_picker import pick_target
 
 
 # 인터뷰 세션 저장 (MVP: in-memory)
@@ -49,7 +49,7 @@ async def start_interview(target_type: str = "auto", target_id: Optional[str] = 
     """인터뷰 세션 시작
 
     target_type: "event" | "media" | "auto"
-    - auto: Gap이 있는 이벤트를 자동 선택
+    - auto: 아직 덜 채워진 사건을 하나 골라 묻는다
     """
     session_id = str(uuid.uuid4())
 
@@ -63,14 +63,11 @@ async def start_interview(target_type: str = "auto", target_id: Optional[str] = 
         target_node = graph_manager.get_node(target_id)
 
     if not target_node and target_type == "auto":
-        # Gap이 있는 이벤트 자동 선택
-        gaps = detect_gaps()
-        if gaps:
-            gap = gaps[0]
-            if gap.get("event_id"):
-                target_node = graph_manager.get_node(gap["event_id"])
-            contributor_id = gap.get("target_person_id")
-            contributor_name = gap.get("target_person")
+        # 물어볼 사건을 하나 고른다 (목록을 만들지 않는다 — question_picker)
+        target = pick_target()
+        target_node = target.get("event")
+        contributor_id = target.get("person_id")
+        contributor_name = target.get("person_name")
 
     # 타겟 정보 구성
     context = _build_interview_context(target_node, contributor_name)
@@ -483,7 +480,7 @@ def link_extracted(
                 source=person_id,
                 target=event_id,
                 relation=RelationType.PARTICIPATED_IN,
-                # 추정임을 엣지에 남긴다. 확인 화면이 이걸 보고 물어볼 수 있다.
+                # 추정임을 엣지에 남긴다. 화면이 AI가 채운 값이라고 밝힐 수 있다.
                 properties={
                     "role": "참여자",
                     "confidence": Confidence.AI_INFERRED,
