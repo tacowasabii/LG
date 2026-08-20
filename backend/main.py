@@ -11,6 +11,7 @@ from backend.config import (
     MEDIA_DIR,
     STATE_DIR,
 )
+from backend.services import llm_client
 from backend.services.graph_manager import graph_manager
 from backend.routers import (
     media, graph, chat, interview, memories, tv, film, trust, family, export,
@@ -71,6 +72,14 @@ async def health_check():
         "store": "postgres" if type(graph_manager).__name__ == "PostgresGraphStore" else "json",
         "state_dir": str(STATE_DIR),
         "media_dir_exists": MEDIA_DIR.exists(),
+        # 용도별로 어디를 부르는지. 키가 없으면 "off"이고, 그때 답변은 모델 없이
+        # 규칙으로 만들어진다 — 화면은 정상으로 보이므로 밖에서 구분이 필요하다.
+        "llm": {
+            purpose or "answer": (
+                llm_client.provider_for(purpose) if llm_client.is_enabled(purpose) else "off"
+            )
+            for purpose in (None, "plan", "extract")
+        },
         "booted_at": BOOTED_AT.isoformat(),
         "uptime_sec": round((datetime.now(timezone.utc) - BOOTED_AT).total_seconds(), 1),
     }
