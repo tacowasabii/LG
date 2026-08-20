@@ -1,6 +1,6 @@
 import { useState, useRef, useEffect } from 'react'
 import { Link } from 'react-router-dom'
-import { sendChat, ChatResponse, ChatSource, EventListItem, mediaUrl } from '../lib/api'
+import { sendChat, streamChat, ChatResponse, ChatSource, EventListItem, mediaUrl } from '../lib/api'
 import RichText from '../components/RichText'
 import EvidenceCard from '../components/EvidenceCard'
 import AudioClip from '../components/AudioClip'
@@ -34,8 +34,26 @@ interface Message {
   /** 실제 모델이 답했는가 (false면 대체 문장) */
   llmUsed?: boolean
   model?: string | null
+  provider?: string | null
   /** 질문 자체를 들고 있어야 후속 액션(기억 남기기)에 문맥을 넘길 수 있다 */
   query?: string
+  /** 아직 글자가 흘러들어오는 중. 근거 뱃지와 후속 액션은 끝난 뒤에 붙인다 */
+  streaming?: boolean
+}
+
+/**
+ * 답변을 쓴 곳을 사람이 읽을 이름으로.
+ *
+ * 모델 id만으로는 구분할 수 없다 — Friendli는 전용 엔드포인트 id(depe675tjc2rcpo)가
+ * 모델 이름 자리에 오기 때문이다. 그래서 서버가 provider를 함께 내려준다.
+ */
+function modelLabel(provider?: string | null, model?: string | null): string {
+  if (provider === 'friendli') return 'EXAONE · FriendliAI'
+  if (provider === 'bedrock') return 'Claude Haiku 4.5 · Bedrock'
+  if (provider === 'exaone') {
+    return model?.includes('instant') ? 'EXAONE' : 'EXAONE · 추론 모드'
+  }
+  return model || '모델'
 }
 
 /** 백엔드가 내려주는 신뢰도 값을 사용자가 읽을 문장으로 바꾼다 */
@@ -140,26 +158,60 @@ export default function ChatPage() {
     setMessages((prev) => [...prev, { role: 'user', content: query }])
     setLoading(true)
 
+    /** 답변 자리를 미리 만든다. 여기에 글자를 이어 붙인다 */
+    let slot = -1
+    const openSlot = () => {
+      setMessages((prev) => {
+        slot = prev.length
+        return [...prev, { role: 'assistant', content: '', query, streaming: true }]
+      })
+    }
+    const patch = (change: Partial<Message>) => {
+      setMessages((prev) => prev.map((m, i) => (i === slot ? { ...m, ...change } : m)))
+    }
+
     try {
-      const result: ChatResponse = await sendChat(query, conversationId)
+      openSlot()
+      const result = await streamChat(query, conversationId, {
+        // 근거는 모델이 답을 쓰기 전에 이미 정해져 있다. 먼저 붙여두면
+        // 글자가 흐르는 동안 사용자가 무엇을 근거로 답하는지 볼 수 있다.
+        onMeta: (meta) => patch({ sources: meta.sources, confidence: meta.confidence }),
+        onDelta: (piece) =>
+          setMessages((prev) =>
+            prev.map((m, i) => (i === slot ? { ...m, content: m.content + piece } : m)),
+          ),
+      })
       setConversationId(result.conversation_id ?? undefined)
-      setMessages((prev) => [
-        ...prev,
-        {
-          role: 'assistant',
+      patch({
+        content: result.answer,
+        sources: result.sources,
+        confidence: result.confidence,
+        llmUsed: result.llm_used,
+        model: result.model,
+        provider: result.provider,
+        streaming: false,
+      })
+    } catch (e) {
+      // 스트리밍이 막힌 환경(프록시가 버퍼링하거나 응답을 끊는 경우)에서는
+      // 한 번에 받는 경로로 되돌린다. 답을 못 보여주는 것보다 낫다.
+      try {
+        const result: ChatResponse = await sendChat(query, conversationId)
+        setConversationId(result.conversation_id ?? undefined)
+        patch({
           content: result.answer,
           sources: result.sources,
           confidence: result.confidence,
           llmUsed: result.llm_used,
           model: result.model,
-          query,
-        },
-      ])
-    } catch (e) {
-      setMessages((prev) => [
-        ...prev,
-        { role: 'assistant', content: '답변을 생성하지 못했습니다. 다시 시도해 주세요.' },
-      ])
+          provider: result.provider,
+          streaming: false,
+        })
+      } catch {
+        patch({
+          content: '답변을 생성하지 못했습니다. 다시 시도해 주세요.',
+          streaming: false,
+        })
+      }
     } finally {
       setLoading(false)
     }
@@ -281,13 +333,13 @@ export default function ChatPage() {
                 */}
                 {!isUser && msg.llmUsed === false && (
                   <p className="t-caption m-0 ml-0.5 mt-1" style={{ color: 'var(--critical-ink)' }}>
-                    모델을 부르지 못해 미리 준비된 문장으로 답했습니다 — EXAONE_API_KEY와
-                    네트워크를 확인하세요.
+                    모델을 부르지 못해 미리 준비된 문장으로 답했습니다 — 서버의 LLM
+                    설정(제공자 자격증명)과 네트워크를 확인하세요.
                   </p>
                 )}
-                {!isUser && msg.llmUsed && msg.model && (
+                {!isUser && msg.llmUsed && msg.model && !msg.streaming && (
                   <p className="t-caption m-0 ml-0.5 mt-1 text-ink-300">
-                    {msg.model.includes('instant') ? 'EXAONE' : 'EXAONE · 추론 모드'}가 썼습니다
+                    {modelLabel(msg.provider, msg.model)}가 썼습니다
                   </p>
                 )}
 
@@ -333,18 +385,21 @@ export default function ChatPage() {
           )
         })}
 
-        {loading && (
+        {/*
+          글자가 흐르기 시작하면 이 표시는 사라진다. 스트리밍이라 답변 자체가
+          진행 상황이고, 둘을 같이 두면 화면이 두 번 말하는 셈이 된다.
+        */}
+        {loading && !messages[messages.length - 1]?.content && (
           <div>
             <p className="t-caption m-0">
               {waited < 3
                 ? '질문을 인물·장소·시점 조건으로 바꾸는 중…'
-                : '그래프에서 근거를 찾아 답을 쓰는 중…'}
+                : '그래프에서 근거를 찾는 중…'}
               {waited > 0 && ` · ${waited}초`}
             </p>
             {waited >= 8 && (
               <p className="t-caption m-0 mt-1 text-ink-300">
-                추론 모드라 20~30초 걸립니다. 빠르게 보려면 서버 설정에서
-                EXAONE_ENABLE_THINKING을 끄면 됩니다.
+                근거를 찾은 뒤 답을 쓰기 시작합니다. 첫 문장이 나오면 이어서 보입니다.
               </p>
             )}
           </div>

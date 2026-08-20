@@ -13,6 +13,10 @@ DATA_DIR = BASE_DIR / "data"
 METADATA_DIR = DATA_DIR / "metadata"
 PHOTOS_DIR = DATA_DIR / "photos"
 VIDEO_DIR = DATA_DIR / "video"
+# 사진에서 미리 만들어 둔 미세 모션 클립 (scripts/build_motion_covers.py).
+# 사진과 같이 읽기 전용 자산이다 — 시드가 MEDIA_DIR/motion으로 복사한다.
+MOTION_DIR = DATA_DIR / "motion"
+MOTION_MANIFEST_FILE = MOTION_DIR / "manifest.json"
 PROFILES_DIR = DATA_DIR / "profiles"
 GOLDSET_FILE = DATA_DIR / "goldset.json"
 SAMPLE_DIR = DATA_DIR / "sample"

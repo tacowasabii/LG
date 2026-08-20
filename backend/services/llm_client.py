@@ -32,8 +32,9 @@ from __future__ import annotations
 import asyncio
 import json
 import re
+from contextlib import aclosing
 from functools import lru_cache
-from typing import Optional
+from typing import AsyncIterator, Optional
 
 from langchain_openai import ChatOpenAI
 
@@ -480,6 +481,147 @@ async def _invoke(
             _bedrock_invoke, messages, max_tokens, 0.0 if temperature is None else temperature
         )
     return await _exaone_invoke(messages, max_tokens, model, thinking, temperature)
+
+
+class _ThinkingStripper:
+    """스트림에서 추론 블록을 걷어낸다
+
+    한 번에 받는 응답은 strip_thinking()으로 정규식 한 번에 처리하면 된다.
+    스트리밍은 그럴 수 없다 — 태그가 청크 경계에 걸쳐 온다("<thi" 다음 청크에 "nk>").
+    그래서 지금 내보내도 안전한 부분만 내보내고, 태그의 앞부분일 수 있는 꼬리는
+    다음 청크까지 들고 있는다.
+    """
+
+    _OPEN = ("<think>", "<thought>")
+    _CLOSE = ("</think>", "</thought>")
+    # 가장 긴 태그에서 한 글자 뺀 길이. 이만큼은 태그 조각일 수 있어 보류한다.
+    _HOLD = max(len(tag) for tag in _OPEN + _CLOSE) - 1
+
+    def __init__(self) -> None:
+        self._buf = ""
+        self._inside = False
+
+    @staticmethod
+    def _find(text: str, tags: tuple) -> tuple:
+        best, found = -1, ""
+        for tag in tags:
+            i = text.find(tag)
+            if i != -1 and (best == -1 or i < best):
+                best, found = i, tag
+        return best, found
+
+    def _tail_len(self, text: str) -> int:
+        """뒤쪽 몇 글자가 태그의 앞부분일 수 있는지"""
+        for n in range(min(len(text), self._HOLD), 0, -1):
+            if any(tag.startswith(text[-n:]) for tag in self._OPEN):
+                return n
+        return 0
+
+    def feed(self, chunk: str) -> str:
+        """청크를 넣고, 화면에 내보낼 수 있는 부분을 돌려준다"""
+        self._buf += chunk
+        out = []
+        while True:
+            if self._inside:
+                i, tag = self._find(self._buf, self._CLOSE)
+                if i == -1:
+                    # 아직 닫히지 않았다. 내용은 버리고 태그 조각만 남긴다.
+                    self._buf = self._buf[-self._HOLD :]
+                    break
+                self._buf = self._buf[i + len(tag) :]
+                self._inside = False
+                continue
+
+            i, tag = self._find(self._buf, self._OPEN)
+            if i == -1:
+                keep = self._tail_len(self._buf)
+                cut = len(self._buf) - keep
+                out.append(self._buf[:cut])
+                self._buf = self._buf[cut:]
+                break
+            out.append(self._buf[:i])
+            self._buf = self._buf[i + len(tag) :]
+            self._inside = True
+        return "".join(out)
+
+    def flush(self) -> str:
+        """스트림이 끝났을 때 남은 것 (열린 추론 블록 안이면 버린다)"""
+        if self._inside:
+            return ""
+        rest, self._buf = self._buf, ""
+        return rest
+
+
+async def stream(
+    messages: list[dict],
+    max_tokens: int,
+    model: Optional[str] = None,
+    thinking: Optional[bool] = None,
+    temperature: Optional[float] = None,
+    purpose: Optional[str] = None,
+) -> AsyncIterator[str]:
+    """토큰을 받는 대로 흘려보낸다
+
+    complete()와 같은 제공자 사슬을 쓰지만 폴백 규칙이 하나 다르다. 첫 글자가
+    나가기 전에 실패하면 다음 제공자로 넘어가고, 이미 흘려보낸 뒤에 끊기면
+    거기서 끝낸다 — 화면에 쓰인 문장을 되돌릴 수는 없다.
+
+    Bedrock은 스트리밍을 붙이지 않았다. 한 번에 받아 한 조각으로 내보낸다
+    (답변 제공자는 배포에서 Friendli이고, Bedrock은 계획·추출용이다).
+    """
+    preferred = provider_for(purpose)
+
+    for provider in [preferred] + [p for p in _FALLBACK_ORDER if p != preferred]:
+        if not _provider_available(provider):
+            continue
+
+        emitted = False
+        stripper = _ThinkingStripper()
+        try:
+            if provider == "bedrock":
+                text = await _invoke(provider, messages, max_tokens, model, thinking, temperature)
+                if text:
+                    emitted = True
+                    yield text
+            else:
+                llm = (
+                    get_friendli_model(max_tokens, temperature)
+                    if provider == "friendli"
+                    else get_chat_model(
+                        model=model,
+                        max_tokens=max_tokens,
+                        thinking=thinking,
+                        temperature=temperature,
+                    )
+                )
+                # aclosing으로 감싸는 이유: 이걸 빼면 HTTP 응답이 GC 시점까지
+                # 열려 있어, 스트림이 중간에 끊길 때 "generator didn't stop"
+                # 경고가 로그를 덮는다. 클라이언트가 창을 닫는 것은 정상 상황이다.
+                async with aclosing(llm.astream(messages)) as parts:
+                    async for part in parts:
+                        piece = part.content if isinstance(part.content, str) else ""
+                        if not piece:
+                            continue
+                        visible = stripper.feed(piece)
+                        if visible:
+                            emitted = True
+                            yield visible
+                tail = stripper.flush()
+                if tail:
+                    emitted = True
+                    yield tail
+        except Exception as e:
+            print(
+                f"[{provider}] 스트리밍 실패 ({type(e).__name__}: {str(e)[:160]})",
+                flush=True,
+            )
+            if emitted:
+                return
+            continue
+
+        if emitted:
+            return
+        print(f"[LLM] {provider} 스트리밍 본문 없음 → 다음 제공자", flush=True)
 
 
 async def complete(

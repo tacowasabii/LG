@@ -257,6 +257,9 @@ class ChatResponse(BaseModel):
     llm_used: bool = True
     # 어떤 모델이었는지 (폴백이면 None)
     model: Optional[str] = None
+    # 어디로 갔는지: exaone(사내망) · friendli · bedrock. 모델 id만으로는 구분이
+    # 안 된다 — Friendli는 전용 엔드포인트 id가 모델 이름 자리에 오기 때문이다.
+    provider: Optional[str] = None
 
 
 # --- Interview ---
@@ -420,6 +423,12 @@ class FilmScene(BaseModel):
     source_label: str
     # 적용된 AI 효과. 빈 배열이면 원본 그대로다. 화면은 이 목록을 반드시 노출한다.
     ai_effects: list[str] = []
+    # 화면이 사진에 걸 카메라 움직임 (zoom-in | pan-left | zoom-out | pan-right).
+    # None이면 아무것도 걸지 않는다 — 원본 영상이거나, 아래 클립을 재생하는 장면이다.
+    # 무엇을 걸지는 서버만 정한다. 화면이 따로 고르면 ai_effects와 어긋난다.
+    motion: Optional[str] = None
+    # 미리 만들어 둔 미세 모션 클립. 있으면 사진 대신 이것을 재생한다.
+    motion_url: Optional[str] = None
     # 이 장면에 깔리는 실제 가족 음성
     voice_id: Optional[str] = None
 

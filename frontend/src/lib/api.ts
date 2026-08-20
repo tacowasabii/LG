@@ -412,6 +412,8 @@ export interface ChatResponse {
   llm_used: boolean;
   /** 어떤 모델이었는지 (폴백이면 null) */
   model?: string | null;
+  /** 어디로 갔는지: exaone(사내망) · friendli · bedrock */
+  provider?: string | null;
 }
 
 export async function sendChat(query: string, conversationId?: string): Promise<ChatResponse> {
@@ -423,6 +425,77 @@ export async function sendChat(query: string, conversationId?: string): Promise<
       viewer_id: viewerId,
     }),
   });
+}
+
+/** 스트리밍 중에 화면이 쓰는 조각들 */
+export interface ChatStreamHandlers {
+  /** 근거·신뢰도는 모델을 부르기 전에 정해지므로 먼저 온다 */
+  onMeta?: (meta: { conversation_id?: string | null; sources: ChatSource[]; confidence: string }) => void;
+  /** 답변 조각. 받는 대로 이어 붙인다 */
+  onDelta?: (text: string) => void;
+}
+
+/**
+ * 답변을 토큰 단위로 받는다 (SSE).
+ *
+ * EventSource는 GET만 되고 헤더도 못 붙여서 fetch 스트림을 직접 읽는다.
+ * 실패하면 예외를 던지므로 호출부가 sendChat으로 되돌릴 수 있다.
+ */
+export async function streamChat(
+  query: string,
+  conversationId: string | undefined,
+  handlers: ChatStreamHandlers,
+): Promise<ChatResponse> {
+  const response = await fetch(`${BASE_URL}/chat/stream`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      ...(viewerId ? { 'X-Viewer-Id': viewerId } : {}),
+    },
+    body: JSON.stringify({ query, conversation_id: conversationId, viewer_id: viewerId }),
+  });
+
+  if (!response.ok || !response.body) {
+    throw new Error(`스트리밍 실패: ${response.status}`);
+  }
+
+  const reader = response.body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = '';
+  let done: ChatResponse | null = null;
+
+  // SSE는 빈 줄로 프레임을 구분한다. 청크가 프레임 중간에서 끊기므로
+  // 완성된 프레임만 꺼내 쓰고 나머지는 버퍼에 남긴다.
+  const handleFrame = (frame: string) => {
+    let event = 'message';
+    const dataLines: string[] = [];
+    for (const line of frame.split('\n')) {
+      if (line.startsWith('event: ')) event = line.slice(7).trim();
+      else if (line.startsWith('data: ')) dataLines.push(line.slice(6));
+    }
+    if (dataLines.length === 0) return;
+    const payload = JSON.parse(dataLines.join('\n'));
+
+    if (event === 'meta') handlers.onMeta?.(payload);
+    else if (event === 'delta') handlers.onDelta?.(payload.text);
+    else if (event === 'done') done = payload as ChatResponse;
+  };
+
+  for (;;) {
+    const { value, done: finished } = await reader.read();
+    if (finished) break;
+    buffer += decoder.decode(value, { stream: true });
+    let split = buffer.indexOf('\n\n');
+    while (split !== -1) {
+      handleFrame(buffer.slice(0, split));
+      buffer = buffer.slice(split + 2);
+      split = buffer.indexOf('\n\n');
+    }
+  }
+  if (buffer.trim()) handleFrame(buffer);
+
+  if (!done) throw new Error('스트림이 done 없이 끝났습니다');
+  return done;
 }
 
 // --- Interview ---
@@ -657,6 +730,13 @@ export interface FilmScene {
   source_label: string;
   /** 적용된 AI 효과. 빈 배열이면 원본 그대로 — 화면은 이걸 감추지 않는다 */
   ai_effects: string[];
+  /**
+   * 사진에 걸 카메라 움직임. 서버가 정한다 (film_composer.CAMERA_MOTIONS).
+   * 화면이 따로 고르면 ai_effects에 적힌 것과 어긋난다.
+   */
+  motion?: 'zoom-in' | 'pan-left' | 'zoom-out' | 'pan-right' | null;
+  /** 미리 만들어 둔 미세 모션 클립. 있으면 사진 대신 이걸 재생한다 */
+  motion_url?: string | null;
   voice_id?: string | null;
 }
 

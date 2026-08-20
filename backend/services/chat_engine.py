@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import uuid
 from datetime import date
-from typing import Optional
+from typing import AsyncIterator, Optional
 
 from backend.services import chat_graph, graph_search, llm_client, memories, visibility
 from backend.services.graph_manager import graph_manager
@@ -47,13 +47,24 @@ async def process_chat(
     2. 검색 결과를 컨텍스트로 EXAONE에 전달
     3. 답변 생성 + 소스 연결 + 신뢰도 판정
     """
-    # 대화 세션 관리
+    prep = await _prepare(query, conversation_id, viewer_id)
+
+    # 2. 모델 호출
+    answer, llm_used = await _call_exaone(prep["messages"], prep["search_results"])
+
+    return _finish(query, answer, llm_used, prep)
+
+
+async def _prepare(
+    query: str, conversation_id: Optional[str], viewer_id: Optional[str]
+) -> dict:
+    """모델을 부르기 전까지 (세션·검색·프롬프트). 한 번에 받는 경로와 스트리밍이 공유한다."""
     if not conversation_id:
         conversation_id = str(uuid.uuid4())
     if conversation_id not in _conversations:
         _conversations[conversation_id] = []
 
-    # 1. 질의 계획 + 검색 (LangGraph). 실패해도 규칙 기반 결과가 돌아온다.
+    # 질의 계획 + 검색 (LangGraph). 실패해도 규칙 기반 결과가 돌아온다.
     plan_state = await chat_graph.run(query)
     # 볼 수 없는 원본은 근거로도 쓰지 않는다. 뱃지에서만 감추면 LLM이 본문에서
     # 그 사진의 장면 설명을 말해 버린다 (기획안 08장 Asset 권한).
@@ -61,21 +72,25 @@ async def process_chat(
     missing_entities = plan_state["missing_entities"]
     context_text = _format_search_results(search_results)
 
-    # 2. EXAONE 호출
-    messages = _build_messages(query, context_text, conversation_id, missing_entities)
-    answer, llm_used = await _call_exaone(messages, search_results)
+    return {
+        "conversation_id": conversation_id,
+        "search_results": search_results,
+        "missing_entities": missing_entities,
+        "messages": _build_messages(query, context_text, conversation_id, missing_entities),
+    }
 
-    # 3. 대화 히스토리 저장
+
+def _finish(query: str, answer: str, llm_used: bool, prep: dict) -> dict:
+    """대화 저장 + 근거·신뢰도 판정"""
+    conversation_id = prep["conversation_id"]
     _conversations[conversation_id].append({"role": "user", "content": query})
     _conversations[conversation_id].append({"role": "assistant", "content": answer})
 
-    # 4. 소스 추출
-    sources = _extract_sources(search_results)
+    sources = _extract_sources(prep["search_results"])
 
-    # 5. 신뢰도 판정
-    #    근거가 있어도 질문이 지목한 대상이 그래프에 없으면 "확인된 기록"이 아니다.
-    #    '런던 여행'을 물었을 때 부산·제주 기록이 잡혀도 confirmed로 표시하면 안 된다.
-    confidence = "confirmed" if sources and not missing_entities else "ai_inferred"
+    # 근거가 있어도 질문이 지목한 대상이 그래프에 없으면 "확인된 기록"이 아니다.
+    # '런던 여행'을 물었을 때 부산·제주 기록이 잡혀도 confirmed로 표시하면 안 된다.
+    confidence = "confirmed" if sources and not prep["missing_entities"] else "ai_inferred"
 
     return {
         "answer": answer,
@@ -84,8 +99,63 @@ async def process_chat(
         "conversation_id": conversation_id,
         # 이 답변을 실제 모델이 썼는지. 폴백이면 화면이 그렇게 밝힌다.
         "llm_used": llm_used,
-        # 어느 모델이 답했는지. 배포는 Bedrock, 사내망은 EXAONE이라 고정할 수 없다.
+        # 어느 모델이 답했는지. 배포는 Friendli, 사내망은 EXAONE이라 고정할 수 없다.
         "model": llm_client.model_for() if llm_used else None,
+        "provider": llm_client.provider_for(None) if llm_used else None,
+    }
+
+
+async def process_chat_stream(
+    query: str,
+    conversation_id: Optional[str] = None,
+    viewer_id: Optional[str] = None,
+) -> AsyncIterator[dict]:
+    """process_chat과 같은 일을 하되 답변을 토큰 단위로 흘려보낸다
+
+    답변 전체를 기다리면 화면이 10~20초 비어 있다. 근거(사진·사건)는 모델을 부르기
+    전에 이미 정해지므로 먼저 보내고, 그다음 문장을 이어 보낸다.
+
+    yield 형태:
+        {"type": "meta",  ...근거·신뢰도·대화 id}
+        {"type": "delta", "text": "..."}      (여러 번)
+        {"type": "done",  ...최종 페이로드}
+    """
+    prep = await _prepare(query, conversation_id, viewer_id)
+    sources = _extract_sources(prep["search_results"])
+
+    yield {
+        "type": "meta",
+        "conversation_id": prep["conversation_id"],
+        "sources": [s.model_dump() if hasattr(s, "model_dump") else s for s in sources],
+        "confidence": (
+            "confirmed" if sources and not prep["missing_entities"] else "ai_inferred"
+        ),
+    }
+
+    chunks: list[str] = []
+    async for piece in llm_client.stream(prep["messages"], max_tokens=1024):
+        chunks.append(piece)
+        yield {"type": "delta", "text": piece}
+
+    if chunks:
+        answer, llm_used = "".join(chunks), True
+    else:
+        # 모델을 못 쓴 경우. 규칙 기반 답변을 한 조각으로 보낸다.
+        answer, llm_used = _simulate_response(prep["search_results"]), False
+        yield {"type": "delta", "text": answer}
+
+    payload = _finish(query, answer, llm_used, prep)
+    yield {
+        "type": "done",
+        "answer": payload["answer"],
+        "sources": [
+            s.model_dump() if hasattr(s, "model_dump") else s for s in payload["sources"]
+        ],
+        "confidence": payload["confidence"],
+        "conversation_id": payload["conversation_id"],
+        "llm_used": payload["llm_used"],
+        "model": payload["model"],
+        "provider": payload["provider"],
     }
 
 
