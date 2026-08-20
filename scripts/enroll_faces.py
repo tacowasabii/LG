@@ -8,15 +8,22 @@
 얼굴 인식이 동작하려면 "이 얼굴이 이 사람"이라는 참조가 먼저 있어야 한다. 그런데
 그래프에는 사진마다 "누가 있다"만 있고 어느 얼굴이 누구인지는 없다.
 
-그 대응을 **나이로** 만든다. 사진의 촬영 연도와 인물의 birth_year로 각자 그때 몇
-살이었는지 계산하고, Rekognition이 추정한 얼굴 나이와 순서를 맞춘다. 검출된 얼굴
-수와 태그된 인물 수가 같고 나이 순서가 어긋나지 않는 사진만 쓴다.
+그 대응을 **성별과 나이로** 만든다. 호칭에서 성별을 읽어 사람을 나누고, 같은 성별
+안에서 촬영 연도 - birth_year로 계산한 나이 순서를 Rekognition 추정 나이 순서와
+맞춘다.
 
     E03_003 (2006년)
-      실제 나이  6세 아들 · 10세 딸 · 33세 엄마 · 36세 아빠
-      추정 나이  2-6 · 8-14 · 33-41 · 41-49      -> 순서가 그대로 맞는다
+      남자  6세 아들 · 36세 아빠      추정 2-6 · 41-49
+      여자  10세 딸 · 33세 엄마       추정 8-14 · 33-41    -> 순서가 그대로 맞는다
 
-이 방법이 통하지 않는 사진(얼굴 수가 다르거나 나이가 겹치는 경우)은 건너뛴다.
+**나이만으로 맞추면 안 된다.** 처음에 성별을 빼고 3년 간격만 보게 했더니 2010년
+사진에서 아빠(40세)와 엄마(37세)가 뒤집혀 등록됐다. 그 뒤 두 사람이 서로 100점으로
+나와서, 1·2등 격차가 0이 되어 인식이 통째로 애매해졌다 — 맞춤 22 / 놓침 17이었다.
+Rekognition의 어른 나이 추정 오차가 ±5~8년이라 3년 차이는 가릴 수 없다.
+
+그래서 성별로 먼저 나누고, 같은 성별 안에서는 8년 이상 벌어져 있을 때만 쓴다.
+얼굴 수가 태그 수와 다르거나 검출된 성별 구성이 태그와 다른 사진은 건너뛴다.
+
 한 사람에게 한 장만 있으면 다른 나이대에서 못 맞추므로, 되는 사진은 모두 등록해
 연령대를 넓힌다.
 
@@ -38,8 +45,27 @@ from backend.models.graph_models import MediaType  # noqa: E402
 from backend.services import faces  # noqa: E402
 from backend.services.graph_manager import graph_manager  # noqa: E402
 
-# 두 사람의 나이가 이보다 가까우면 순서를 믿지 않는다 (쌍둥이·연년생)
-MIN_AGE_GAP = 3
+# 같은 성별 안에서 나이가 이보다 가까우면 순서를 믿지 않는다.
+#
+# 실측: 3년으로 두었더니 2010년 사진의 아빠(40세)와 엄마(37세)가 뒤집혀 등록됐고,
+# 그 뒤 두 사람이 서로 100점으로 나와 인식이 통째로 애매해졌다. Rekognition의
+# 어른 나이 추정 오차는 ±5~8년이라 3년 차이는 가릴 수 없다.
+MIN_AGE_GAP = 8
+
+# 호칭에서 성별을 읽는다. 나이만으로 순서를 매기면 부부가 뒤집힌다.
+# 판정에는 쓰지 않는다 — 등록할 때 짝을 맞추는 데만 쓴다.
+MALE_TERMS = ("아빠", "아버지", "아들", "할아버지", "오빠", "형", "남동생", "손자", "삼촌")
+FEMALE_TERMS = ("엄마", "어머니", "딸", "할머니", "누나", "언니", "여동생", "손녀", "이모", "고모")
+
+
+def expected_gender(person: dict) -> str | None:
+    """호칭으로 성별을 추정한다 (모르면 None)"""
+    relation = person.get("relation") or ""
+    if any(t in relation for t in MALE_TERMS):
+        return "Male"
+    if any(t in relation for t in FEMALE_TERMS):
+        return "Female"
+    return None
 
 
 def capture_year(media: dict) -> int | None:
@@ -64,18 +90,21 @@ def plan_photo(media: dict, persons: dict) -> list[tuple[str, dict]] | None:
     if not year:
         return None
 
-    ages = []
+    # 성별로 먼저 나누고, 그 안에서 나이 순으로 맞춘다.
+    # 성별을 모르는 사람이 있으면 이 사진을 쓰지 않는다 (뒤집힐 수 있다).
+    groups: dict[str, list[tuple[int, str]]] = {}
     for pid in tagged:
         birth = persons[pid].get("birth_year")
-        if not birth:
+        sex = expected_gender(persons[pid])
+        if not birth or not sex:
             return None
-        ages.append((year - int(birth), pid))
-    ages.sort()
+        groups.setdefault(sex, []).append((year - int(birth), pid))
 
-    # 나이가 붙어 있으면 순서를 믿을 수 없다
-    for i in range(len(ages) - 1):
-        if ages[i + 1][0] - ages[i][0] < MIN_AGE_GAP:
-            return None
+    for people in groups.values():
+        people.sort()
+        for i in range(len(people) - 1):
+            if people[i + 1][0] - people[i][0] < MIN_AGE_GAP:
+                return None
 
     image = faces.load_media_image(media.get("file_path", ""))
     if image is None:
@@ -85,20 +114,23 @@ def plan_photo(media: dict, persons: dict) -> list[tuple[str, dict]] | None:
     usable = [
         f for f in detected
         if min(faces.crop_face(image, f["box"]).size) >= faces.MIN_FACE_PX
-        and f["age_low"] is not None
+        and f["age_low"] is not None and f.get("gender")
     ]
-    if len(usable) != len(ages):
+    if len(usable) != len(tagged):
         return None
 
-    # 추정 나이 순으로 세워 실제 나이 순서와 짝짓는다
-    usable.sort(key=lambda f: (f["age_low"] + f["age_high"]) / 2)
-
     pairs = []
-    for (age, pid), face in zip(ages, usable):
-        # 짝지어진 얼굴의 추정 나이가 실제와 너무 어긋나면 이 사진을 버린다
-        if not faces.age_fits(persons[pid], date(year, 7, 1), face["age_low"], face["age_high"]):
-            return None
-        pairs.append((pid, face))
+    for sex, people in groups.items():
+        same = sorted(
+            (f for f in usable if f["gender"] == sex),
+            key=lambda f: (f["age_low"] + f["age_high"]) / 2,
+        )
+        if len(same) != len(people):
+            return None  # 검출된 성별 구성이 태그와 다르다
+        for (age, pid), face in zip(people, same):
+            if not faces.age_fits(persons[pid], date(year, 7, 1), face["age_low"], face["age_high"]):
+                return None
+            pairs.append((pid, face))
     return pairs
 
 

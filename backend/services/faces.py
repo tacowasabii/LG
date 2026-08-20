@@ -26,6 +26,19 @@
      - 1998년 사진의 0~2세 얼굴: 2000년생 아들은 **아직 태어나지 않았다**
      - 2015년 사진의 19~25세 얼굴: 그때 42세인 엄마는 아니다
 
+5. **얼굴 하나만 보고 판정하면 안 된다.** 얼굴별로 "1등과 2등이 붙었으면 비운다"를
+   적용했더니 딸이 여덟 장 중 일곱 장에서 빠졌다 — 100 대 100 동점이었고, 그 상대는
+   이미 다른 얼굴에 확정된 엄마였다. 사진 안에서 이미 정해진 사람은 이 얼굴의
+   경쟁자가 아니다. 사진 전체를 보고 한 번에 배정하니 67% -> 79%가 됐다.
+
+── 실측 정확도 (시드 24장 중 연대별 8장, 등록 48장)
+
+    맞춤 26/33 (79%) · 놓침 7 · **오인 0**
+
+오인이 0인 것이 이 구현의 목표다. 놓치는 것은 사람이 알약을 눌러 채우면 되지만,
+틀린 이름이 붙으면 그것이 공개 범위 판정까지 타고 들어간다. 남은 놓침은 형제
+(같은 나이대) 와 참조가 한 장뿐인 할머니다 — 등록을 더 하면 준다.
+
 ── 지키는 선
 
 **덮어쓰지 않는다.** 사람이 지목한 인물은 그대로 두고, 비어 있는 자리만 채운다.
@@ -134,15 +147,17 @@ def ensure_collection() -> bool:
     """컬렉션이 없으면 만든다. 못 만들면 False"""
     if not enabled():
         return False
-    client = _rekognition()
     try:
         _retry(lambda: _rekognition().create_collection(CollectionId=COLLECTION_ID),
                "컬렉션 만들기")
         print(f"[faces] 컬렉션을 만들었습니다: {COLLECTION_ID}", flush=True)
         return True
-    except client.exceptions.ResourceAlreadyExistsException:
-        return True
     except Exception as e:
+        # 이름으로 잡는다. botocore의 예외 클래스는 클라이언트 인스턴스마다 새로
+        # 만들어져서, _retry가 클라이언트를 갈아 끼우면 isinstance가 어긋난다.
+        # 그 탓에 "이미 있다"가 실패로 읽혀 identify가 통째로 빈 목록을 냈다.
+        if type(e).__name__ == "ResourceAlreadyExistsException":
+            return True
         print(f"[faces] 컬렉션을 준비하지 못했습니다 ({type(e).__name__}: {e})", flush=True)
         return False
 
@@ -238,6 +253,9 @@ def detect_faces(image: Image.Image) -> list[dict]:
             "confidence": item.get("Confidence", 0.0),
             "age_low": age.get("Low"),
             "age_high": age.get("High"),
+            # 등록할 때 짝을 맞추는 데만 쓴다 (scripts/enroll_faces.py).
+            # 인식 판정에는 넣지 않는다 — 틀렸을 때 되짚기 어려운 종류의 실수가 된다.
+            "gender": (item.get("Gender") or {}).get("Value"),
         })
     return sorted(faces, key=lambda f: f["box"]["Left"])
 
@@ -465,6 +483,8 @@ def identify(media: dict) -> list[dict]:
 
     faces = detect_faces(image)
     results: list[dict] = []
+    # 얼굴마다 (사람, 점수) 후보 목록. 배정은 사진 전체를 보고 한 번에 한다.
+    candidates_per_face: list[list[tuple[str, float]]] = []
 
     for face in faces:
         entry = {
@@ -475,59 +495,70 @@ def identify(media: dict) -> list[dict]:
             "similarity": 0.0,
             "reason": "",
         }
+        results.append(entry)
+
         crop = crop_face(image, face["box"])
         if min(crop.size) < MIN_FACE_PX:
             entry["reason"] = "얼굴이 너무 작습니다"
-            results.append(entry)
+            candidates_per_face.append([])
             continue
 
-        candidates = _search(crop)
-        if not candidates:
+        found = _search(crop)
+        if not found:
             entry["reason"] = "등록된 얼굴 중에 없습니다"
-            results.append(entry)
+            candidates_per_face.append([])
             continue
 
         # 나이가 맞지 않는 후보를 뺀다 (태어나기 전 사진 포함)
         fitting = [
-            (pid, sim) for pid, sim in candidates
-            if pid in persons and age_fits(persons[pid], when, face["age_low"], face["age_high"])
+            (pid, sim) for pid, sim in found
+            if pid in persons
+            and sim >= MATCH_THRESHOLD
+            and age_fits(persons[pid], when, face["age_low"], face["age_high"])
         ]
         if not fitting:
             entry["reason"] = "나이가 맞는 후보가 없습니다"
-            results.append(entry)
+        candidates_per_face.append(fitting)
+
+    # 사진 전체를 보고 점수 높은 순으로 배정한다. 한 사람은 한 얼굴에만 붙는다.
+    #
+    # 얼굴마다 따로 "1등과 2등이 붙었으면 비운다"를 적용했더니, 딸이 여덟 장 중
+    # 일곱 장에서 빠졌다 — 100 대 100 동점이었고 그 상대는 **이미 다른 얼굴에
+    # 확정된 엄마**였다. 사진 안에서 이미 정해진 사람을 빼고 보면 동점이 아니다.
+    order = sorted(
+        ((sim, index, pid)
+         for index, cands in enumerate(candidates_per_face)
+         for pid, sim in cands),
+        key=lambda t: -t[0],
+    )
+    taken_person: dict[str, int] = {}
+    for sim, index, pid in order:
+        if results[index]["person_id"] or pid in taken_person:
             continue
+        results[index]["person_id"] = pid
+        results[index]["similarity"] = round(sim, 1)
+        taken_person[pid] = index
 
-        top_id, top_sim = fitting[0]
-        runner_sim = fitting[1][1] if len(fitting) > 1 else 0.0
-
-        if top_sim < MATCH_THRESHOLD:
-            entry["reason"] = f"닮은 정도가 낮습니다 ({top_sim:.0f}점)"
-        elif top_sim - runner_sim < MIN_MARGIN:
-            # 여기서 넣으면 틀린 이름이 붙는다. 실측에서 아이가 이 구간에 걸렸다.
-            entry["reason"] = f"두 사람이 비슷해 가릴 수 없습니다 ({top_sim:.0f} · {runner_sim:.0f})"
-        else:
-            entry["person_id"] = top_id
-            entry["similarity"] = round(top_sim, 1)
-
-        results.append(entry)
-
-    # 한 사람이 한 사진에서 두 얼굴에 붙지 않게 한다 (점수 높은 쪽만 남긴다)
-    taken: dict[str, int] = {}
+    # 배정한 뒤에 애매함을 다시 본다. 이번에는 **남은 후보**와만 견준다 —
+    # 다른 얼굴이 가져간 사람은 이 얼굴의 경쟁자가 아니다.
     for index, entry in enumerate(results):
         pid = entry["person_id"]
         if not pid:
             continue
-        previous = taken.get(pid)
-        if previous is None:
-            taken[pid] = index
-            continue
-        if entry["similarity"] > results[previous]["similarity"]:
-            results[previous]["person_id"] = None
-            results[previous]["reason"] = "같은 사람이 더 잘 맞는 얼굴이 있습니다"
-            taken[pid] = index
-        else:
+        rivals = [
+            sim for other, sim in candidates_per_face[index]
+            if other != pid and taken_person.get(other) in (None, index)
+        ]
+        best_rival = max(rivals) if rivals else 0.0
+        if entry["similarity"] - best_rival < MIN_MARGIN:
+            # 여기서 넣으면 틀린 이름이 붙는다. 비우는 편이 낫다.
+            entry["reason"] = (
+                f"두 사람이 비슷해 가릴 수 없습니다 "
+                f"({entry['similarity']:.0f} · {best_rival:.0f})"
+            )
             entry["person_id"] = None
-            entry["reason"] = "같은 사람이 더 잘 맞는 얼굴이 있습니다"
+            entry["similarity"] = 0.0
+            taken_person.pop(pid, None)
 
     return results
 
