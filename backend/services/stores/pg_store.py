@@ -104,6 +104,9 @@ class PostgresGraphStore(GraphStore):
             min_size=1,
             max_size=5,
             kwargs={"autocommit": True, "row_factory": dict_row},
+            # DB가 재시작하면 풀에 남은 연결은 죽어 있다. 꺼내 줄 때 확인하지
+            # 않으면 재시작 직후 요청들이 OperationalError로 떨어진다.
+            check=ConnectionPool.check_connection,
             open=True,
         )
         # batch() 안에서 쓰는 연결. 스레드마다 따로 둔다 (FastAPI가 sync 핸들러를
@@ -198,7 +201,17 @@ class PostgresGraphStore(GraphStore):
         return self._upsert(node_to_dict(memory))
 
     def update_node(self, node_id: str, updates: dict) -> Optional[dict]:
-        with self._conn() as conn:
+        """노드의 일부 필드를 고친다 (읽고-합치고-쓰기)
+
+        transaction()으로 감싸는 것이 핵심이다. 연결이 autocommit이라 문장 하나가
+        곧 트랜잭션이고, 그러면 SELECT ... FOR UPDATE의 락이 그 문장 끝에서 바로
+        풀린다. 실제로 두 스레드가 같은 노드의 다른 필드를 동시에 고치면 한쪽이
+        사라졌다 (60개 중 54개만 남았다). 트랜잭션 안에서는 UPDATE까지 락이
+        유지되므로 뒤에 온 쪽이 기다렸다가 최신 값을 읽는다.
+
+        batch() 안에서는 이미 트랜잭션이 열려 있어 savepoint가 된다 (중첩 가능).
+        """
+        with self._conn() as conn, conn.transaction():
             row = conn.execute(
                 "SELECT data FROM nodes WHERE id = %s FOR UPDATE", (node_id,)
             ).fetchone()
@@ -312,6 +325,9 @@ class PostgresGraphStore(GraphStore):
                     WHERE target = %(id)s
                       AND (%(rel)s::text IS NULL OR relation = %(rel)s::text)
              )
+             -- 순서를 고정한다. 없으면 사건 썸네일 3장과 TV 재생 순서가
+             -- 호출마다 달라진다 (물리적 저장 순서에 딸려 간다).
+             ORDER BY n.created_at, n.id
         """
         params = {"id": node_id, "rel": _text(relation) if relation else None}
         with self._conn() as conn:
@@ -319,11 +335,23 @@ class PostgresGraphStore(GraphStore):
         return self._rows_to_nodes(rows)
 
     def search_nodes(self, query: str) -> list[dict]:
-        """부분 일치 검색 (JSON 저장소의 동작과 같다)"""
+        """부분 일치 검색 (JSON 저장소의 동작과 같다)
+
+        질의를 그대로 LIKE에 넣으면 사용자가 쓴 %와 _가 와일드카드로 동작한다.
+        "%" 한 글자를 물었을 때 JSON은 0건인데 Postgres는 전체 노드를 돌려줬다 —
+        채팅이 그 결과를 근거로 삼으면 답변이 오염된다. 이스케이프해서 글자 그대로
+        찾는다 (trigram 색인은 LIKE에 그대로 쓰이므로 성능은 그대로다).
+        """
+        escaped = (
+            query.lower()
+            .replace("\\", "\\\\")
+            .replace("%", "\\%")
+            .replace("_", "\\_")
+        )
         with self._conn() as conn:
             rows = conn.execute(
-                "SELECT data FROM nodes WHERE search_text LIKE %s",
-                (f"%{query.lower()}%",),
+                r"SELECT data FROM nodes WHERE search_text LIKE %s ESCAPE '\'",
+                (f"%{escaped}%",),
             ).fetchall()
         return self._rows_to_nodes(rows)
 
@@ -338,6 +366,7 @@ class PostgresGraphStore(GraphStore):
                 SELECT n.data, e.relation
                   FROM edges e JOIN nodes n ON n.id = e.source
                  WHERE e.target = %s
+                 ORDER BY n.created_at, n.id
                 """,
                 (event_id,),
             ).fetchall()
@@ -382,6 +411,7 @@ class PostgresGraphStore(GraphStore):
                 SELECT n.data
                   FROM edges e JOIN nodes n ON n.id = e.target
                  WHERE e.source = %s AND n.node_type = ANY(%s)
+                 ORDER BY n.created_at, n.id
                 """,
                 (person_id, [_text(NodeType.EVENT), _text(NodeType.MEMORY)]),
             ).fetchall()
@@ -390,6 +420,7 @@ class PostgresGraphStore(GraphStore):
                 SELECT n.data
                   FROM edges e JOIN nodes n ON n.id = e.source
                  WHERE e.target = %s AND n.node_type = %s
+                 ORDER BY n.created_at, n.id
                 """,
                 (person_id, _text(NodeType.MEDIA)),
             ).fetchall()

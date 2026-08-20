@@ -185,11 +185,15 @@ python tests/test_chat_graph.py         # 질의 계획 8개
 python tests/test_verification.py       # 가족 확인 9개
 python tests/test_events_and_voice.py   # 사건 요약·음성·화자 귀속 11개
 python tests/test_film.py               # Memory Film 9개
-python tests/test_family_visibility.py  # 가족 공간·공개 범위 14개
+python tests/test_family_visibility.py  # 가족 공간·초대 참여·공개 범위 18개
 python tests/test_permissions.py        # 역할 가드 11개
 
 # 같은 테스트를 Postgres 저장소로도 돌립니다 (구현이 갈리지 않게)
 DATABASE_URL="postgresql://..." python tests/test_verification.py
+
+# Postgres 저장소 자체의 회귀 (검색 이스케이프·동시 쓰기·트랜잭션·순서)
+# 운영 DB를 건드리지 않으려고 별도 변수를 씁니다. 없으면 스스로 건너뜁니다.
+TEST_DATABASE_URL="postgresql://..." python tests/test_store_pg.py   # 8개
 
 # Memory Trust Harness — 정답표로 실제 질의를 돌려 채점
 python scripts/run_trust_harness.py            # 20문항 (LLM 호출, 수 분)
@@ -221,11 +225,15 @@ python scripts/run_trust_harness.py --limit 5  # 앞 5문항만
 | `ALLOWED_ORIGINS` | `https://<내-앱>.vercel.app` | **필수.** 없으면 브라우저가 요청을 막아 화면이 빈 채로 뜹니다 |
 | `EXAONE_API_KEY` | 발급받은 키 | 없으면 채팅·인터뷰·내레이션이 시뮬레이션 문장으로 동작합니다 |
 | `EXAONE_API_URL`, `EXAONE_MODEL` | `.env.example` 참고 | 키를 넣을 때 함께 |
+| `DATABASE_URL` | Postgres 접속 문자열 | 없으면 `graph.json` 한 파일을 씁니다. Railway에서 Postgres를 붙이면 자동 주입됩니다 |
+| `APP_BASE_URL` | `https://<내-앱>.vercel.app` | 초대 링크에 쓰입니다. 없으면 화면이 자기 주소로 링크를 만듭니다 |
 
 Vercel 프리뷰 도메인(커밋마다 바뀜)은 `ALLOWED_ORIGIN_REGEX` 기본값
 (`https://.*\.vercel\.app`)으로 함께 허용됩니다.
 
-빌드가 `scripts/seed_from_metadata.py`를 실행해 그래프를 만듭니다. 배포 후 확인:
+시드는 빌드가 아니라 **시작할 때** 돌아갑니다 (`scripts/docker_start.sh`).
+`--if-empty`라서 저장소가 비어 있을 때만 넣습니다 — 재배포해도 가족이 쌓은 기억을
+지우지 않습니다. 배포 후 확인:
 
 ```
 GET https://<앱>.up.railway.app/api/health   -> {"status":"ok"}
@@ -234,8 +242,26 @@ GET https://<앱>.up.railway.app/api/family   -> 구성원 목록
 
 `/api/family`가 404면 예전 코드가 떠 있는 것입니다.
 
-**주의: 업로드한 사진·녹음과 그래프는 컨테이너 파일시스템에 쌓입니다.**
-볼륨을 붙이지 않으면 재배포할 때 초기화됩니다. 발표 중 녹음한 목소리도 사라집니다.
+#### 데이터를 어디에 둘지 (둘 중 하나는 해야 합니다)
+
+업로드한 사진·녹음과 그래프는 컨테이너 파일시스템에 쌓입니다. 그대로 두면
+재배포할 때 사라집니다 — 발표 중 녹음한 목소리도 함께.
+
+**(a) 볼륨** — Railway에서 Volume을 만들어 **`/app/var`** 에 마운트합니다
+(`STATE_DIR` 기본값). 읽기 전용 자산(`data/metadata`, `data/photos`)은 이미지에
+그대로 있으니 `data/`에 마운트하면 안 됩니다 — 시드 원본이 가려져 빈 화면이 됩니다.
+
+**(b) Postgres** — Railway에서 Postgres를 붙이면 `DATABASE_URL`이 주입되고 그래프가
+DB에 들어갑니다. 파일로 쌓이는 것은 업로드한 미디어뿐이라, 미디어까지 지키려면
+볼륨도 함께 붙입니다.
+
+이미 파일로 쓰던 그래프를 Postgres로 옮기려면:
+
+```bash
+DATABASE_URL="postgresql://..." python scripts/migrate_to_postgres.py
+```
+
+JSON 파일은 그대로 남습니다. `DATABASE_URL`을 지우면 다시 파일로 돌아갑니다.
 
 ### 2. 프론트 (Vercel)
 

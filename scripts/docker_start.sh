@@ -5,19 +5,16 @@
 # 이미지에 구워 둔 파일이 가려지기 때문이다 — 빌드에서 만든 graph.json은
 # 첫 부팅에 사라지고 화면이 빈 채로 뜬다.
 #
-# 이미 그래프가 있으면 건드리지 않는다. 시드 스크립트는 기존 graph.json을 지우고
-# 다시 만들기 때문에, 무조건 돌리면 가족이 쌓은 기억이 배포마다 날아간다.
+# "이미 데이터가 있나"는 파일 존재로 판정하지 않는다. DATABASE_URL이 있으면
+# 그래프는 Postgres에 들어가고 graph.json은 아예 만들어지지 않아서, 파일로
+# 판정하면 매 부팅마다 재시드 -> reset() -> TRUNCATE가 된다. 저장소에 직접
+# 묻도록 판단을 시드 스크립트로 옮겼다 (--if-empty).
 set -e
 
-STATE_DIR="${STATE_DIR:-data}"
-GRAPH_FILE="$STATE_DIR/graph.json"
+python scripts/seed_from_metadata.py --if-empty
 
-if [ -f "$GRAPH_FILE" ]; then
-  echo "[start] 기존 그래프를 사용합니다: $GRAPH_FILE"
-else
-  echo "[start] 그래프가 없습니다. 시드를 만듭니다: $GRAPH_FILE"
-  python scripts/seed_from_metadata.py
-  python scripts/generate_profiles.py
-fi
+# 프로필 크롭은 사진에서 다시 만들 수 있고, 같은 파일을 덮어쓴다.
+# 볼륨이 새로 붙어 크롭만 사라진 경우에도 여기서 복구된다.
+python scripts/generate_profiles.py
 
 exec uvicorn backend.main:app --host 0.0.0.0 --port "${PORT:-8000}"

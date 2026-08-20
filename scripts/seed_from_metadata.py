@@ -4,6 +4,7 @@ data/photos, data/video, data/metadata/*.json을 읽어
 Memory Graph를 구성하고 미디어 파일을 서빙 가능하게 연결합니다.
 """
 
+import argparse
 import sys
 import json
 import shutil
@@ -13,6 +14,7 @@ ROOT_DIR = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT_DIR))
 
 from backend.config import (
+    DATABASE_URL,
     GRAPH_FILE,
     MEDIA_DIR,
     METADATA_DIR,
@@ -262,9 +264,35 @@ def seed():
     print(f"\n✅ 실제 데이터셋 Graph 생성 완료!")
     print(f"   - 노드: {len(graph_data['nodes'])}개")
     print(f"   - 엣지: {len(graph_data['edges'])}개")
-    print(f"   - Graph 파일: {GRAPH_FILE}")
+    print(f"   - 저장소: {_store_label()}")
     print(f"   - 미디어 서빙: {MEDIA_DIR}")
 
 
-if __name__ == "__main__":
+def _store_label() -> str:
+    """어디에 넣었는지 (파일 경로를 무조건 찍으면 Postgres일 때 거짓말이 된다)"""
+    return "Postgres (DATABASE_URL)" if DATABASE_URL else str(GRAPH_FILE)
+
+
+def main() -> int:
+    parser = argparse.ArgumentParser(description="metadata에서 Memory Graph를 만든다")
+    parser.add_argument(
+        "--if-empty",
+        action="store_true",
+        help="저장소가 비어 있을 때만 시드한다 (컨테이너 시작 시 사용)",
+    )
+    args = parser.parse_args()
+
+    # 부팅마다 무조건 시드하면 가족이 쌓은 기억이 배포마다 날아간다 (seed()가
+    # 먼저 reset()을 하기 때문이다). 그래서 "이미 데이터가 있나"를 저장소에
+    # 직접 묻는다. 파일 존재로 판정하면 Postgres에서는 graph.json이 생기지 않아
+    # 매 부팅 재시드 -> TRUNCATE가 된다 (실제로 그 상태였다).
+    if args.if_empty and graph_manager.get_all_nodes():
+        print(f"[seed] 이미 데이터가 있습니다. 건너뜁니다: {_store_label()}")
+        return 0
+
     seed()
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())
