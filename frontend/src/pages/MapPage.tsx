@@ -18,7 +18,7 @@ import { mediaUrl } from '../lib/api'
 import { coverageGaps } from '../lib/coverage'
 import { useEvents } from '../lib/useGraphData'
 import { useCurrentUser } from '../lib/currentUser'
-import KoreaMap, { MapPoint } from '../components/KoreaMap'
+import KoreaMap, { MapPoint, isInBounds } from '../components/KoreaMap'
 import { STATE_CONFIG } from '../components/StatusPill'
 import { Page, PageHeader } from '../components/Page'
 
@@ -63,7 +63,7 @@ export default function MapPage() {
   const gaps = useMemo(() => coverageGaps(filtered), [filtered])
 
   // 좌표가 없는 사건은 지도에 점을 찍을 수 없다 (목록에는 그대로 남는다)
-  const points: MapPoint[] = filtered
+  const located: MapPoint[] = filtered
     .filter((e) => e.place && e.place.lat != null && e.place.lng != null)
     .map((e) => ({
       id: e.id,
@@ -73,6 +73,12 @@ export default function MapPage() {
       count: e.media_count,
       state: e.state,
     }))
+
+  // 이 지도는 남한만 그린다. 그 밖의 좌표(해외 여행)는 점을 찍을 자리가 없다.
+  // 조용히 빼면 "그 기억이 없는 것"으로 읽히므로 어디가 빠졌는지 밝힌다.
+  const points = located.filter((p) => isInBounds(p.lat, p.lng))
+  const offMap = located.filter((p) => !isInBounds(p.lat, p.lng))
+  const offMapNames = Array.from(new Set(offMap.map((p) => p.name).filter(Boolean)))
 
   const togglePerson = (id: string) =>
     setPersonIds((prev) => (prev.includes(id) ? prev.filter((p) => p !== id) : [...prev, id]))
@@ -156,6 +162,13 @@ export default function MapPage() {
           <p className="t-caption mt-2.5">
             점 크기는 그 장소에 남은 기록 수입니다. 점선은 연도순 이동입니다.
           </p>
+          {offMap.length > 0 && (
+            <p className="t-caption mt-1.5" style={{ color: 'var(--ink-400)' }}>
+              이 지도는 남한만 그립니다. {offMap.length}곳은 표시하지 못했습니다
+              {offMapNames.length > 0 && ' — ' + offMapNames.join(' · ')}. 기록은 그대로
+              있고 오른쪽 목록에도 남아 있습니다.
+            </p>
+          )}
         </div>
 
         <div className="flex flex-col gap-3">

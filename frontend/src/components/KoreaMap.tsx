@@ -8,9 +8,15 @@
  * 가족의 기억이 어느 쪽에 몰려 있나"이고, 격자는 그 답을 읽는 데 방해만 된다.
  * 남는 것은 해안선 한 겹, 연도순 이동을 잇는 점선, 그리고 기록 수만큼 커지는 점.
  *
+ * 그릴 수 있는 것은 남한뿐이다. 투영이 남한 경계 상자에 묶여 있어서 그 밖의
+ * 좌표는 화면 밖으로 나간다. 그런 점은 그리지 않고, 있다는 사실은 부르는 쪽이
+ * isInBounds()로 세어 화면에 밝힌다 — 조용히 빠지면 "그 기억이 없는 것"으로
+ * 읽힌다.
+ *
  * 실기능 개발 시 교체 지점:
  *   이 컴포넌트 전체 -> 지도 SDK(예: Leaflet/Mapbox) 컴포넌트로 교체.
  *   project() 좌표 변환과 마커·라벨 규칙은 그대로 옮겨 쓸 수 있다.
+ *   그때 isInBounds()는 사라진다 (세계 지도에는 범위 밖이 없다).
  */
 
 import { useState } from 'react'
@@ -40,6 +46,16 @@ export function project(lat: number, lng: number): { x: number; y: number } {
     x: ((lng - LNG_MIN) / (LNG_MAX - LNG_MIN)) * VIEW_W,
     y: ((LAT_MAX - lat) / (LAT_MAX - LAT_MIN)) * VIEW_H,
   }
+}
+
+/**
+ * 이 지도가 그릴 수 있는 좌표인가 (남한 경계 상자 안인가)
+ *
+ * 밖이면 project()가 viewBox를 벗어나는 값을 내므로 점이 잘려 사라진다.
+ * 해외 여행 기록이 그렇다 — 부르는 쪽이 이걸로 먼저 갈라 세어야 한다.
+ */
+export function isInBounds(lat: number, lng: number): boolean {
+  return lat >= LAT_MIN && lat <= LAT_MAX && lng >= LNG_MIN && lng <= LNG_MAX
 }
 
 /** 단순화한 남한 해안선 (경도, 위도) */
@@ -101,7 +117,12 @@ interface Props {
 export default function KoreaMap({ points, selectedId, onSelect, showRoute = true }: Props) {
   const [hovered, setHovered] = useState<string | null>(null)
 
-  const routePath = points
+  // 범위 밖 좌표는 그리지 않는다. 부르는 쪽이 걸러 주는 것이 원칙이지만,
+  // 빼먹었을 때 점이 테두리에 눌려 붙거나 경로가 화면 밖으로 튀는 것보다
+  // 아예 없는 편이 정직하다.
+  const drawn = points.filter((p) => isInBounds(p.lat, p.lng))
+
+  const routePath = drawn
     .map((p, i) => {
       const { x, y } = project(p.lat, p.lng)
       return (i === 0 ? 'M' : 'L') + x.toFixed(1) + ' ' + y.toFixed(1)
@@ -124,7 +145,7 @@ export default function KoreaMap({ points, selectedId, onSelect, showRoute = tru
       <path d={toPath(JEJU)} fill="var(--ink-50)" stroke="var(--ink-100)" strokeWidth="1" />
 
       {/* 이동 경로 — 사건을 연도순으로 이은 점선 */}
-      {showRoute && points.length > 1 && (
+      {showRoute && drawn.length > 1 && (
         <path
           d={routePath}
           fill="none"
@@ -135,7 +156,7 @@ export default function KoreaMap({ points, selectedId, onSelect, showRoute = tru
         />
       )}
 
-      {points.map((p) => {
+      {drawn.map((p) => {
         const { x, y } = project(p.lat, p.lng)
         const isActive = selectedId === p.id || hovered === p.id
         const r = 4 + Math.min(6, p.count)
