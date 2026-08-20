@@ -8,15 +8,19 @@
  * 필터는 카드 안에 가두지 않고 화면 폭을 가로지르는 띠로 깔았다. 조건이 무엇이
  * 걸려 있는지가 결과 목록보다 먼저 읽혀야 하고, 띠는 그 역할에 카드보다 조용하다.
  *
- * 목록의 카드와 지도의 점은 같은 사건을 가리키므로, 어느 쪽을 눌러도 같은 자리로
- * 간다 — EventSpotlight가 그 사건의 사진을 Memory Film처럼 크게 띄우고 그날에
- * 남은 기록을 함께 보여준다. 카드에 걸린 썸네일 세 장은 미리보기일 뿐이다.
+ * 지도의 점과 목록의 카드는 두 걸음으로 나눠 둔다. 점을 누르면 오른쪽 목록에서
+ * 그 사건의 카드를 찾아 눈에 보이는 자리로 옮기고 표시만 한다. 상세를 여는 것은
+ * 카드를 누를 때다 — 지도는 훑는 곳이라, 점을 스칠 때마다 화면 전체를 덮는 것이
+ * 뜨면 다른 점을 보러 가는 길이 매번 막힌다.
+ *
+ * 카드를 누르면 EventSpotlight가 그 사건의 사진을 Memory Film처럼 크게 띄우고
+ * 그날에 남은 기록을 함께 보여준다. 카드의 썸네일 세 장은 미리보기일 뿐이다.
  *
  * 사건·장소·참여자·확인 상태는 GET /api/graph/events에서 온다.
  * 남은 교체 지점: KoreaMap -> 지도 SDK 컴포넌트 (좌표 변환 규칙은 그대로 쓴다)
  */
 
-import { useMemo, useState } from 'react'
+import { useMemo, useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { mediaUrl } from '../lib/api'
 import { coverageGaps } from '../lib/coverage'
@@ -47,7 +51,26 @@ export default function MapPage() {
   */
   const [openId, setOpenId] = useState<string | null>(null)
 
-  // 사건 하나를 연다. 목록에서 눌렀든 지도의 점을 눌렀든 같은 자리로 간다.
+  /* 목록의 카드들. 지도에서 고른 사건을 화면 안으로 데려오는 데만 쓴다 */
+  const cardRefs = useRef<Record<string, HTMLButtonElement | null>>({})
+
+  /**
+   * 지도의 점을 눌렀을 때 — 오른쪽 목록에서 그 사건을 찾아 준다.
+   *
+   * 상세를 바로 열지 않는다. 점 하나를 누른 것은 "이게 뭐지"에 가깝고, 여는 것은
+   * 카드를 보고 나서 정할 일이다. 표시만 하고 두면 목록 아래쪽 카드는 화면 밖에
+   * 있어서 누른 것이 아무 데도 닿지 않은 것처럼 보이므로, 화면 가운데로 옮긴다.
+   */
+  const focusEvent = (id: string) => {
+    setSelectedId(id)
+    const card = cardRefs.current[id]
+    if (!card) return
+    // 움직임을 줄이도록 설정한 사용자에게는 스르륵 넘기지 않고 바로 옮긴다
+    const reduced = window.matchMedia('(prefers-reduced-motion: reduce)').matches
+    card.scrollIntoView({ behavior: reduced ? 'auto' : 'smooth', block: 'center' })
+  }
+
+  // 카드를 누르면 그 사건을 크게 본다
   const openEvent = (id: string) => {
     setSelectedId(id)
     setOpenId(id)
@@ -174,11 +197,11 @@ export default function MapPage() {
             <span className="t-mono text-[11px] text-ink-300">{points.length}곳</span>
           </div>
           <div className="mt-3">
-            <KoreaMap points={points} selectedId={selectedId} onSelect={openEvent} />
+            <KoreaMap points={points} selectedId={selectedId} onSelect={focusEvent} />
           </div>
           <p className="t-caption mt-2.5">
             점 크기는 그 장소에 남은 기록 수입니다. 점선은 연도순 이동입니다. 점을 누르면
-            그 사건의 사진을 크게 봅니다.
+            오른쪽 목록에서 그 사건을 찾아 줍니다.
           </p>
           {offMap.length > 0 && (
             <p className="t-caption mt-1.5" style={{ color: 'var(--ink-400)' }}>
@@ -218,14 +241,23 @@ export default function MapPage() {
               */
               <button
                 key={event.id}
+                ref={(node) => {
+                  cardRefs.current[event.id] = node
+                }}
                 type="button"
                 onClick={() => openEvent(event.id)}
                 aria-label={`${event.title} 크게 보기`}
+                aria-current={active}
                 className="block w-full cursor-pointer rounded-lg px-6 py-5 text-left
-                           transition-colors duration-150 ease-out"
+                           transition-[box-shadow,border-color] duration-200 ease-out"
                 style={{
                   background: 'var(--paper-pure)',
                   border: `1px solid ${active ? 'var(--accent)' : 'var(--border)'}`,
+                  /*
+                    지도에서 고른 것이 이 카드라는 표시. 테두리 색 하나로는 사진이
+                    깔린 카드에서 눈에 띄지 않아, 바깥으로 옅은 테를 한 겹 더 둔다.
+                  */
+                  boxShadow: active ? '0 0 0 3px var(--accent-soft)' : 'none',
                 }}
               >
                 <div className="flex items-start justify-between gap-4">
