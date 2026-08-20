@@ -96,6 +96,19 @@ MIN_MARGIN = 4.0
 AGE_TOLERANCE = 10
 
 
+def _log(message: str) -> None:
+    """콘솔이 못 찍는 글자로 기능이 꺼지지 않게 한다
+
+    윈도우 콘솔은 cp949라서 "—" 같은 글자에서 print가 UnicodeEncodeError를
+    던진다. 그 예외가 호출부의 except Exception에 잡혀 **얼굴 인식이 조용히
+    꺼졌다** — 로그를 찍다가 기능을 잃는 것은 어느 쪽으로도 남는 장사가 아니다.
+    """
+    try:
+        print(message, flush=True)
+    except UnicodeEncodeError:
+        print(message.encode("ascii", "replace").decode("ascii"), flush=True)
+
+
 def enabled() -> bool:
     """얼굴 인식을 쓸 수 있는가 (AWS 자격증명이 있는가)"""
     return bool(AWS_PROFILE or (AWS_ACCESS_KEY_ID and AWS_SECRET_ACCESS_KEY))
@@ -150,7 +163,7 @@ def ensure_collection() -> bool:
     try:
         _retry(lambda: _rekognition().create_collection(CollectionId=COLLECTION_ID),
                "컬렉션 만들기")
-        print(f"[faces] 컬렉션을 만들었습니다: {COLLECTION_ID}", flush=True)
+        _log(f"[faces] 컬렉션을 만들었습니다: {COLLECTION_ID}")
         return True
     except Exception as e:
         # 이름으로 잡는다. botocore의 예외 클래스는 클라이언트 인스턴스마다 새로
@@ -158,7 +171,7 @@ def ensure_collection() -> bool:
         # 그 탓에 "이미 있다"가 실패로 읽혀 identify가 통째로 빈 목록을 냈다.
         if type(e).__name__ == "ResourceAlreadyExistsException":
             return True
-        print(f"[faces] 컬렉션을 준비하지 못했습니다 ({type(e).__name__}: {e})", flush=True)
+        _log(f"[faces] 컬렉션을 준비하지 못했습니다 ({type(e).__name__}: {e})")
         return False
 
 
@@ -183,7 +196,7 @@ def _retry(call, what: str, attempts: int = 6):
                         "ResourceAlreadyExistsException", "AccessDeniedException"):
                 raise
             if attempt == attempts:
-                print(f"[faces] {what} 실패 ({name}) — {attempts}번 시도했습니다", flush=True)
+                _log(f"[faces] {what} 실패 ({name}) — {attempts}번 시도했습니다")
                 raise
             # 연결이 끊긴 뒤 같은 클라이언트로 다시 걸면 오염된 연결 풀을 계속
             # 쓴다. 클라이언트를 버리고 새 연결로 붙는다.
@@ -211,7 +224,7 @@ def load_media_image(file_path: str) -> Optional[Image.Image]:
         image.thumbnail((MAX_SIDE, MAX_SIDE), Image.Resampling.LANCZOS)
         return image
     except Exception as e:
-        print(f"[faces] {name} 을 읽지 못했습니다 ({type(e).__name__}: {e})", flush=True)
+        _log(f"[faces] {name} 을 읽지 못했습니다 ({type(e).__name__}: {e})")
         return None
 
 
@@ -242,7 +255,7 @@ def detect_faces(image: Image.Image) -> list[dict]:
             "얼굴 검출",
         )["FaceDetails"]
     except Exception as e:
-        print(f"[faces] 얼굴을 찾지 못했습니다 ({type(e).__name__}: {e})", flush=True)
+        _log(f"[faces] 얼굴을 찾지 못했습니다 ({type(e).__name__}: {e})")
         return []
 
     faces = []
@@ -284,7 +297,7 @@ def enroll(person_id: str, image: Image.Image, box: dict) -> Optional[str]:
 
     face = crop_face(image, box)
     if min(face.size) < MIN_FACE_PX:
-        print(f"[faces] {person_id}: 얼굴이 너무 작아 등록하지 않습니다 {face.size}", flush=True)
+        _log(f"[faces] {person_id}: 얼굴이 너무 작아 등록하지 않습니다 {face.size}")
         return None
 
     client = _rekognition()
@@ -296,7 +309,7 @@ def enroll(person_id: str, image: Image.Image, box: dict) -> Optional[str]:
             lambda: client.detect_faces(Image={"Bytes": payload}), "크롭 확인"
         )["FaceDetails"]
     except Exception as e:
-        print(f"[faces] {person_id}: 크롭 확인 실패 ({type(e).__name__})", flush=True)
+        _log(f"[faces] {person_id}: 크롭 확인 실패 ({type(e).__name__})")
         return None
     if len(found) != 1:
         print(
@@ -319,14 +332,14 @@ def enroll(person_id: str, image: Image.Image, box: dict) -> Optional[str]:
             f"{person_id} 등록",
         )
     except Exception as e:
-        print(f"[faces] {person_id}: 등록 실패 ({type(e).__name__}: {e})", flush=True)
+        _log(f"[faces] {person_id}: 등록 실패 ({type(e).__name__}: {e})")
         return None
 
     records = result.get("FaceRecords") or []
     if not records:
         skipped = result.get("UnindexedFaces") or []
         reasons = [r.get("Reasons") for r in skipped]
-        print(f"[faces] {person_id}: 등록되지 않았습니다 (이유: {reasons})", flush=True)
+        _log(f"[faces] {person_id}: 등록되지 않았습니다 (이유: {reasons})")
         return None
 
     return records[0]["Face"]["FaceId"]
@@ -365,7 +378,7 @@ def forget(person_id: str) -> int:
             _retry(lambda: client.delete_faces(CollectionId=COLLECTION_ID, FaceIds=batch),
                    "등록 삭제")
     except Exception as e:
-        print(f"[faces] {person_id}: 등록 삭제 실패 ({type(e).__name__}: {e})", flush=True)
+        _log(f"[faces] {person_id}: 등록 삭제 실패 ({type(e).__name__}: {e})")
         return 0
     return len(face_ids)
 
@@ -391,7 +404,7 @@ def enrolled_counts() -> dict:
             if not token:
                 break
     except Exception as e:
-        print(f"[faces] 등록 목록을 읽지 못했습니다 ({type(e).__name__})", flush=True)
+        _log(f"[faces] 등록 목록을 읽지 못했습니다 ({type(e).__name__})")
         return {}
     return counts
 
@@ -451,7 +464,7 @@ def _search(face_image: Image.Image) -> list[tuple[str, float]]:
     except Exception as e:
         name = type(e).__name__
         if name != "InvalidParameterException":  # 얼굴이 없는 크롭
-            print(f"[faces] 검색 실패 ({name})", flush=True)
+            _log(f"[faces] 검색 실패 ({name})")
         return []
 
     # 같은 사람에게 여러 장이 등록돼 있으면 가장 높은 점수만 남긴다
@@ -559,6 +572,25 @@ def identify(media: dict) -> list[dict]:
             entry["person_id"] = None
             entry["similarity"] = 0.0
             taken_person.pop(pid, None)
+
+    # 이름을 못 붙인 얼굴에는 반드시 이유가 있어야 한다. 화면이 그것을 그대로
+    # 밝히기 때문이다 — 이유 없이 비어 있으면 사용자는 왜 이름이 없는지 알 수
+    # 없고, 찾았지만 가리지 못한 것과 아예 못 본 것을 구분할 수 없다.
+    #
+    # 여기까지 이유가 비어 있는 경우는 하나다: 후보는 있었지만 그 사람을 더 잘
+    # 맞는 다른 얼굴이 가져간 경우. 위 두 갈래(후보 없음·격차 부족)에서는 이미
+    # 적었다.
+    for index, entry in enumerate(results):
+        if entry["person_id"] or entry["reason"]:
+            continue
+        rival_names = [
+            (graph_manager.get_node(pid) or {}).get("name") or pid
+            for pid, _ in candidates_per_face[index]
+        ]
+        entry["reason"] = (
+            "다른 얼굴이 더 잘 맞아 밀렸습니다"
+            + (f" ({' · '.join(rival_names[:2])})" if rival_names else "")
+        )
 
     return results
 
