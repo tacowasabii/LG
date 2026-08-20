@@ -83,11 +83,16 @@ export default function AppLayout() {
         className="flex w-[268px] shrink-0 flex-col bg-paper-pure"
         style={{ borderRight: '1px solid var(--border)' }}
       >
+        {/*
+          제품명은 로고로 세운다 (public/logo.png — 배경을 지운 투명 PNG).
+          띠 안쪽 폭이 220px이므로 높이 32px에서 워드마크가 173px로 들어온다.
+          이미지가 안 뜨면 alt가 제품명을 그대로 읽어 준다.
+        */}
         <div className="px-6 pb-5 pt-7">
-          <p className="t-eyebrow m-0 mb-2">Family Memory Graph</p>
-          <h1 className="m-0 text-[21px] font-bold tracking-[-0.02em] text-ink-900">
-            LG HomeStory
+          <h1 className="m-0">
+            <img src="/logo.png" alt="LG HomeStory" className="block h-8 w-auto" />
           </h1>
+          <p className="t-eyebrow m-0 mt-3">Family Memory Graph</p>
           <p className="t-caption m-0 mt-1">기억을 잇는 공간</p>
         </div>
 
