@@ -42,6 +42,16 @@ from backend.models.graph_models import MediaType, NodeType
 PHOTO_SEC = 8
 VIDEO_SEC = 10
 
+# 사진 한 장이 머물 수 있는 최대 시간 — 기본 체류의 두 배 (대상 세대 배수가 함께 걸린다)
+#
+# 고른 길이를 채우려고 장면을 늘릴 때의 상한이다. 상한이 없으면 사진 두 장으로
+# 60초를 채우려 한 장에 30초를 앉히게 되고, 그건 이야기가 아니라 정지 화면이다.
+#
+# 이 값이 곧 "이 사건으로 고를 수 있는 길이"를 정한다 (_ceiling -> max_sec).
+# 화면은 채울 수 없는 길이를 잠근다 — 누를 수는 있는데 눌러도 영상이 그대로인
+# 자리를 남기지 않는다.
+PHOTO_MAX_SEC = 16
+
 # 대상 세대별 장면 길이 배수 — 어르신은 천천히, 아이는 빠르게
 AUDIENCE_PACE = {
     "child": 0.75,
@@ -275,7 +285,24 @@ async def compose(
     if not scenes:
         return None
 
-    fitted = _fit(scenes, length_sec)
+    # 늘리는 것은 사진뿐이라 어느 장면이 사진인지 들고 간다. 장면 순서로 가르지
+    # 않는 것은, 순서에 기대면 위쪽 조립 순서가 바뀔 때 조용히 어긋나기 때문이다.
+    photo_ids = {photo["id"] for photo in photos}
+    # _ceiling은 자르기 전 전체를 보고 잰다 — _stretch가 복사본을 늘리므로
+    # scenes는 그대로 남지만, 순서를 바꿀 이유는 없다.
+    max_sec = _ceiling(scenes, pace, photo_ids)
+    # 자른 뒤에는 언제나 남은 시간을 채운다.
+    #
+    # 예전에는 뺀 장면이 없을 때만 채웠다. 남은 시간이 뺀 장면 몫이라고 봤는데,
+    # 뺀 장면은 어느 쪽이든 나오지 않으므로 그 시간은 아무에게도 가지 않고 그냥
+    # 사라졌다 — 45초를 골라도 33초짜리가 나오고(어르신용 · 자료가 많은 사건),
+    # 화면에서는 45초 버튼이 켜진 채였다. 고른 길이가 지켜지지 않으면 길이를
+    # 고르는 자리가 거짓말을 한다.
+    #
+    # 늘어나는 것은 사진 체류뿐이고 상한(PHOTO_MAX_SEC)도 그대로다. 영상만으로
+    # 이루어진 사건은 늘릴 사진이 없어 여전히 목표에 못 미칠 수 있다 — 원본 영상의
+    # 길이는 원본이 가진 것이라 늘리지 않는다. 그때 실제 길이는 total_sec이 밝힌다.
+    fitted = _stretch(_fit(scenes, length_sec), length_sec, pace, photo_ids)
     narration = await _narration(event, memories, persons, place_name, audience, contexts)
     # 무엇을 깔지만 정한다. 소리는 화면이 만든다 (frontend/src/lib/filmMusic.ts).
     # 장면 배수를 함께 넘긴다 — 어르신에게 장면을 늦추면서 음악만 제 속도로 가면
@@ -301,6 +328,8 @@ async def compose(
         "total_sec": sum(s["duration_sec"] for s in fitted),
         "audience": audience,
         "requested_sec": length_sec,
+        # 이 사건·대상으로 채울 수 있는 최대 길이. 화면이 그보다 긴 선택지를 잠근다.
+        "max_sec": max_sec,
         # 요청한 길이에 맞추려고 뺀 장면 수. 화면이 "몇 장면이 빠졌다"고 밝힐 수 있게.
         "omitted_scenes": len(scenes) - len(fitted),
     }
@@ -316,6 +345,57 @@ def _fit(scenes: list[dict], target: int) -> list[dict]:
         picked.append(scene)
         total += scene["duration_sec"]
     return picked
+
+
+def _stretch(
+    scenes: list[dict],
+    target: int,
+    pace: float,
+    photo_ids: set[str],
+) -> list[dict]:
+    """남은 시간을 사진 장면에 1초씩 나눠 담아 고른 길이를 채운다
+
+    자르는 것만으로는 길이 선택이 절반만 동작했다. 사진 세 장뿐인 사건은
+    30·45·60초 중 무엇을 골라도 24초 그대로여서, 고르는 자리가 있는데 고른 것이
+    화면에 나타나지 않았다.
+
+    늘리는 것은 사진뿐이다. 사진이 몇 초 머무는지는 우리가 정하는 것이지만,
+    원본 영상의 길이는 원본이 가진 것이고 늘리면 없는 프레임을 채우는 셈이 된다.
+
+    한 장의 상한은 PHOTO_MAX_SEC이다. 상한에 걸려 목표에 못 미치면 못 미친 채로
+    돌려준다 — 그 길이는 애초에 화면에서 잠겨 있다 (_ceiling).
+    """
+    cap = round(PHOTO_MAX_SEC * pace)
+    # 원본을 건드리지 않는다. 호출한 쪽이 같은 장면 목록으로 상한을 다시 잰다.
+    grown = [dict(scene) for scene in scenes]
+    room = [s for s in grown if s["media_id"] in photo_ids and s["duration_sec"] < cap]
+    total = sum(s["duration_sec"] for s in grown)
+
+    # 한 장에 몰지 않고 돌아가며 1초씩 얹는다 — 장면 길이가 고르게 벌어진다
+    while room and total < target:
+        for scene in room:
+            if total >= target:
+                break
+            scene["duration_sec"] += 1
+            total += 1
+        room = [s for s in room if s["duration_sec"] < cap]
+
+    return grown
+
+
+def _ceiling(scenes: list[dict], pace: float, photo_ids: set[str]) -> int:
+    """자료를 다 쓰고 사진을 상한까지 세워 뒀을 때 나오는 길이 (초)
+
+    화면이 고를 수 있는 길이의 한계다. 목소리가 길어 이미 상한을 넘는 장면은
+    그 길이가 그대로 한계에 들어간다 (줄이지는 않으므로).
+    """
+    cap = round(PHOTO_MAX_SEC * pace)
+    return sum(
+        max(scene["duration_sec"], cap)
+        if scene["media_id"] in photo_ids
+        else scene["duration_sec"]
+        for scene in scenes
+    )
 
 
 def _date_label(date_start: Optional[str]) -> Optional[str]:

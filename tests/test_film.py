@@ -28,6 +28,8 @@ from backend.services import film_composer, film_music  # noqa: E402
 from backend.services.graph_manager import graph_manager  # noqa: E402
 
 EVENT = "E01"  # 1998 부산 가족여행 (사진 3장 + 영상 1개)
+# 세 길이 모두 채울 수 있는 사건. 자료가 적으면 긴 길이는 화면에서 잠긴다.
+RICH_EVENT = "E07"  # 2021 하늘 결혼식 (사진 3장 + 영상 2개)
 
 
 def _require_seeded_graph():
@@ -111,6 +113,49 @@ def test_length_is_respected_and_truncation_is_reported():
         assert short["omitted_scenes"] > 0, "잘라냈는데 밝히지 않았다"
     print(f"  30초: {short['total_sec']}초/{len(short['scenes'])}장면 (생략 {short['omitted_scenes']})")
     print(f"  60초: {long['total_sec']}초/{len(long['scenes'])}장면")
+
+
+def test_selectable_lengths_each_make_a_different_film():
+    """고를 수 있는 길이는 저마다 다른 영상이 된다
+
+    사진 한 장이 머무는 시간에 상한이 있어서(PHOTO_MAX_SEC) 자료가 적으면 긴 길이를
+    채울 수 없다. 그 길이는 max_sec 밖이라 화면에서 잠긴다. 잠기지 않은 길이끼리는
+    총 길이가 서로 달라야 한다 — 같으면 눌러도 아무 일도 일어나지 않는 자리다.
+    """
+    boards = {
+        sec: asyncio.run(film_composer.compose(RICH_EVENT, length_sec=sec))
+        for sec in (30, 45, 60)
+    }
+    unlocked = [sec for sec, board in boards.items() if sec <= board["max_sec"]]
+    assert unlocked == [30, 45, 60], f"이 사건은 60초까지 채워져야 한다: {unlocked}"
+
+    totals = [boards[sec]["total_sec"] for sec in unlocked]
+    assert len(set(totals)) == len(totals), f"길이를 바꿨는데 같은 영상이다: {totals}"
+
+    # 뺀 장면이 없으면 고른 길이를 정확히 채운다 (남기지 않는다)
+    for sec in unlocked:
+        if boards[sec]["omitted_scenes"] == 0:
+            assert boards[sec]["total_sec"] == sec, (sec, boards[sec]["total_sec"])
+    print("  " + " · ".join(f"{s}초→{boards[s]['total_sec']}초" for s in unlocked))
+
+
+def test_stretching_to_fill_respects_the_photo_cap():
+    """길이를 채우려 사진을 늘려도 상한을 넘지 않는다 (정지 화면이 되는 자리)"""
+    board = asyncio.run(film_composer.compose(RICH_EVENT, length_sec=60))
+    cap = round(film_composer.PHOTO_MAX_SEC * film_composer.AUDIENCE_PACE["adult"])
+    # 목소리가 붙은 장면은 그 길이에 맞추느라 상한을 넘을 수 있다 (줄이지 않는다)
+    photos = [
+        s
+        for s in board["scenes"]
+        if not s["media_id"].startswith("video_") and not s["voice_id"]
+    ]
+    assert photos, "사진 장면이 없다 (시드 확인)"
+    assert max(s["duration_sec"] for s in photos) > round(
+        film_composer.PHOTO_SEC * film_composer.AUDIENCE_PACE["adult"]
+    ), "길이를 채우려 늘리지 않았다"
+    for scene in photos:
+        assert scene["duration_sec"] <= cap, (scene["media_id"], scene["duration_sec"], cap)
+    print(f"  사진 최대 체류 {max(s['duration_sec'] for s in photos)}초 (상한 {cap}초)")
 
 
 def test_audience_changes_pace():
@@ -258,6 +303,8 @@ TESTS = [
     test_effect_label_matches_the_motion_actually_applied,
     test_video_scenes_have_no_effects,
     test_length_is_respected_and_truncation_is_reported,
+    test_selectable_lengths_each_make_a_different_film,
+    test_stretching_to_fill_respects_the_photo_cap,
     test_audience_changes_pace,
     test_narration_uses_only_recorded_facts,
     test_music_carries_a_mood_and_its_reason,

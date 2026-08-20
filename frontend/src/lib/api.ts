@@ -1028,6 +1028,8 @@ export interface FilmStoryboard {
   total_sec: number;
   audience: string;
   requested_sec: number;
+  /** 이 사건·대상으로 채울 수 있는 최대 길이. 이보다 긴 선택지는 화면에서 잠긴다 */
+  max_sec: number;
   /** 길이에 맞추려고 뺀 장면 수 */
   omitted_scenes: number;
   /**

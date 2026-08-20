@@ -244,6 +244,32 @@ export default function FilmPage() {
     // motionPending의 내용이 바뀔 때만 다시 건다 (배열 정체성이 아니라 값 기준)
   }, [motionPending.join(',')])
 
+  /*
+    채울 수 있는 길이만 고르게 한다.
+
+    서버는 사진 한 장을 세워 두는 시간에 상한을 둔다 (film_composer.PHOTO_MAX_SEC).
+    그래서 사진 세 장뿐인 사건은 60초를 채울 방법이 없고, 예전에는 그 60초가
+    눌리기는 하는데 눌러도 영상이 그대로였다. 자료로 닿을 수 없는 길이는 잠근다.
+
+    가장 짧은 길이는 잠그지 않는다. 사진 한 장뿐인 사건이면 30초에도 닿지 못하는데
+    거기서 전부 잠그면 아무것도 고를 수 없는 자리가 된다 — 그때는 짧게 나오고
+    아래 문구가 몇 초까지였는지 밝힌다.
+  */
+  const maxSec = board?.max_sec ?? 0
+  const reachable = (l: FilmLength) => l <= maxSec || l === LENGTHS[0]
+
+  useEffect(() => {
+    if (!board) return
+    // 대상 세대를 바꾸면 닿을 수 있는 길이도 바뀐다 (아이용은 장면이 짧아 총 길이가
+    // 준다). 고른 길이가 잠기면 닿는 것 중 가장 긴 쪽으로 내려온다 — 잠긴 버튼이
+    // 켜진 채로 남아 있으면 무엇이 만들어졌는지 화면이 거짓말을 한다.
+    if (length <= board.max_sec) return
+    const fits = LENGTHS.filter((l) => l <= board.max_sec)
+    // 닿는 것이 하나도 없으면(사진 한 장뿐인 사건 — 16초) 가장 짧은 쪽으로 내려온다.
+    // 그 자리는 잠기지 않아서(reachable) 고를 수 있고, 아래 문구가 몇 초까지인지
+    // 밝힌다. 예전에는 여기서 아무것도 하지 않아 45초가 잠긴 채로 켜져 있었다.
+    setLength(fits.length > 0 ? fits[fits.length - 1] : LENGTHS[0])
+  }, [board, length])
 
   useEffect(() => {
     if (!playing) return
@@ -364,26 +390,23 @@ export default function FilmPage() {
             {LENGTHS.map((l) => (
               <button
                 key={l}
+                disabled={!reachable(l)}
                 onClick={() => setLength(l)}
                 className={`tab ${length === l ? 'tab-on' : ''}`}
+                title={reachable(l) ? undefined : `연결된 자료로는 ${maxSec}초까지 만들 수 있습니다`}
               >
                 {l}초
               </button>
             ))}
           </div>
-          {/*
-            고른 길이는 상한이다 (backend/services/film_composer.py _fit). 자료가
-            적으면 그보다 짧게 끝나므로 요청한 값과 실제 값을 나란히 적는다 —
-            둘을 합쳐 한 숫자로만 쓰면 사진 세 장뿐인 사건에서 30·45·60초가
-            모두 같은 줄로 보이고, 고른 것이 화면에 나타나지 않는다.
-          */}
           <p className="t-caption mt-2.5">
-            {length}초 안에서 · 장면 {scenes.length}개 · 실제 {totalSec}초
+            장면 {scenes.length}개 · {totalSec}초
           </p>
-          {board && totalSec < length && (
+          {board && maxSec < LENGTHS[LENGTHS.length - 1] && (
             <p className="t-caption m-0 mt-1">
-              연결된 자료가 여기까지여서 {length - totalSec}초가 남았습니다. 사진이나 영상을
-              더 연결하면 그만큼 길어집니다.
+              연결된 자료로는 {maxSec}초까지입니다. 사진 한 장을 오래 세워 두면 이야기가
+              아니라 정지 화면이 되기 때문입니다 — 사진이나 영상을 더 연결하면 긴 길이가
+              열립니다.
             </p>
           )}
         </div>
@@ -680,8 +703,12 @@ export default function FilmPage() {
             )}
             {board.omitted_scenes > 0 && (
               <p className="t-caption m-0 mt-2">
-                {board.requested_sec}초에 맞추려고 장면 {board.omitted_scenes}개를 뺐습니다. 더 긴
-                길이를 고르면 모두 들어갑니다.
+                {board.requested_sec}초에 맞추려고 장면 {board.omitted_scenes}개를 뺐습니다.{' '}
+                {/* 가장 긴 길이에서도 넘칠 수 있다 (자료가 많은 사건 · 어르신용).
+                    그 자리에서 "더 긴 길이를 고르면 된다"고 적으면 없는 길을 가리킨다. */}
+                {LENGTHS.some((l) => l > length && reachable(l))
+                  ? '더 긴 길이를 고르면 모두 들어갑니다.'
+                  : '고를 수 있는 가장 긴 길이라, 나머지는 이 편에 담지 못합니다.'}
               </p>
             )}
             <p className="t-caption mt-3">

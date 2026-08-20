@@ -596,6 +596,11 @@ class FilmResponse(BaseModel):
     total_sec: int = 0
     audience: str = "adult"
     requested_sec: int = 45
+    # 이 사건·대상으로 채울 수 있는 최대 길이. 사진 한 장을 세워 둘 수 있는 시간에
+    # 상한이 있어서 (film_composer.PHOTO_MAX_SEC) 자료가 적으면 긴 길이를 채울 수
+    # 없다. 화면은 이 값보다 긴 선택지를 잠근다 — 눌러도 아무것도 바뀌지 않는
+    # 자리를 남기지 않기 위해서다.
+    max_sec: int = 0
     # 길이에 맞추려고 뺀 장면 수 — 몇 장면이 빠졌는지 화면이 밝힐 수 있게
     omitted_scenes: int = 0
     # 지금 미세 모션 클립을 만들고 있는 사진들. 비어 있지 않으면 화면이 잠시 뒤
