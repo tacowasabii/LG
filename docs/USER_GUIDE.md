@@ -315,7 +315,7 @@ python scripts/run_trust_harness.py --limit 5  # 앞 5문항만
 | 올린 사진에 "추가 정보 필요" | EXIF가 없는 파일입니다. 정상 동작이고, 그 자리에서 날짜를 적으면 됩니다 |
 | 채팅이 "근거 없음"만 답한다 | 그 사건의 기록이 없습니다. 인터뷰나 모으기로 채우세요 |
 | 답변이 짧고 뻔하다 | `EXAONE_API_KEY`가 없어 시뮬레이션 응답입니다 |
-| 답변이 오래 걸린다 | 추론 모드입니다. `.env`에서 `EXAONE_ENABLE_THINKING=false` |
+| 답변이 오래 걸린다 | 추론 모드입니다. `.env`에서 `EXAONE_ENABLE_THINKING=false` (기본값은 이미 꺼져 있습니다 — 정답표 점수가 같고 2배 빨라서) |
 | 녹음이 안 된다 | 마이크 권한을 거부했거나 HTTP(비보안) 주소입니다. localhost나 HTTPS에서 쓰세요 |
 | 분명히 있던 사진이 안 보인다 | 로그인한 사람의 열람 범위 밖입니다. 다른 사람 시야로 확인하려면 그 사람의 초대 링크(`/join/:code`)로 들어가세요 |
 | 신뢰도 리포트가 비어 있다 | 하네스를 돌리지 않았습니다. `python scripts/run_trust_harness.py` |

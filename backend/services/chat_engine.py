@@ -27,8 +27,11 @@ SYSTEM_PROMPT = """너는 "LG HomeStory"의 AI 어시스턴트야.
    - alone(한 사람의 기억만 있다) → 누구의 기억인지 밝히면서
    - varied(가족이 조금 다르게 기억한다) → 한쪽으로 정리하지 말고 누가 어떻게 기억하는지
      복수 버전을 나란히 제시해. 어느 쪽이 맞다고 판정하지 마.
-4. 따뜻하고 다정한 톤으로 답변해.
-5. 한국어로 답변해.
+4. 사람 이름은 [검색 결과]에 [인물]로 들어온 사람만 부른다. 사진 설명이나 기억
+   문장에 스쳐 나온 이름을 근거처럼 단정하지 마 — 화면에 근거로 보여주지 않은
+   이름을 말하면 읽는 사람이 확인할 방법이 없다.
+5. 따뜻하고 다정한 톤으로 답변해.
+6. 한국어로 답변해.
 """
 
 
@@ -251,7 +254,7 @@ def _simulate_response(search_results: list[dict]) -> str:
     return answer + "\n\n더 자세한 이야기가 궁금하시면 물어봐주세요!"
 
 
-# 화면에 띄울 근거 뱃지 개수
+# 화면에 띄울 근거 뱃지 개수 (인물은 이 상한과 별도로 전부 담는다 — 아래 참고)
 MAX_SOURCES = 5
 
 
@@ -276,12 +279,45 @@ def _extract_sources(search_results: list[dict]) -> list[SourceItem]:
 
     상위 5개 노드를 잘라서 걸러면, 뱃지로 만들 수 없는 노드(place 등)가
     상위에 오면 그만큼 근거가 비어 보인다. 뱃지 5개가 모일 때까지 순회한다.
+
+    인물은 그 상한 밖에서 전부 담는다. 채점(Trust Harness)의 Attribution Safety가
+    "답변에 나온 이름이 화면의 근거에 있는가"를 재는데, 검색 문맥에는 있던 사람이
+    상위 5개에서 밀려 이름만 언급되는 일이 절반 가까이 있었다 (50점). 이름을
+    말하려면 그 사람을 근거로 함께 보여줘야 한다 — 아니면 읽는 사람이 확인할
+    방법이 없다. 인물 노드는 그래프 전체에 몇 명뿐이라 목록이 길어지지 않는다.
     """
     sources = []
     seen_ids = set()
 
+    # 인물 먼저 (상한과 무관하게 전부). 기억을 남긴 사람도 함께 담는다 —
+    # 컨텍스트가 "[기억] 박서연: ..." 처럼 기여자 이름을 함께 주기 때문에,
+    # 답변이 그 이름을 부르는데 근거에 없으면 확인할 방법이 없다.
+    person_ids = []
     for node in search_results:
-        if len(sources) >= MAX_SOURCES:
+        if node.get("node_type") == "person":
+            person_ids.append(node.get("id", ""))
+        elif node.get("node_type") == "memory" and node.get("contributor_id"):
+            person_ids.append(node["contributor_id"])
+
+    for person_id in person_ids:
+        if not person_id or person_id in seen_ids:
+            continue
+        person = graph_manager.get_node(person_id)
+        if not person or person.get("node_type") != "person":
+            continue
+        seen_ids.add(person_id)
+        sources.append(SourceItem(
+            type="person",
+            id=person_id,
+            title=person.get("name", ""),
+            thumbnail=person.get("thumbnail_url"),
+            confidence=0.9,
+        ))
+
+    person_count = len(sources)
+
+    for node in search_results:
+        if len(sources) - person_count >= MAX_SOURCES:
             break
 
         node_id = node.get("id", "")
@@ -315,14 +351,6 @@ def _extract_sources(search_results: list[dict]) -> list[SourceItem]:
                 title=node.get("content", "")[:50],
                 confidence=0.85,
             ))
-        elif node_type == "person":
-            # 나이·관계를 묻는 질문은 인물 기록이 근거다
-            sources.append(SourceItem(
-                type="person",
-                id=node_id,
-                title=node.get("name", ""),
-                thumbnail=node.get("thumbnail_url"),
-                confidence=0.9,
-            ))
+        # 인물은 위에서 이미 담았다
 
     return sources
