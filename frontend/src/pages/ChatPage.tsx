@@ -12,7 +12,7 @@ import { useCurrentUser } from '../lib/currentUser'
  *
  * 기획안이 요구한 두 가지를 더했다.
  *  1. "답변과 함께 실제 사진·음성 재생" — 근거를 썸네일 알약으로 보여주고,
- *     누르면 원본 패널이 열린다. 사건에 음성이 있으면 함께 재생한다.
+ *     누르면 원본 패널이 열린다. 추억에 음성이 있으면 함께 재생한다.
  *  2. "정보가 부족하면 가족에게 추가 질문" — 근거가 없거나 추정이 섞인 답변
  *     아래에 기억을 남기거나 확인하러 가는 길을 붙였다. 기획안 6단계의
  *     마지막 고리(이어가기)가 화면에서 끊겨 있었다.
@@ -22,7 +22,7 @@ import { useCurrentUser } from '../lib/currentUser'
  * 것이 이 제품이 신뢰를 얻는 방식이다.
  *
  * 근거·음성·확인 상태는 모두 API에서 온다. 남은 교체 지점은 원본 패널을
- * GET /api/media/{id} 상세로 채우는 것과, "기억 남기기"가 그 사건을 바로 인터뷰
+ * GET /api/media/{id} 상세로 채우는 것과, "기억 남기기"가 그 추억을 바로 인터뷰
  * 대상으로 넘기는 것(POST /api/interview/start {target_id})이다.
  */
 
@@ -81,10 +81,10 @@ function withParticle(word: string, withJong: string, withoutJong: string): stri
 }
 
 /**
- * 추천 질문은 그래프에 실제로 있는 사건에서 만든다.
+ * 추천 질문은 그래프에 실제로 있는 추억에서 만든다.
  *
  * 예전에는 고정 문장 네 개였고 그중 "서연이 생일파티 사진 보여줘"는 그래프에 없는
- * 사건이었다. 화면이 권한 질문이 "그런 기록이 없습니다"로 돌아오니 모델이 고장 난
+ * 추억이었다. 화면이 권한 질문이 "그런 기록이 없습니다"로 돌아오니 모델이 고장 난
  * 것처럼 보였다. 데이터에서 만들면 그럴 수가 없다.
  */
 function buildSuggestions(events: EventListItem[]): string[] {
@@ -97,7 +97,7 @@ function buildSuggestions(events: EventListItem[]): string[] {
   const sorted = [...events].sort((a, b) =>
     (a.date_start || '').localeCompare(b.date_start || ''),
   )
-  // 네 질문이 같은 사건을 가리키면 추천이 하나뿐인 것과 같다. 쓴 사건은 빼고 고른다.
+  // 네 질문이 같은 추억을 가리키면 추천이 하나뿐인 것과 같다. 쓴 추억은 빼고 고른다.
   const used = new Set<string>()
   const pick = (test: (e: EventListItem) => boolean) => {
     const found = sorted.find((e) => !used.has(e.id) && test(e))
@@ -131,7 +131,7 @@ export default function ChatPage() {
   const [loading, setLoading] = useState(false)
   const [conversationId, setConversationId] = useState<string | undefined>()
   const [openSource, setOpenSource] = useState<ChatSource | null>(null)
-  // 근거에 걸린 사건의 확인 상태와 그 사건에 남은 목소리를 함께 보여준다
+  // 근거에 걸린 추억의 확인 상태와 그 추억에 남은 목소리를 함께 보여준다
   const { events, eventById } = useEvents()
   const { clipsForEvent } = useVoiceClips()
   const messagesEndRef = useRef<HTMLDivElement>(null)
@@ -217,14 +217,14 @@ export default function ChatPage() {
     }
   }
 
-  /** 답변 근거에 걸린 사건들 (음성·확인 상태를 붙이는 기준) */
+  /** 답변 근거에 걸린 추억들 (음성·확인 상태를 붙이는 기준) */
   const eventIdsOf = (sources?: ChatSource[]) =>
     (sources || [])
       .filter((s) => s.type === 'event')
       .map((s) => s.id)
       .filter((id) => !!eventById(id))
 
-  // 사건 근거는 서버가 그 사건의 사진 한 장을 썸네일로 함께 내려준다
+  // 추억 근거는 서버가 그 추억의 사진 한 장을 썸네일로 함께 내려준다
   const sourceThumb = openSource?.thumbnail || null
 
   return (

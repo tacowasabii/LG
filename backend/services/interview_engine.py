@@ -2,7 +2,7 @@
 
 기획안의 마지막 단계(STEP 06 "이어가기")가 여기서 닫힌다. 답변을 문장으로만
 쌓으면 그래프는 자라지 않는다. 그래서 답변에서 인물·장소·시점을 뽑아
-사건에 잇는다 (기획안 02장 Memory Interview: "답변에서 사건·인물·시점 추출").
+추억에 잇는다 (기획안 02장 Memory Interview: "답변에서 추억·인물·시점 추출").
 
 다만 AI가 가족사를 새로 쓰지는 않는다. 지키는 선은 셋이다.
   1. 없는 사람을 만들지 않는다. 그래프에 이미 있는 인물·장소에만 잇는다 —
@@ -34,7 +34,7 @@ _sessions: dict[str, dict] = {}
 #
 # 세션은 끝나면 사라진다. 그래서 같은 사람이 다시 인터뷰를 시작하면 모델은
 # 첫 질문을 백지에서 냈고, 백지에서 낸 첫 질문은 늘 비슷했다 — 같은 사람이
-# 세 번 들어와 세 번 "가장 기억에 남는 순간"을 들었다. 사건은 회전하는데
+# 세 번 들어와 세 번 "가장 기억에 남는 순간"을 들었다. 추억은 회전하는데
 # (question_picker) 질문의 말투와 각도가 회전하지 않았다.
 _asked_questions: dict[str, list[str]] = {}
 
@@ -73,11 +73,11 @@ async def start_interview(
     """인터뷰 세션 시작
 
     target_type: "event" | "media" | "auto"
-    - auto: 아직 덜 채워진 사건을 하나 골라 묻는다
+    - auto: 아직 덜 채워진 추억을 하나 골라 묻는다
 
     speaker_id  지금 화면 앞에서 답할 사람. 인터뷰 대상은 이 사람이다.
 
-                이 인자가 없던 동안 question_picker가 고른 인물(그 사건에 기억을
+                이 인자가 없던 동안 question_picker가 고른 인물(그 추억에 기억을
                 남기지 않은 참여자)이 인터뷰 대상이 됐다. 아빠로 로그인한 화면이
                 "서연님, 그때 기억나세요?"라고 물었고, 그 뒤로 모델은 답변을
                 서연의 기억으로 읽었다 ("서연이가 뛰어노는 순간들을…").
@@ -102,7 +102,7 @@ async def start_interview(
     asked_by = contributor_id
 
     if not target_node and target_type == "auto":
-        # 물어볼 사건을 하나 고른다 (목록을 만들지 않는다 — question_picker)
+        # 물어볼 추억을 하나 고른다 (목록을 만들지 않는다 — question_picker)
         target = pick_target(speaker_id=asked_by)
         target_node = target.get("event")
         if not speaker:
@@ -110,7 +110,7 @@ async def start_interview(
             contributor_id = target.get("person_id")
 
     # 무엇을 물었는지 남긴다. 시작만 하고 그만둔 경우에도 남겨야 다음에 같은
-    # 사건이 다시 나오지 않는다 — 답을 기다리면 그래프가 자라지 않아 auto가
+    # 추억이 다시 나오지 않는다 — 답을 기다리면 그래프가 자라지 않아 auto가
     # 같은 점수를 다시 계산하고, 화면은 부산 여행만 되풀이해 물었다.
     remember_asked(asked_by, (target_node or {}).get("id"))
 
@@ -120,7 +120,7 @@ async def start_interview(
     # 타겟 정보 구성
     context = _build_interview_context(target_node, subject)
 
-    # 사건 당시 이 사람의 나이. 같은 사건이어도 두 살과 스물여덟 살에게 물을
+    # 추억 당시 이 사람의 나이. 같은 추억이어도 두 살과 스물여덟 살에게 물을
     # 것이 다르다 — 컨텍스트와 규칙 양쪽에 넣고, 폴백 질문도 이것으로 고른다.
     age = _age_at(subject, target_node)
     age_rule = _age_rule(subject, target_node)
@@ -193,7 +193,7 @@ async def process_answer(
     # 답변 저장
     session["answers"].append(answer)
 
-    # 답변에서 정보 추출 → Memory 노드 생성 + 사건에 잇기
+    # 답변에서 정보 추출 → Memory 노드 생성 + 추억에 잇기
     updated_nodes = await _process_answer_to_graph(
         session,
         answer,
@@ -306,12 +306,12 @@ def forget_questions() -> None:
 
 
 def _age_at(subject: Optional[dict], target: Optional[dict]) -> Optional[int]:
-    """그 사건·사진의 해에 이 사람이 몇 살이었나 (알 수 없으면 None)
+    """그 추억·사진의 해에 이 사람이 몇 살이었나 (알 수 없으면 None)
 
     연 나이로 센다. 생일 경과까지 보면 한 살이 오갈 수 있지만, 여기서 쓰는 것은
     "아이였나 어른이었나"이므로 한 살 차이는 답이 바뀌지 않는다.
 
-    사건은 date_start, 미디어는 exif_date에 날짜가 있다. 사건만 보면 사진을
+    추억은 date_start, 미디어는 exif_date에 날짜가 있다. 추억만 보면 사진을
     타겟으로 시작한 인터뷰(target_type="media")는 나이를 모른 채 묻는다.
     """
     if not subject or not target:
@@ -444,10 +444,10 @@ def _build_interview_context(target_node: Optional[dict], subject: Optional[dict
         )
 
     if not target_node:
-        lines.append("[주제] 정해진 사건 없이 가족의 기억을 전반적으로 묻는다.")
+        lines.append("[주제] 정해진 추억 없이 가족의 기억을 전반적으로 묻는다.")
         return "\n".join(lines)
 
-    # 그때 이 사람이 몇 살이었나. 같은 사건이어도 두 살과 스물여덟 살에게 물을
+    # 그때 이 사람이 몇 살이었나. 같은 추억이어도 두 살과 스물여덟 살에게 물을
     # 것은 다르다 — 이것이 없어서 두 살에게 그날의 심정을 물었다.
     age = _age_at(subject, target_node)
     band = _age_band(age)
@@ -514,7 +514,7 @@ def _build_interview_context(target_node: Optional[dict], subject: Optional[dict
 
         if mine:
             lines.append(
-                f"{subject_name}님이 이 사건에 이미 남긴 기억 (같은 것을 다시 묻지 않는다):"
+                f"{subject_name}님이 이 추억에 이미 남긴 기억 (같은 것을 다시 묻지 않는다):"
                 if subject_name
                 else "이미 기록된 기억 (같은 것을 다시 묻지 않는다):"
             )
@@ -569,7 +569,7 @@ def _question_messages(
 ) -> list[dict]:
     """질문 생성 프롬프트 (LLM 호출과 분리해 둔다 — 규칙을 시험할 수 있게)
 
-    age_rule  사건 당시 이 사람의 나이에서 나오는 규칙 (_age_rule)
+    age_rule  추억 당시 이 사람의 나이에서 나오는 규칙 (_age_rule)
     prior     예전 세션에서 이 사람에게 물은 질문. questions와 섞지 않는다 —
               questions는 answers와 번호를 맞춰야 해서(_dialogue) 여기에
               예전 질문이 끼면 질문과 답이 어긋난다.
@@ -859,7 +859,7 @@ async def _process_answer_to_graph(
 ) -> list[str]:
     """답변을 구조화하여 Graph에 저장
 
-    같은 사건에 대한 가족별 기억을 따로 보존하려면 "누가 말했는지"가 남아야 한다.
+    같은 추억에 대한 가족별 기억을 따로 보존하려면 "누가 말했는지"가 남아야 한다.
     contributor_id와 REMEMBERS 엣지가 없으면 Gap 탐지도 "아직 기억을 남기지
     않은 참여자"를 찾을 수 없다.
 
@@ -918,7 +918,7 @@ async def _process_answer_to_graph(
             ))
             updated_nodes.append(audio_media_id)
 
-    # 답변에서 인물·장소·시점을 뽑아 사건에 잇는다 (그래프가 자라는 자리)
+    # 답변에서 인물·장소·시점을 뽑아 추억에 잇는다 (그래프가 자라는 자리)
     extracted = await extract_and_link(answer, target, contributor_id, memory.id)
     updated_nodes.extend(extracted["updated_nodes"])
     session.setdefault("extracted", []).append(extracted)
@@ -968,7 +968,7 @@ def _clean_terms(value) -> list[str]:
 def _normalize_date(raw) -> Optional[str]:
     """YYYY / YYYY-MM / YYYY-MM-DD 만 통과시킨다
 
-    사건의 date_start는 화면과 정렬이 ISO 문자열로 다루므로, 형식이 어긋나면
+    추억의 date_start는 화면과 정렬이 ISO 문자열로 다루므로, 형식이 어긋나면
     타임라인이 엉킨다. 확신할 수 없으면 넣지 않는다.
     """
     if not isinstance(raw, str):
@@ -1031,7 +1031,7 @@ async def extract_and_link(
     contributor_id: Optional[str],
     memory_id: str,
 ) -> dict:
-    """답변에서 인물·장소·시점을 뽑아 사건에 잇는다"""
+    """답변에서 인물·장소·시점을 뽑아 추억에 잇는다"""
     if not llm_client.is_enabled("extract"):
         # 부를 모델이 없으면 추출하지 않는다. 규칙 기반으로 흉내내면 잘못된
         # 연결이 그래프에 남고, 그게 화면에서는 사실처럼 보인다.
@@ -1070,7 +1070,7 @@ def link_extracted(
 
     event = target if (target or {}).get("node_type") == NodeType.EVENT else None
     event_id = event["id"] if event else None
-    # 사건은 그동안 바뀌었을 수 있다 (세션이 들고 있는 것은 시작 시점의 값)
+    # 추억은 그동안 바뀌었을 수 있다 (세션이 들고 있는 것은 시작 시점의 값)
     current = graph_manager.get_node(event_id) if event_id else None
 
     # --- 인물: 있는 사람에게만 잇는다 ---
@@ -1127,7 +1127,7 @@ def link_extracted(
             result["filled"].append("location_id")
             if event_id not in result["updated_nodes"]:
                 result["updated_nodes"].append(event_id)
-        break  # 사건의 대표 장소는 하나다
+        break  # 추억의 대표 장소는 하나다
 
     # --- 시점: 비어 있을 때만 채운다 ---
     date = _normalize_date(raw.get("date"))

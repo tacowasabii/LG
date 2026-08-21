@@ -71,7 +71,7 @@ export function useRemote(handler: (key: RemoteKey) => void) {
  * 어디를 보고 있었는지 잃는다.
  *
  * 자리는 저장할 때가 아니라 읽을 때 범위 안으로 접는다. 목록이 늦게 도착하는
- * 화면이라(사건을 API로 받는다) 그 사이에 담긴 자리가 빈 칸을 가리킬 수 있다.
+ * 화면이라(추억을 API로 받는다) 그 사이에 담긴 자리가 빈 칸을 가리킬 수 있다.
  */
 export function useRailFocus(counts: number[]) {
   const [pos, setPos] = useState({ rail: 0, index: 0 })

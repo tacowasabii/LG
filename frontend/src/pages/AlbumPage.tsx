@@ -1,7 +1,7 @@
 /**
  * 사진첩 (기획안 사진첩 04~07장)
  *
- * 여기는 사건도 이야기도 거치지 않고 사진 자체를 훑는 자리다. 홈은 추억 단위로
+ * 여기는 추억도 이야기도 거치지 않고 사진 자체를 훑는 자리다. 홈은 추억 단위로
  * 보여 주고, 타임라인·지도는 언제·어디였는지를 보여 주고, Film·TV는 감상하게
  * 한다. "그 사진 어디 있었지"에 답하는 화면은 없었다.
  *
@@ -14,8 +14,8 @@
  * 목록·정렬·필터는 서버가 한다 (backend/services/album.py). AI를 끼우지 않는다 —
  * 같은 조건에 다른 결과가 나오면 사진첩이 아니다.
  *
- * 묶어 보는 방식도 서버가 정한 순서를 따른다. 연월별과 사건별 두 가지고, 사건별은
- * 화면에서 나눌 수 없다 — 한 페이지 60장 안에서만 묶으면 같은 사건이 페이지마다
+ * 묶어 보는 방식도 서버가 정한 순서를 따른다. 연월별과 추억별 두 가지고, 추억별은
+ * 화면에서 나눌 수 없다 — 한 페이지 60장 안에서만 묶으면 같은 추억이 페이지마다
  * 토막난다. 그래서 group을 주소에 담아 서버에 넘긴다.
  */
 
@@ -75,7 +75,7 @@ export default function AlbumPage() {
   const [cursor, setCursor] = useState<string | null>(null)
   const [total, setTotal] = useState(0)
   const [years, setYears] = useState<number[]>([])
-  /* 고를 수 있는 사건과 개수. 서버가 준 것을 그대로 쓴다 (available_events) */
+  /* 고를 수 있는 추억과 개수. 서버가 준 것을 그대로 쓴다 (available_events) */
   const [eventFacets, setEventFacets] = useState<AlbumEventFacet[]>([])
   const [loading, setLoading] = useState(true)
   const [loadingMore, setLoadingMore] = useState(false)
@@ -251,7 +251,7 @@ export default function AlbumPage() {
 
   /*
     조건만 지운다. 묶어 보는 방식은 필터가 아니라 보는 방식이므로 남긴다 —
-    사건별로 훑던 사람이 조건을 지웠다고 연월별로 튕겨 나가지 않는다.
+    추억별로 훑던 사람이 조건을 지웠다고 연월별로 튕겨 나가지 않는다.
   */
   const resetFilters = () => {
     setDraftQuery('')
@@ -477,7 +477,7 @@ export default function AlbumPage() {
             onOpen={setOpenIndex}
             groupBy={filters.groupBy}
             /*
-              사건 묶음 머리의 "이 추억만". 이미 그 추억만 보고 있으면 주지
+              추억 묶음 머리의 "이 추억만". 이미 그 추억만 보고 있으면 주지
               않는다 — 눌러도 화면이 그대로여서 눌린 것인지 알 수 없다.
             */
             onPickEvent={

@@ -6,8 +6,8 @@
 보는 것은 "목록이 나오는가"가 아니라 아래 다섯 가지다.
 
   - 음성은 오지 않고, 촬영일을 모르는 사진도 빠지지 않는가
-  - 연도·인물·사건·추억 연결·검색 필터가 함께 걸리는가
-  - 사건별로 묶었을 때 한 사건의 사진이 흩어지지 않고, 페이지를 넘겨도 그대로인가
+  - 연도·인물·추억·연결 상태·검색 필터가 함께 걸리는가
+  - 추억별로 묶었을 때 한 추억의 사진이 흩어지지 않고, 페이지를 넘겨도 그대로인가
   - 인물 필터가 사람이 지목한 태그만 보는가 (AI가 사진을 누구 것으로 정하지 않는다)
   - 커서로 넘긴 페이지에 겹침도 빠짐도 없는가
   - 비공개 사진이 목록·개수·연도 목록에서 모두 빠지는가
@@ -237,7 +237,7 @@ def test_event_status_filter():
     assert all(i["event"] is None for i in unlinked["items"]), "추억이 있는 기록이 섞였다"
     assert TEMP_UNLINKED in _ids(unlinked), "미분류 사진이 미분류 목록에 없다"
     assert linked["total"] + unlinked["total"] == both["total"]
-    # 사건에 연결되지 않은 사진도 기본 목록에서 빠지지 않는다
+    # 추억에 연결되지 않은 사진도 기본 목록에서 빠지지 않는다
     assert TEMP_UNLINKED in _ids(both), "미분류 사진이 전체 목록에서 빠졌다"
     print(f"  연결됨 {linked['total']} · 미분류 {unlinked['total']}")
 
@@ -281,17 +281,17 @@ def test_filters_combine():
     print("  사진 + 1998 + P01 + 연결됨 =", combined["total"], "건")
 
 
-# --- 사건별 ------------------------------------------------------------------
+# --- 추억별 ------------------------------------------------------------------
 
 
 def test_event_filter_narrows_to_one_event():
-    """사건 하나만 골라 본다"""
+    """추억 하나만 골라 본다"""
     result = album.query(viewer_id=VIEWER, event_id="E06", limit=album.MAX_LIMIT)
 
     assert result["items"], "E06에 붙은 사진이 없다 (시드 확인)"
     for item in result["items"]:
         assert item["event"] and item["event"]["id"] == "E06", item["id"]
-    assert TEMP_UNLINKED not in _ids(result), "미분류 사진이 사건 필터에 걸렸다"
+    assert TEMP_UNLINKED not in _ids(result), "미분류 사진이 추억 필터에 걸렸다"
 
     # 다른 조건과 함께 걸린다 (하나가 다른 하나를 덮지 않는다)
     photos_only = album.query(
@@ -303,38 +303,38 @@ def test_event_filter_narrows_to_one_event():
 
 
 def test_event_options_survive_an_event_selection():
-    """사건을 고른 뒤에도 다른 사건으로 옮겨갈 수 있어야 한다"""
+    """추억을 고른 뒤에도 다른 추억으로 옮겨갈 수 있어야 한다"""
     all_events = album.query(viewer_id=VIEWER)["available_events"]
     picked = album.query(viewer_id=VIEWER, event_id="E06")["available_events"]
 
     assert [e["id"] for e in picked] == [e["id"] for e in all_events], (
-        "사건을 고르자 나머지 사건이 사라졌다"
+        "추억을 고르자 나머지 추억이 사라졌다"
     )
     dates = [e["date"] or "" for e in all_events]
-    assert dates == sorted(dates, reverse=True), f"사건이 시간순이 아니다: {dates}"
+    assert dates == sorted(dates, reverse=True), f"추억이 시간순이 아니다: {dates}"
 
     # 개수가 함께 온다 — 고르기 전에 몇 장인지 보여야 빈 화면을 누르지 않는다
     e06 = next(e for e in all_events if e["id"] == "E06")
     assert e06["count"] == album.query(viewer_id=VIEWER, event_id="E06")["total"]
-    assert e06["date"], "사건 날짜가 비었다"
-    print(f"  사건 {len(all_events)}개 · {e06['title']} {e06['count']}장")
+    assert e06["date"], "추억 날짜가 비었다"
+    print(f"  추억 {len(all_events)}개 · {e06['title']} {e06['count']}장")
 
 
 def test_selected_event_stays_in_the_options_at_zero():
-    """다른 조건 때문에 0장이 된 사건도 목록에 남는다
+    """다른 조건 때문에 0장이 된 추억도 목록에 남는다
 
-    사라지면 화면에서 그 사건 필터를 끄는 길이 없어진다 (고른 값은 주소에 있다).
+    사라지면 화면에서 그 추억 필터를 끄는 길이 없어진다 (고른 값은 주소에 있다).
     """
     facets = album.query(viewer_id=VIEWER, event_id="E01", year=2015)["available_events"]
     picked = [f for f in facets if f["id"] == "E01"]
 
-    assert picked, "고른 사건이 목록에서 사라졌다"
+    assert picked, "고른 추억이 목록에서 사라졌다"
     assert picked[0]["count"] == 0, picked
-    print("  0장이 된 사건도 목록에 남음 OK")
+    print("  0장이 된 추억도 목록에 남음 OK")
 
 
 def test_event_grouping_keeps_each_event_together():
-    """사건별로 묶으면 한 사건의 사진이 흩어지지 않는다"""
+    """추억별로 묶으면 한 추억의 사진이 흩어지지 않는다"""
     items = album.query(viewer_id=VIEWER, group_by="event", limit=album.MAX_LIMIT)["items"]
     assert items, "사진이 없다 (시드 확인)"
 
@@ -345,21 +345,21 @@ def test_event_grouping_keeps_each_event_together():
             assert key not in order, f"{key or '미분류'} 묶음이 두 번 나왔다"
             order.append(key)
 
-    # 어느 추억에도 붙지 않은 사진은 사건 묶음이 아니다 — 언제나 맨 뒤
+    # 어느 추억에도 붙지 않은 사진은 추억 묶음이 아니다 — 언제나 맨 뒤
     assert order[-1] == "", order
     assert items[-1]["id"] == TEMP_UNLINKED or items[-1]["event"] is None
 
-    # 묶음의 순서는 사건 날짜 최신순
+    # 묶음의 순서는 추억 날짜 최신순
     dates = {e["id"]: e["date"] or "" for e in album.query(viewer_id=VIEWER)["available_events"]}
     grouped_dates = [dates[event_id] for event_id in order if event_id]
     assert grouped_dates == sorted(grouped_dates, reverse=True), grouped_dates
-    print(f"  사건 {len(order) - 1}묶음 · 미분류 맨 뒤 OK")
+    print(f"  추억 {len(order) - 1}묶음 · 미분류 맨 뒤 OK")
 
 
 def test_event_grouping_follows_the_chosen_sort():
-    """오래된순을 고르면 사건 묶음도 오래된 것부터 온다
+    """오래된순을 고르면 추억 묶음도 오래된 것부터 온다
 
-    사진은 오래된 것부터인데 사건은 최근 것부터면 화면을 위아래로 되짚어야 한다.
+    사진은 오래된 것부터인데 추억은 최근 것부터면 화면을 위아래로 되짚어야 한다.
     """
     def group_order(sort: str) -> list[str]:
         items = album.query(
@@ -376,15 +376,15 @@ def test_event_grouping_follows_the_chosen_sort():
     oldest = [event_id for event_id in group_order("captured_asc") if event_id]
 
     assert oldest == list(reversed(newest)), (newest, oldest)
-    # 미분류는 정렬과 무관하게 맨 뒤다 (사건이 아니다)
+    # 미분류는 정렬과 무관하게 맨 뒤다 (추억이 아니다)
     assert group_order("captured_asc")[-1] == ""
-    print("  오래된순 사건 묶음", oldest[:3], "…")
+    print("  오래된순 추억 묶음", oldest[:3], "…")
 
 
 def test_event_grouping_cursor_pages_have_no_overlap_or_gap():
-    """사건별로 묶어 놓고 커서로 끝까지 넘겨도 겹침도 빠짐도 없다
+    """추억별로 묶어 놓고 커서로 끝까지 넘겨도 겹침도 빠짐도 없다
 
-    묶음의 순서까지 커서에 담기 때문에 여기서 어긋나면 페이지 경계에서 사건이
+    묶음의 순서까지 커서에 담기 때문에 여기서 어긋나면 페이지 경계에서 추억이
     토막나거나 같은 사진이 두 번 그려진다.
     """
     for sort in ("captured_desc", "captured_asc", "uploaded_desc"):
@@ -411,7 +411,7 @@ def test_event_grouping_cursor_pages_have_no_overlap_or_gap():
 def test_cursor_from_another_grouping_is_not_reused():
     """묶는 방식을 바꾸면 커서를 버리고 처음부터 준다
 
-    연월의 다음 자리와 사건의 다음 자리는 전혀 다른 곳이다. 조용히 이어 주면
+    연월의 다음 자리와 추억의 다음 자리는 전혀 다른 곳이다. 조용히 이어 주면
     화면에 사진이 겹치거나 빠진 채로 쌓인다.
     """
     first = album.query(viewer_id=VIEWER, limit=5)
@@ -425,18 +425,18 @@ def test_cursor_from_another_grouping_is_not_reused():
 
 
 def test_event_without_a_date_falls_back_to_its_photos():
-    """날짜가 적히지 않은 사건도 제자리에 선다
+    """날짜가 적히지 않은 추억도 제자리에 선다
 
-    사건에 날짜가 없으면 그 사건 사진의 촬영일로 줄을 세운다. 사진에도 날짜가
-    없을 때만 날짜를 아는 사건들 뒤로 간다 — 촬영일 미상 사진과 같은 처리다.
+    추억에 날짜가 없으면 그 추억 사진의 촬영일로 줄을 세운다. 사진에도 날짜가
+    없을 때만 날짜를 아는 추억들 뒤로 간다 — 촬영일 미상 사진과 같은 처리다.
     """
     from_photo, no_date = "album_test_ev_from_photo", "album_test_ev_no_date"
     photos = {
         "album_test_ev_p1": (from_photo, "1999-05-04T10:00:00+09:00"),
         "album_test_ev_p2": (no_date, None),
     }
-    graph_manager.add_event(EventNode(id=from_photo, title="날짜 없는 사건 (사진은 1999)"))
-    graph_manager.add_event(EventNode(id=no_date, title="사건도 사진도 날짜 미상"))
+    graph_manager.add_event(EventNode(id=from_photo, title="날짜 없는 추억 (사진은 1999)"))
+    graph_manager.add_event(EventNode(id=no_date, title="추억도 사진도 날짜 미상"))
     try:
         for media_id, (event_id, exif_date) in photos.items():
             _make_temp_photo(media_id, exif_date)
@@ -457,7 +457,7 @@ def test_event_without_a_date_falls_back_to_its_photos():
 
         # 사진의 촬영일(1999)로 2003(E02)과 1998(E01) 사이에 앉는다
         assert order.index("E02") < order.index(from_photo) < order.index("E01"), order
-        # 사진마저 날짜가 없으면 날짜를 아는 사건 전부 뒤, 미분류 앞
+        # 사진마저 날짜가 없으면 날짜를 아는 추억 전부 뒤, 미분류 앞
         assert order.index("E01") < order.index(no_date) < order.index(""), order
 
         # 그 상태에서도 커서가 어긋나지 않는다
@@ -469,8 +469,8 @@ def test_event_without_a_date_falls_back_to_its_photos():
             cursor = page["next_cursor"]
             if not cursor:
                 break
-        assert walked == [item["id"] for item in items], "날짜 없는 사건에서 커서가 어긋났다"
-        print("  날짜 없는 사건 →", order.index(from_photo), "번째 묶음 · 커서 OK")
+        assert walked == [item["id"] for item in items], "날짜 없는 추억에서 커서가 어긋났다"
+        print("  날짜 없는 추억 →", order.index(from_photo), "번째 묶음 · 커서 OK")
     finally:
         _drop(*photos, from_photo, no_date)
 

@@ -4,13 +4,13 @@
  * 기획안의 문장: "TV가 꺼진 시간이 아니라 가족 이야기가 자연스럽게 노출되는 시간".
  * 그래서 대기화면은 사용자가 찾아오기를 기다리지 않고 먼저 말을 건다.
  * TV에는 키보드가 없으므로 검색창이 아니라 고른 몇 개의 프리셋(tvPresets)과
- * 모든 사건을 연대순으로 깐 줄(eventTiles)로 들어간다.
+ * 모든 추억을 연대순으로 깐 줄(eventTiles)로 들어간다.
  *
- * 사건 목록(GET /api/graph/events)만 받아서 계산한다. 사건 id를 코드에 박지
+ * 추억 목록(GET /api/graph/events)만 받아서 계산한다. 추억 id를 코드에 박지
  * 않으므로 그래프가 바뀌어도 프리셋이 따라 움직인다.
  *
  * 서버로 옮길 자리: ambientSlides()는 "N년 전 오늘"을 계산하는 일이므로 서버가
- * 하는 편이 맞다 (GET /api/tv/ambient). 지금은 사건 8개 규모라 화면에서 센다.
+ * 하는 편이 맞다 (GET /api/tv/ambient). 지금은 추억 8개 규모라 화면에서 센다.
  */
 
 import type { EventListItem, TVJourney, VoiceClip } from './api'
@@ -57,7 +57,7 @@ export function ambientSlides(
   today: Date = new Date(),
   limit = 4,
 ): AmbientSlide[] {
-  // 사진이 없는 사건은 대기화면에 띄울 그림이 없다
+  // 사진이 없는 추억은 대기화면에 띄울 그림이 없다
   const withPhoto = events.filter((e) => e.media_thumbs.length > 0 && e.date_start)
 
   const ranked = [...withPhoto].sort((a, b) => {
@@ -75,7 +75,7 @@ export function ambientSlides(
   }))
 }
 
-/** TV 메뉴에서 고를 수 있는 타일 하나 (묶음이든 사건 하나든 모양이 같다) */
+/** TV 메뉴에서 고를 수 있는 타일 하나 (묶음이든 추억 하나든 모양이 같다) */
 export interface TVPreset {
   id: string
   label: string
@@ -83,7 +83,7 @@ export interface TVPreset {
   /** POST /api/tv/journey 에 넘길 질의 */
   query: string
   thumb: string
-  /** 서버 없이 재생할 때 쓸 사건 목록 */
+  /** 서버 없이 재생할 때 쓸 추억 목록 */
   event_ids: string[]
 }
 
@@ -97,10 +97,10 @@ function placeKey(event: EventListItem): string {
  * 프리셋. TV에서 고를 수 있는 갈래는 시기 / 장소 / 사람 / 목소리 / 한 사람의 기억이면
  * 충분하다. 여기서 더 늘리면 리모컨으로 훑는 시간이 재생 시간을 넘는다.
  *
- * 이 묶음은 고른 것이라 어느 묶음에도 들지 못하는 사건이 남는다. 그 기억에
+ * 이 묶음은 고른 것이라 어느 묶음에도 들지 못하는 추억이 남는다. 그 기억에
  * 닿을 길은 eventTiles()가 따로 깐다 — 묶음을 늘려서 메우지 않는다.
  *
- * 사건 id를 박지 않고 데이터에서 뽑는다 — 사진을 더 올리면 프리셋도 바뀐다.
+ * 추억 id를 박지 않고 데이터에서 뽑는다 — 사진을 더 올리면 프리셋도 바뀐다.
  */
 export function tvPresets(events: EventListItem[], clips: VoiceClip[] = []): TVPreset[] {
   if (events.length === 0) return []
@@ -139,7 +139,7 @@ export function tvPresets(events: EventListItem[], clips: VoiceClip[] = []): TVP
       label: topPlace + '에서 보낸 날들',
       sublabel:
         placeEvents.length +
-        '개 사건 · 사진 ' +
+        '개 추억 · 사진 ' +
         placeEvents.reduce((sum, e) => sum + e.media_count, 0) +
         '장',
       query: topPlace,
@@ -162,7 +162,7 @@ export function tvPresets(events: EventListItem[], clips: VoiceClip[] = []): TVP
     presets.push({
       id: 'person-' + topPerson.name,
       label: topPerson.name + '의 시간',
-      sublabel: topPerson.events.length + '개 사건',
+      sublabel: topPerson.events.length + '개 추억',
       query: topPerson.name,
       thumb: thumbOf(topPerson.events),
       event_ids: topPerson.events.map((e) => e.id),
@@ -215,9 +215,9 @@ export function tvPresets(events: EventListItem[], clips: VoiceClip[] = []): TVP
 }
 
 /**
- * 사건 하나하나. 프리셋은 고른 묶음이라 거기 들지 못한 사건은 TV에서 아예
+ * 추억 하나하나. 프리셋은 고른 묶음이라 거기 들지 못한 추억은 TV에서 아예
  * 닿을 수 없었다 — 리모컨으로 여섯 개만 눌리고 나머지 기억은 웹에만 있었다.
- * 그래서 모든 사건을 연대순으로 한 줄 더 깐다 (개수 제한을 두지 않는다).
+ * 그래서 모든 추억을 연대순으로 한 줄 더 깐다 (개수 제한을 두지 않는다).
  *
  * 프리셋과 같은 모양(TVPreset)으로 돌려주므로 메뉴 화면은 둘을 구분하지 않는다.
  */
@@ -297,7 +297,7 @@ export function buildLocalJourney(
     slides,
     // 내레이션은 EXAONE이 쓰는 자리다. 서버가 없을 때는 지어내지 않고 사실만 적는다
     narration:
-      span + ', 사건 ' + picked.length + '개와 사진 ' + (slides.length - 1) + '장이 연결되어 있습니다.',
+      span + ', 추억 ' + picked.length + '개와 사진 ' + (slides.length - 1) + '장이 연결되어 있습니다.',
     total_duration_sec: (slides.length - 1) * 9,
   }
 }

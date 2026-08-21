@@ -1,20 +1,20 @@
-"""TV 메뉴에서 고른 사건이 그대로 재생되는지 (기획안 06장 LG TV)
+"""TV 메뉴에서 고른 추억이 그대로 재생되는지 (기획안 06장 LG TV)
 
     python tests/test_tv_menu.py
 
-거실 메뉴는 묶음 프리셋 한 줄과 모든 사건을 연대순으로 깐 한 줄로 되어 있다
+거실 메뉴는 묶음 프리셋 한 줄과 모든 추억을 연대순으로 깐 한 줄로 되어 있다
 (frontend/src/pages/TVViewPage.tsx). 예전에는 프리셋 여섯 개가 전부여서 그 묶음에
-들지 못한 사건은 TV에서 누를 방법이 아예 없었다.
+들지 못한 추억은 TV에서 누를 방법이 아예 없었다.
 
-줄을 하나 더 깐 것만으로는 부족하다. 타일이 사건을 짚어 보내도 서버가 제목을
+줄을 하나 더 깐 것만으로는 부족하다. 타일이 추억을 짚어 보내도 서버가 제목을
 키워드로 다시 훑으면 엉뚱한 것이 섞인다 — "2003 하늘 초등학교 입학식"은 이름
 "하늘"에 걸려 다른 해의 사진까지 끌어온다. 무엇을 고른 것인지 알 수 없어지고,
 그건 리모컨밖에 없는 화면에서 가장 나쁜 실패다. 그래서 event_ids로 부르면 말을
 다시 해석하지 않는다.
 
-  - 시드된 사건 하나하나가 다 재생되는가 (메뉴에 오른 것이 다 열리는가)
-  - 짚어 보낸 사건의 사진만 오는가 (같은 사람이 찍힌 다른 사건이 섞이지 않는가)
-  - 사건 연대순 · 그 안에서 촬영순으로 오는가
+  - 시드된 추억 하나하나가 다 재생되는가 (메뉴에 오른 것이 다 열리는가)
+  - 짚어 보낸 추억의 사진만 오는가 (같은 사람이 찍힌 다른 추억이 섞이지 않는가)
+  - 추억 연대순 · 그 안에서 촬영순으로 오는가
   - 사진만 오는가 (거실 화면은 슬라이드를 <img>로 그린다)
   - 실제 HTTP 응답에도 실려 나가는가 (스키마에 빠뜨리면 화면이 못 받는다)
   - event_ids 없이 부르면 예전 경로가 그대로인가 (채팅·검색이 쓰는 길)
@@ -58,9 +58,9 @@ def _photo_slides(slides: list[dict]) -> list[dict]:
 
 
 def _slides(event_ids: list[str]) -> list[dict]:
-    """고른 사건의 사진 슬라이드
+    """고른 추억의 사진 슬라이드
 
-    내레이션까지 만드는 create_journey를 부르지 않는다. 그건 사건마다 모델을 한 번
+    내레이션까지 만드는 create_journey를 부르지 않는다. 그건 추억마다 모델을 한 번
     부르는 일이라 이 파일이 몇 분씩 걸리고, 여기서 보려는 것은 "무엇이 슬라이드로
     오는가"다. 전체 경로는 아래 이야기·HTTP 테스트가 본다.
     """
@@ -68,34 +68,34 @@ def _slides(event_ids: list[str]) -> list[dict]:
 
 
 def test_every_event_can_be_played():
-    """메뉴에 오른 사건은 하나하나 다 열린다
+    """메뉴에 오른 추억은 하나하나 다 열린다
 
-    "모든 사건을 다 볼 수 있게"가 이 화면에서 뜻하는 것은, 목록에 보이는 것을
-    누르면 무언가 재생된다는 것이다. 사진이 한 장도 오지 않는 사건이 있으면
+    "모든 추억을 다 볼 수 있게"가 이 화면에서 뜻하는 것은, 목록에 보이는 것을
+    누르면 무언가 재생된다는 것이다. 사진이 한 장도 오지 않는 추억이 있으면
     타일을 눌러도 아무 일이 없다.
     """
     for event in _events():
         slides = _slides([event["id"]])
         assert slides, f"{event['title']}: 사진 슬라이드가 없다"
 
-    print(f"  사건 {len(_events())}개 전부 재생됨 OK")
+    print(f"  추억 {len(_events())}개 전부 재생됨 OK")
 
 
 def test_only_the_chosen_event_comes():
-    """짚어 보낸 사건의 사진만 온다
+    """짚어 보낸 추억의 사진만 온다
 
     2003 입학식과 2015 졸업식은 둘 다 "하늘"이 주인공이다. 제목을 키워드로
     훑으면 서로 섞인다 — 입학식을 눌렀는데 졸업식 사진이 나오면 안 된다.
     """
     for event in _events():
         got = {s["event_id"] for s in _slides([event["id"]])}
-        assert got == {event["id"]}, f"{event['title']}: 다른 사건이 섞였다 {got}"
+        assert got == {event["id"]}, f"{event['title']}: 다른 추억이 섞였다 {got}"
 
-    print("  고른 사건의 사진만 옴 OK")
+    print("  고른 추억의 사진만 옴 OK")
 
 
 def test_several_events_come_in_order():
-    """여러 사건을 묶어 보내면 사건 연대순으로 온다
+    """여러 추억을 묶어 보내면 추억 연대순으로 온다
 
     프리셋(장소·사람 묶음)이 이렇게 부른다. 시간이 뒤섞이면 이야기가 아니라
     사진 더미가 된다.
@@ -110,12 +110,12 @@ def test_several_events_come_in_order():
             order.append(slide["event_id"])
 
     expected = [events[0]["id"], events[3]["id"], events[6]["id"]]
-    assert order == expected, f"사건 순서가 어긋났다: {order}"
+    assert order == expected, f"추억 순서가 어긋났다: {order}"
 
     dates = [s["date"] or "" for s in slides if s["event_id"] == expected[0]]
-    assert dates == sorted(dates), f"한 사건 안의 촬영순이 어긋났다: {dates}"
+    assert dates == sorted(dates), f"한 추억 안의 촬영순이 어긋났다: {dates}"
 
-    print(f"  사건 {len(expected)}개가 연대순으로 옴 OK")
+    print(f"  추억 {len(expected)}개가 연대순으로 옴 OK")
 
 
 def test_audio_and_video_are_not_slides():
@@ -134,7 +134,7 @@ def test_audio_and_video_are_not_slides():
         if kinds - {MediaType.PHOTO}:
             with_others.append(event)
 
-    assert with_others, "사진 아닌 미디어가 붙은 사건이 없어 이 테스트는 아무것도 보지 않는다"
+    assert with_others, "사진 아닌 미디어가 붙은 추억이 없어 이 테스트는 아무것도 보지 않는다"
 
     for event in with_others:
         for slide in _slides([event["id"]]):
@@ -144,13 +144,13 @@ def test_audio_and_video_are_not_slides():
                 f"({media.get('media_type') if media else '없음'})"
             )
 
-    print(f"  사진 아닌 미디어가 붙은 사건 {len(with_others)}개, 슬라이드는 사진만 OK")
+    print(f"  사진 아닌 미디어가 붙은 추억 {len(with_others)}개, 슬라이드는 사진만 OK")
 
 
 def test_the_story_is_the_film_story():
     """거실에서 듣는 이야기가 앱에서 보는 Film 이야기와 글자까지 같다
 
-    두 화면이 같은 사건을 다르게 이야기하면 어느 쪽이 그 가족의 기억인지 알 수 없다.
+    두 화면이 같은 추억을 다르게 이야기하면 어느 쪽이 그 가족의 기억인지 알 수 없다.
     같은 기록이면 같은 문장이 나온다 (film_composer._stories).
     """
     event = _events()[0]
@@ -170,12 +170,12 @@ def test_the_story_is_the_film_story():
 def test_the_record_table_is_not_copied_into_the_story():
     """넘긴 사실 목록을 본문에 베껴 오면 걷어낸다
 
-    실제로 거실 화면의 이야기가 "사건: … / 날짜: … / 장소: … / 참여: …"로 시작했다.
-    날짜·장소·사건명은 이미 자막에 있다. 이야기가 그것을 다시 나열하면 표가 된다.
+    실제로 거실 화면의 이야기가 "추억: … / 날짜: … / 장소: … / 참여: …"로 시작했다.
+    날짜·장소·추억명은 이미 자막에 있다. 이야기가 그것을 다시 나열하면 표가 된다.
     """
     leaked = chr(10).join(
         [
-            "사건: 1998 부산 가족여행",
+            "추억: 1998 부산 가족여행",
             "날짜: 1998-08-13",
             "장소: 부산 광안리 해수욕장",
             "참여: 김하늘, 박서연",
@@ -214,7 +214,7 @@ def test_http_accepts_event_ids():
         slides = response.json()["slides"]
 
     got = {s["event_id"] for s in slides if s.get("media_id")}
-    assert got == {event["id"]}, f"응답에 다른 사건이 섞였다: {got}"
+    assert got == {event["id"]}, f"응답에 다른 추억이 섞였다: {got}"
 
     print(f"  HTTP로 event_ids 전달됨 OK ({event['title']})")
 

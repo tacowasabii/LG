@@ -267,7 +267,7 @@ class MemoryNode:
     # 이 기억과 함께 올린 사진·영상 (EVIDENCED_BY 엣지와 함께 저장한다)
     media_ids: list = field(default_factory=list)
     # 이 문장에서 뽑아낸 작은 "기억 맥락" (선택). 원문(content)은 손대지 않는다 —
-    # 여기 들어오는 것은 파생값이고, 사건의 제목·날짜·장소·정체성은 이 값으로
+    # 여기 들어오는 것은 파생값이고, 추억의 제목·날짜·장소·정체성은 이 값으로
     # 바뀌지 않는다 (services/memory_context.py).
     #
     #   {"speaker_id": "P02", "subject_person_ids": ["P03"],

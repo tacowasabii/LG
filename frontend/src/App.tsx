@@ -33,7 +33,7 @@ function App() {
         {/* All other pages use the app layout */}
         <Route path="/" element={<AppLayout />}>
           <Route index element={<HomePage />} />
-          {/* 사진첩 — 사건이 아니라 사진 자체를 훑는 자리.
+          {/* 사진첩 — 추억이 아니라 사진 자체를 훑는 자리.
               조건은 주소에 남는다 (?year=2025&person_id=P02&type=photo) */}
           <Route path="album" element={<AlbumPage />} />
           {/* 모으기 하나로 합쳤다 (올리기 · 채우기 · 첫 질문).

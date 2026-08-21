@@ -72,8 +72,8 @@ def _make_temp_audio(event_id: str = EVENT) -> MediaNode:
     기억과 함께 지워지는지 보려면 실제 파일이 있어야 한다 — 노드만 만들면 파일이
     지워졌는지 확인할 수 없다.
 
-    어느 사건에 붙일지 받는다. 추억을 지울 때 원본까지 사라지는지 보는 테스트는
-    시드 사건(E01)에 붙지 않은 녹음이 필요하다 — 두 사건에 걸린 원본은 남기는
+    어느 추억에 붙일지 받는다. 추억을 지울 때 원본까지 사라지는지 보는 테스트는
+    시드 추억(E01)에 붙지 않은 녹음이 필요하다 — 두 추억에 걸린 원본은 남기는
     것이 규칙이다 (memories._media_still_used).
     """
     index = len(_temp_files) + 1
@@ -92,9 +92,9 @@ def _make_temp_audio(event_id: str = EVENT) -> MediaNode:
     graph_manager.add_media(node)
     _created.append(node.id)
 
-    # 실제 흐름과 같게 사건에 잇는다. 화면은 녹음을 올릴 때 사건을 함께 보내고
+    # 실제 흐름과 같게 추억에 잇는다. 화면은 녹음을 올릴 때 추억을 함께 보내고
     # (MemoryComposer -> uploadVoice(eventId)), media 라우터가 이 엣지를 만든다.
-    # 이 엣지 때문에 기억을 지워도 사건의 "가족이 남긴 목소리"에 계속 남아 있었다.
+    # 이 엣지 때문에 기억을 지워도 추억의 "가족이 남긴 목소리"에 계속 남아 있었다.
     if event_id:
         graph_manager.add_edge(Edge(
             source=node.id, target=event_id, relation=RelationType.CAPTURED_DURING,
@@ -196,7 +196,7 @@ def test_contribution_does_not_overwrite_original():
         assert detail["state"] == MemoryState.SHARED.value, detail["state"]
         assert detail["i_added"] is True, detail["i_added"]
 
-        # 기억 → 사건, 사람 → 기억 엣지가 함께 생긴다 (출처 보존)
+        # 기억 → 추억, 사람 → 기억 엣지가 함께 생긴다 (출처 보존)
         edges = graph_manager.get_all_edges()
         assert any(
             e["source"] == memory["id"]
@@ -308,7 +308,7 @@ def test_media_attaches_only_when_asked():
         assert graph_manager.get_node(event["id"])["node_type"] == NodeType.EVENT
         print("  사진 연결 OK")
     finally:
-        # 사진에 붙은 CAPTURED_DURING은 사건을 지우면 함께 사라진다
+        # 사진에 붙은 CAPTURED_DURING은 추억을 지우면 함께 사라진다
         _cleanup()
 
 
@@ -318,7 +318,7 @@ def test_memory_can_be_removed_by_the_person_who_left_it():
         m for m in graph_manager.get_media_for_event(EVENT)
         if m.get("media_type") == "photo"
     ]
-    assert photos, "시드 사건에 사진이 없다"
+    assert photos, "시드 추억에 사진이 없다"
     photo = photos[0]
 
     memory = memories.add_contribution(
@@ -335,7 +335,7 @@ def test_memory_can_be_removed_by_the_person_who_left_it():
         assert result, "지우지 못했다"
         assert graph_manager.get_node(memory["id"]) is None, "기억이 남아 있다"
 
-        # 문장에 매달렸던 관계도 함께 끊긴다 (근거 · 남긴 사람 · 사건)
+        # 문장에 매달렸던 관계도 함께 끊긴다 (근거 · 남긴 사람 · 추억)
         assert not any(
             memory["id"] in (e["source"], e["target"])
             for e in graph_manager.get_all_edges()
@@ -429,18 +429,18 @@ def test_deleting_memory_clears_a_story_that_quotes_it():
 
 
 def test_memory_of_another_event_is_not_deletable_here():
-    """사건을 함께 받는다 — 다른 사건의 기억은 여기서 지워지지 않는다"""
+    """추억을 함께 받는다 — 다른 추억의 기억은 여기서 지워지지 않는다"""
     memory = memories.add_contribution(EVENT, OTHER, "이 기억은 E01의 것입니다.")
     assert memory, "기억을 더하지 못했다"
     _created.append(memory["id"])
 
     try:
         others = [e["id"] for e in graph_manager.get_events() if e["id"] != EVENT]
-        assert others, "다른 사건이 없다"
+        assert others, "다른 추억이 없다"
 
-        assert memories.delete_memory(others[0], memory["id"]) is None, "다른 사건에서 지워졌다"
+        assert memories.delete_memory(others[0], memory["id"]) is None, "다른 추억에서 지워졌다"
         assert graph_manager.get_node(memory["id"]), "지워지면 안 되는 기억이 지워졌다"
-        print("  사건 확인 OK")
+        print("  추억 확인 OK")
     finally:
         _cleanup()
 
@@ -464,12 +464,12 @@ def test_event_deletion_takes_its_media_with_it():
     assert mine, "최초 작성자의 기억이 없다"
     _created.append(mine["id"])
 
-    # 이 추억만의 사진 한 장. 시드 사건에 붙이지 않는다 — 두 사건에 걸린 원본은
+    # 이 추억만의 사진 한 장. 시드 추억에 붙이지 않는다 — 두 추억에 걸린 원본은
     # 남기는 것이 규칙이고, 여기서 보려는 것은 지워지는 쪽이다
     photo = _make_temp_photo(event["id"])
     photo_path = MEDIA_DIR / photo.original_filename
 
-    # 목소리로 남긴 기억. 그 녹음은 사건이 아니라 기억의 근거로 붙는다
+    # 목소리로 남긴 기억. 그 녹음은 추억이 아니라 기억의 근거로 붙는다
     audio = _make_temp_audio(event_id="")
     audio_path = MEDIA_DIR / audio.original_filename
     spoken = memories.add_contribution(
@@ -499,7 +499,7 @@ def test_event_deletion_takes_its_media_with_it():
         assert not photo_path.exists(), "사진 파일이 남았다"
         assert not audio_path.exists(), "녹음 파일이 남았다"
 
-        # 사건도 기억도 원본도 없어졌으니 그것들에 매달렸던 관계도 남지 않는다
+        # 추억도 기억도 원본도 없어졌으니 그것들에 매달렸던 관계도 남지 않는다
         gone = {event["id"], mine["id"], spoken["id"], photo.id, audio.id}
         assert not any(
             gone & {e["source"], e["target"]} for e in graph_manager.get_all_edges()
@@ -524,13 +524,13 @@ def test_media_shared_with_another_event_survives():
         m for m in graph_manager.get_media_for_event(EVENT)
         if m.get("media_type") == "photo"
     ]
-    assert photos, "시드 사건에 사진이 없다"
+    assert photos, "시드 추억에 사진이 없다"
     shared = photos[0]
 
     event = memories.create_memory(
         author_id=AUTHOR,
         title="테스트 추억 (사진 공유)",
-        description="시드 사건과 사진을 함께 쓰는 추억입니다.",
+        description="시드 추억과 사진을 함께 쓰는 추억입니다.",
         person_ids=[AUTHOR],
         media_ids=[shared["id"]],
     )
@@ -558,31 +558,31 @@ def test_media_shared_with_another_event_survives():
         assert graph_manager.get_node(shared["id"]), "다른 추억이 쓰는 사진이 지워졌다"
         assert any(
             m["id"] == shared["id"] for m in graph_manager.get_media_for_event(EVENT)
-        ), "다른 사건의 사진 연결이 끊겼다"
-        assert memories.memories_of(EVENT), "다른 사건의 기억이 함께 지워졌다"
+        ), "다른 추억의 사진 연결이 끊겼다"
+        assert memories.memories_of(EVENT), "다른 추억의 기억이 함께 지워졌다"
         print("  공유된 사진은 남는다 OK")
     finally:
         _cleanup()
 
 
 def test_delete_event_only_touches_events():
-    """사건이 아닌 id로는 아무것도 지워지지 않는다"""
+    """추억이 아닌 id로는 아무것도 지워지지 않는다"""
     assert memories.delete_event(AUTHOR) is None, "사람이 지워졌다"
     assert graph_manager.get_node(AUTHOR), "지워지면 안 되는 인물이 지워졌다"
-    assert memories.delete_event("없는-사건") is None, "없는 사건을 지웠다고 한다"
-    print("  사건만 지운다 OK")
+    assert memories.delete_event("없는-추억") is None, "없는 추억을 지웠다고 한다"
+    print("  추억만 지운다 OK")
 
 
 def test_place_goes_when_the_last_event_that_used_it_goes():
     """추억을 지우면 그 추억만 쓰던 장소도 함께 거둔다
 
     장소는 사진의 EXIF 좌표에서 파생된 노드다 (event_resolver.resolve_place).
-    스스로 열리는 화면이 없어서 — 지도는 사건을 그리고 사진첩은 원본을 그린다 —
-    사건이 없어진 장소는 어느 화면에서도 닿을 수 없고, 연결된 기억 화면에
+    스스로 열리는 화면이 없어서 — 지도는 추억을 그리고 사진첩은 원본을 그린다 —
+    추억이 없어진 장소는 어느 화면에서도 닿을 수 없고, 연결된 기억 화면에
     아무것도 걸리지 않은 점으로만 남는다. 배포된 그래프에 "강원 홍천"과
     "경기 수원"이 그렇게 떠 있었다.
 
-    다른 사건이 아직 쓰고 있는 장소는 그대로 둔다 — 장소는 한 추억만의 것이
+    다른 추억이 아직 쓰고 있는 장소는 그대로 둔다 — 장소는 한 추억만의 것이
     아니다. 그래서 같은 장소를 두 추억이 쓰는 자리에서 확인한다.
     """
     # 홍천 좌표. 시드된 장소 여덟 곳에서 모두 5km 넘게 떨어져 있어 새 장소가 된다
@@ -610,7 +610,7 @@ def test_place_goes_when_the_last_event_that_used_it_goes():
         assert result["deleted_places"] == [], result["deleted_places"]
         assert graph_manager.get_node(place_id), "아직 쓰이는 장소가 지워졌다"
 
-        # 마지막 사건이 없어지면 장소도 따라간다
+        # 마지막 추억이 없어지면 장소도 따라간다
         result = memories.delete_event(second["id"])
         assert result, "둘째를 지우지 못했다"
         assert result["deleted_places"] == [place_id], result["deleted_places"]
@@ -628,7 +628,7 @@ def test_voice_goes_with_the_memory_it_belongs_to():
     """목소리로 남긴 기억을 지우면 그 녹음도 사라진다
 
     문장만 지우고 녹음을 남기면 지운 것이 아니다 — 전사문이 녹음에 함께 있고,
-    사건 상세의 "가족이 남긴 목소리"에서 계속 재생된다.
+    추억 상세의 "가족이 남긴 목소리"에서 계속 재생된다.
     """
     audio = _make_temp_audio()
     path = MEDIA_DIR / audio.original_filename
@@ -640,10 +640,10 @@ def test_voice_goes_with_the_memory_it_belongs_to():
     _created.append(memory["id"])
 
     try:
-        # 지우기 전에는 사건에 붙어 있다
+        # 지우기 전에는 추억에 붙어 있다
         assert any(
             m["id"] == audio.id for m in memories.detail(EVENT, OTHER)["media"]
-        ), "녹음이 사건에 붙지 않았다"
+        ), "녹음이 추억에 붙지 않았다"
 
         result = memories.delete_memory(EVENT, memory["id"])
         assert result, "지우지 못했다"
@@ -653,7 +653,7 @@ def test_voice_goes_with_the_memory_it_belongs_to():
         assert not path.exists(), "녹음 파일이 남았다"
         assert all(
             m["id"] != audio.id for m in memories.detail(EVENT, OTHER)["media"]
-        ), "사건 상세에 녹음이 남아 있다"
+        ), "추억 상세에 녹음이 남아 있다"
         print("  목소리 함께 삭제 OK")
     finally:
         _cleanup()
@@ -699,7 +699,7 @@ def test_photos_are_not_erased_with_the_memory():
         m for m in graph_manager.get_media_for_event(EVENT)
         if m.get("media_type") == "photo"
     ]
-    assert photos, "시드 사건에 사진이 없다"
+    assert photos, "시드 추억에 사진이 없다"
     photo = photos[0]
 
     memory = memories.add_contribution(

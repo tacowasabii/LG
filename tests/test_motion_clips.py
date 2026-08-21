@@ -199,7 +199,7 @@ def test_all_photos_are_covers_when_they_fit():
     """사진이 상한보다 적으면 전부 만든다
 
     미세 모션은 정적으로 보이는 사진도 살린다(머리카락·옷자락). 세 장뿐인
-    사건에서 골라낼 이유가 없고, 그때는 모델을 부를 이유도 없다 —
+    추억에서 골라낼 이유가 없고, 그때는 모델을 부를 이유도 없다 —
     "셋 중 셋을 고르라"는 값만 쓰고 답이 정해진 질문이다.
     """
     from backend.config import MOTION_COVERS_FILE
@@ -268,7 +268,7 @@ def test_cover_choice_is_remembered_when_choosing_is_needed():
 
 
 def test_only_new_events_are_generated():
-    """기능을 켠 뒤에 생긴 사건만 만든다
+    """기능을 켠 뒤에 생긴 추억만 만든다
 
     이미 쌓여 있던 앨범 전체를 한꺼번에 만들면 지출이 한 번에 튄다. 기준선을
     파일에 적어 두는 것이 요점이다 — id 모양이나 만든 시각으로 가르면
@@ -281,13 +281,13 @@ def test_only_new_events_are_generated():
     try:
         MOTION_BASELINE_FILE.unlink(missing_ok=True)
 
-        # 기준선을 아직 못 적었으면 아무것도 새 사건으로 보지 않는다.
+        # 기준선을 아직 못 적었으면 아무것도 새 추억으로 보지 않는다.
         # 기능이 조용히 안 되는 쪽이 돈이 조용히 나가는 쪽보다 낫다.
         assert motion_clips.baseline_event_ids() is None
         assert motion_clips.is_new_event("event_무엇이든") is False, \
-            "기준선 없이 새 사건으로 봤다 — 앨범 전체가 대상이 된다"
+            "기준선 없이 새 추억으로 봤다 — 앨범 전체가 대상이 된다"
 
-        # 부팅 때 정한다 (main.py). 그때 있던 사건이 기준선이 된다.
+        # 부팅 때 정한다 (main.py). 그때 있던 추억이 기준선이 된다.
         base = motion_clips.ensure_baseline()
         existing = {event["id"] for event in graph_manager.get_events()}
         assert base == existing, (sorted(base), sorted(existing))
@@ -309,7 +309,7 @@ def test_only_new_events_are_generated():
 
 
 def test_existing_events_request_nothing_even_when_on():
-    """켜져 있어도 기존 사건에서는 아무것도 맡기지 않는다"""
+    """켜져 있어도 기존 추억에서는 아무것도 맡기지 않는다"""
     from backend.config import MOTION_BASELINE_FILE
 
     saved = MOTION_BASELINE_FILE.read_bytes() if MOTION_BASELINE_FILE.exists() else None
@@ -320,7 +320,7 @@ def test_existing_events_request_nothing_even_when_on():
             motion_clips.request = lambda mid, path, prompt: (taken.append(mid) or True)
             board = asyncio.run(film_composer.compose(EVENT, length_sec=60))
         assert board, "스토리보드가 비었다"
-        assert taken == [], f"기존 사건인데 맡겼다: {taken}"
+        assert taken == [], f"기존 추억인데 맡겼다: {taken}"
         assert board["motion_pending"] == [], board["motion_pending"]
     finally:
         motion_clips.request = original
@@ -328,7 +328,7 @@ def test_existing_events_request_nothing_even_when_on():
             MOTION_BASELINE_FILE.unlink(missing_ok=True)
         else:
             MOTION_BASELINE_FILE.write_bytes(saved)
-    print("  기존 사건 → 맡김 없음 OK")
+    print("  기존 추억 → 맡김 없음 OK")
 
 
 def test_film_works_without_any_clip():

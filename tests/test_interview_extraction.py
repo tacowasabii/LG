@@ -156,13 +156,13 @@ def test_speaker_is_not_relinked():
 
 
 def test_empty_fields_are_filled_and_marked_inferred():
-    """비어 있는 날짜·장소는 채우고, 채운 사건은 추정으로 표시한다"""
+    """비어 있는 날짜·장소는 채우고, 채운 추억은 추정으로 표시한다"""
     _require_seeded_graph()
     before = _snapshot()
     memory_id = _make_memory()
     place = next(p for p in graph_manager.get_places() if p["id"] != before["location_id"])
     try:
-        # 날짜와 장소를 비워 둔 사건을 만든다 (업로드만 하고 아무도 안 채운 상태)
+        # 날짜와 장소를 비워 둔 추억을 만든다 (업로드만 하고 아무도 안 채운 상태)
         graph_manager.update_node(EVENT, {"date_start": None, "location_id": None})
         graph_manager.remove_edge(EVENT, before["location_id"])
 
@@ -254,7 +254,7 @@ def test_relation_terms_resolve_to_people():
 
 
 def test_no_event_target_still_records_extraction():
-    """사건이 정해지지 않은 인터뷰에서도 알아낸 것은 보고한다 (엣지는 만들지 않는다)"""
+    """추억이 정해지지 않은 인터뷰에서도 알아낸 것은 보고한다 (엣지는 만들지 않는다)"""
     _require_seeded_graph()
     memory_id = _make_memory()
     try:
@@ -269,7 +269,7 @@ def test_no_event_target_still_records_extraction():
         assert result["date"] == "1998-01-01"
         assert result["updated_nodes"] == [], result["updated_nodes"]
         assert result["filled"] == []
-        print("  사건 없는 인터뷰 OK")
+        print("  추억 없는 인터뷰 OK")
     finally:
         graph_manager.delete_node(memory_id)
 

@@ -5,7 +5,7 @@ JSON 파일 저장소가 실제 아카이브에서 부딪히는 세 가지를 �
   - 락이 없어 동시 업로드에서 유실  ->  트랜잭션
   - 검색이 전수 스캔  ->  trigram 색인으로 부분 일치
 
-스키마는 노드 두 종류가 아니라 `nodes`/`edges` 두 표뿐이다. 인물·사건·장소·기록·
+스키마는 노드 두 종류가 아니라 `nodes`/`edges` 두 표뿐이다. 인물·추억·장소·기록·
 기억의 필드가 서로 다르고 앞으로 더 늘어날 것이므로, 공통 컬럼(id·node_type)만
 빼고 나머지는 JSONB에 둔다. 새 필드를 넣을 때 마이그레이션이 필요 없다.
 
@@ -325,7 +325,7 @@ class PostgresGraphStore(GraphStore):
                     WHERE target = %(id)s
                       AND (%(rel)s::text IS NULL OR relation = %(rel)s::text)
              )
-             -- 순서를 고정한다. 없으면 사건 썸네일 3장과 TV 재생 순서가
+             -- 순서를 고정한다. 없으면 추억 썸네일 3장과 TV 재생 순서가
              -- 호출마다 달라진다 (물리적 저장 순서에 딸려 간다).
              ORDER BY n.created_at, n.id
         """

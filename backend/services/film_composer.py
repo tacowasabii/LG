@@ -1,6 +1,6 @@
 """Memory Film 구성 (기획안 02장 CORE · STORY)
 
-한 사건에 연결된 사진·영상·음성을 30~60초 이야기로 묶는다.
+한 추억에 연결된 사진·영상·음성을 30~60초 이야기로 묶는다.
 
 기획안의 "진정성 원칙"을 데이터 구조로 지킨다.
   - 장면마다 원본 기록 id와 출처 문구를 들고 있다 (되짚을 수 있어야 한다)
@@ -41,7 +41,7 @@ from backend.models.graph_models import MediaType, NodeType
 
 # 한 번 쓴 이야기는 다시 쓰지 않는다 — 같은 기록이면 같은 문장.
 #
-# Film을 다시 열거나 거실 화면(TV)이 같은 사건을 물을 때 새로 쓰면 문장이 매번
+# Film을 다시 열거나 거실 화면(TV)이 같은 추억을 물을 때 새로 쓰면 문장이 매번
 # 달라진다. 추모하는 자리에서 같은 기억이 매번 다르게 이야기되는 것은 이 제품이
 # 지키려는 것과 정반대고, 모델을 부르는 값도 그만큼 나간다.
 #
@@ -59,7 +59,7 @@ VIDEO_SEC = 10
 # 고른 길이를 채우려고 장면을 늘릴 때의 상한이다. 상한이 없으면 사진 두 장으로
 # 60초를 채우려 한 장에 30초를 앉히게 되고, 그건 이야기가 아니라 정지 화면이다.
 #
-# 이 값이 곧 "이 사건으로 고를 수 있는 길이"를 정한다 (_ceiling -> max_sec).
+# 이 값이 곧 "이 추억으로 고를 수 있는 길이"를 정한다 (_ceiling -> max_sec).
 # 화면은 채울 수 없는 길이를 잠근다 — 누를 수는 있는데 눌러도 영상이 그대로인
 # 자리를 남기지 않는다.
 PHOTO_MAX_SEC = 16
@@ -73,7 +73,7 @@ AUDIENCE_PACE = {
 
 AUDIENCE_TONE = {
     "child": "아이에게 말하듯 짧고 쉬운 문장으로. 인물 이름을 불러 준다.",
-    "adult": "사건의 배경과 관계를 담아 담담하게.",
+    "adult": "추억의 배경과 관계를 담아 담담하게.",
     "elder": "천천히 읽히도록 문장을 길게 끊고, 당시 호칭을 그대로 쓴다.",
 }
 
@@ -138,7 +138,7 @@ def _photo_file(photo: dict) -> Path:
 def _request_clip(photo: dict, event: dict, place_name: Optional[str]) -> bool:
     """이 사진의 클립을 만들어 달라고 맡긴다 (즉시 돌아온다)
 
-    무엇이 움직일지는 사진 설명·사건 제목·장소 이름에서 고른다. 그래프에는
+    무엇이 움직일지는 사진 설명·추억 제목·장소 이름에서 고른다. 그래프에는
     메타데이터의 tags가 남지 않아서(시드가 옮기지 않는다) 문장에서 찾는다.
     """
     prompt = motion_clips.motion_prompt([
@@ -151,7 +151,7 @@ def _request_clip(photo: dict, event: dict, place_name: Optional[str]) -> bool:
 
 
 def _record(event_id: str, viewer_id: Optional[str] = None) -> Optional[dict]:
-    """이 사건의 기록 — 장면과 이야기가 같은 것을 본다
+    """이 추억의 기록 — 장면과 이야기가 같은 것을 본다
 
     보는 사람이 볼 수 없는 원본은 장면으로도, 내레이션의 근거로도 쓰지 않는다
     (기획안 08장). 그래서 걸러내는 자리는 하나여야 한다 — 이야기만 따로 뽑는
@@ -184,13 +184,13 @@ async def story(
     audience: str = "adult",
     viewer_id: Optional[str] = None,
 ) -> str:
-    """이 사건의 Film 이야기 — 문장만
+    """이 추억의 Film 이야기 — 문장만
 
     compose()를 부르지 않는다. 그쪽은 장면을 짜고 미세 모션 클립 생성까지
     맡기는데(40초·비용), TV는 만들지 않는다. 필요한 것은 문장뿐이다.
 
     같은 기록이면 같은 문장이 나온다 (_narration의 캐시). 그래서 앱에서 본 Film과
-    거실에서 듣는 이야기가 글자까지 같다 — 같은 사건을 두 화면이 다르게
+    거실에서 듣는 이야기가 글자까지 같다 — 같은 추억을 두 화면이 다르게
     이야기하면, 어느 쪽이 그 가족의 기억인지 알 수 없다.
     """
     record = _record(event_id, viewer_id)
@@ -214,7 +214,7 @@ async def compose(
     audience: str = "adult",
     viewer_id: Optional[str] = None,
 ) -> Optional[dict]:
-    """사건 하나로 Film 스토리보드를 만든다
+    """추억 하나로 Film 스토리보드를 만든다
 
     보는 사람이 볼 수 없는 원본은 장면으로도, 내레이션의 근거로도 쓰지 않는다.
     비공개로 바꾼 사진이 영상에서 다시 나오면 설정이 무의미해진다 (기획안 08장).
@@ -248,13 +248,13 @@ async def compose(
     # 어느 사진을 움직이게 만들지 먼저 정한다.
     #
     # 사진이 상한보다 적으면 전부 만든다 — 미세 모션은 정적으로 보이는 사진도
-    # 살리므로 세 장뿐인 사건에서 골라낼 이유가 없다. 상한은 사진 백 장인
+    # 살리므로 세 장뿐인 추억에서 골라낼 이유가 없다. 상한은 사진 백 장인
     # 앨범 때문에 있다 (한 장에 약 $0.2).
     #
     # 이미 클립이 있는 사진이 그 자리를 차지한다. 미리 만들어 둔 것이 있으면
-    # 그만큼 정원이 줄어 같은 사건에 또 만들지 않는다.
+    # 그만큼 정원이 줄어 같은 추억에 또 만들지 않는다.
     #
-    # 기본값에서는 기능을 켠 뒤에 생긴 사건만 만든다. 이미 쌓여 있던 앨범 전체를
+    # 기본값에서는 기능을 켠 뒤에 생긴 추억만 만든다. 이미 쌓여 있던 앨범 전체를
     # 한꺼번에 만들면 지출이 한 번에 튄다 — 그쪽은 스크립트로 미리 만든다.
     covers: set[str] = set()
     already = sum(1 for photo in photos if photo["id"] in clips)
@@ -360,12 +360,12 @@ async def compose(
     #
     # 예전에는 뺀 장면이 없을 때만 채웠다. 남은 시간이 뺀 장면 몫이라고 봤는데,
     # 뺀 장면은 어느 쪽이든 나오지 않으므로 그 시간은 아무에게도 가지 않고 그냥
-    # 사라졌다 — 45초를 골라도 33초짜리가 나오고(어르신용 · 자료가 많은 사건),
+    # 사라졌다 — 45초를 골라도 33초짜리가 나오고(어르신용 · 자료가 많은 추억),
     # 화면에서는 45초 버튼이 켜진 채였다. 고른 길이가 지켜지지 않으면 길이를
     # 고르는 자리가 거짓말을 한다.
     #
     # 늘어나는 것은 사진 체류뿐이고 상한(PHOTO_MAX_SEC)도 그대로다. 영상만으로
-    # 이루어진 사건은 늘릴 사진이 없어 여전히 목표에 못 미칠 수 있다 — 원본 영상의
+    # 이루어진 추억은 늘릴 사진이 없어 여전히 목표에 못 미칠 수 있다 — 원본 영상의
     # 길이는 원본이 가진 것이라 늘리지 않는다. 그때 실제 길이는 total_sec이 밝힌다.
     fitted = _stretch(_fit(scenes, length_sec), length_sec, pace, photo_ids)
     narration = await _narration(event, memories, persons, place_name, audience, contexts)
@@ -393,7 +393,7 @@ async def compose(
         "total_sec": sum(s["duration_sec"] for s in fitted),
         "audience": audience,
         "requested_sec": length_sec,
-        # 이 사건·대상으로 채울 수 있는 최대 길이. 화면이 그보다 긴 선택지를 잠근다.
+        # 이 추억·대상으로 채울 수 있는 최대 길이. 화면이 그보다 긴 선택지를 잠근다.
         "max_sec": max_sec,
         # 요청한 길이에 맞추려고 뺀 장면 수. 화면이 "몇 장면이 빠졌다"고 밝힐 수 있게.
         "omitted_scenes": len(scenes) - len(fitted),
@@ -420,7 +420,7 @@ def _stretch(
 ) -> list[dict]:
     """남은 시간을 사진 장면에 1초씩 나눠 담아 고른 길이를 채운다
 
-    자르는 것만으로는 길이 선택이 절반만 동작했다. 사진 세 장뿐인 사건은
+    자르는 것만으로는 길이 선택이 절반만 동작했다. 사진 세 장뿐인 추억은
     30·45·60초 중 무엇을 골라도 24초 그대로여서, 고르는 자리가 있는데 고른 것이
     화면에 나타나지 않았다.
 
@@ -519,7 +519,7 @@ def _source_label(photo: dict, context: Optional[dict] = None) -> str:
 
 
 def _title(event: dict, memories: list[dict]) -> str:
-    """제목은 사건 제목을 쓰되, 기억 문장이 있으면 그쪽이 더 이야기답다
+    """제목은 추억 제목을 쓰되, 기억 문장이 있으면 그쪽이 더 이야기답다
 
     다만 지어내지는 않는다. 가족이 실제로 남긴 문장에서만 가져온다.
     """
@@ -553,7 +553,7 @@ async def _narration(
     맥락만 주면 사람이 실제로 쓴 말을 잃기 때문이다.
     """
     facts = [
-        f"사건: {event.get('title', '')}",
+        f"추억: {event.get('title', '')}",
         f"날짜: {event.get('date_start') or '미상'}",
         f"장소: {place or '미상'}",
         # 이름과 호칭을 함께 넘긴다 (memory_context.person_label). 이름만 주면
@@ -643,7 +643,7 @@ def _plain_narration(
 
     head = ", ".join(parts)
     # 이름과 호칭을 함께 적는다 ("김민수(아빠)"). 모델이 없을 때도 이야기에
-    # 나오는 사람의 모양이 같아야 한다 — 같은 사건을 두 경로가 다르게 부르면
+    # 나오는 사람의 모양이 같아야 한다 — 같은 추억을 두 경로가 다르게 부르면
     # 어느 쪽이 그 가족의 말인지 알 수 없다.
     names = ", ".join(memory_context.person_labels(persons))
 
@@ -669,7 +669,7 @@ def _plain_narration(
 def anniversaries(today: Optional[date] = None, limit: int = 4) -> list[dict]:
     """다가오는 기념일 (기획안: 기념일·명절 자동 큐레이션)
 
-    사건 날짜의 월·일이 다시 돌아오는 날을 세어 가까운 순으로 돌려준다.
+    추억 날짜의 월·일이 다시 돌아오는 날을 세어 가까운 순으로 돌려준다.
     """
     today = today or date.today()
     items = []

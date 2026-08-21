@@ -109,7 +109,7 @@ async def _prepare(
 def _is_followup(plan_state: dict) -> bool:
     """이 질문이 스스로 가리키는 대상 없이 앞 답변에 매달린 질문인가
 
-    질의 계획이 인물·장소·사건·연도를 하나도 뽑지 못한 질문이다 — "뭘 모르겠다는
+    질의 계획이 인물·장소·추억·연도를 하나도 뽑지 못한 질문이다 — "뭘 모르겠다는
     거야?", "그게 언제야?" 처럼. 이런 질문은 앞 turn이 무엇을 말했는지 알아야
     답할 수 있다.
 
@@ -157,7 +157,7 @@ async def process_chat_stream(
 ) -> AsyncIterator[dict]:
     """process_chat과 같은 일을 하되 답변을 토큰 단위로 흘려보낸다
 
-    답변 전체를 기다리면 화면이 10~20초 비어 있다. 근거(사진·사건)는 모델을 부르기
+    답변 전체를 기다리면 화면이 10~20초 비어 있다. 근거(사진·추억)는 모델을 부르기
     전에 이미 정해지므로 먼저 보내고, 그다음 문장을 이어 보낸다.
 
     yield 형태:
@@ -392,7 +392,7 @@ MAX_SOURCES = 5
 
 
 def _event_thumbnail(event_id: str) -> Optional[str]:
-    """사건에 연결된 사진 한 장의 썸네일 경로
+    """추억에 연결된 사진 한 장의 썸네일 경로
 
     영상·음성은 목록에서 그림이 되지 않으므로 사진만 고른다.
     """
@@ -480,7 +480,7 @@ def _extract_sources(search_results: list[dict]) -> list[SourceItem]:
                 type="event",
                 id=node_id,
                 title=node.get("title", ""),
-                # 사건 자체에는 그림이 없다. 그 사건의 사진 한 장을 얼굴로 쓴다 —
+                # 추억 자체에는 그림이 없다. 그 추억의 사진 한 장을 얼굴로 쓴다 —
                 # 근거가 글자만 늘어서면 "무엇을 보고 답했는지"가 읽히지 않는다.
                 thumbnail=_event_thumbnail(node_id),
                 confidence=0.9 if node.get("confidence") == "confirmed" else 0.7,

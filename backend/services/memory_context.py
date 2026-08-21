@@ -13,7 +13,7 @@ Memory Film의 자막은 그대로 "1998년 8월 · 해운대"였고, 내레이�
 무엇을 하지 않는지가 이 파일의 절반이다.
 
   - 원문을 고치지 않는다. 맥락은 MemoryNode.context에 따로 붙는 파생값이다
-  - 사건의 제목·날짜·장소·정체성을 건드리지 않는다. interview_engine.link_extracted
+  - 추억의 제목·날짜·장소·정체성을 건드리지 않는다. interview_engine.link_extracted
     와 다른 점이다 — 그쪽은 비어 있는 칸을 채우지만 여기는 이미 게시된 추억에
     얹는다. 이미 있는 사실을 뒤에 온 기억이 바꾸면, 만든 사람이 저장한 추억이
     자기도 모르게 달라진다
@@ -25,7 +25,7 @@ Memory Film의 자막은 그대로 "1998년 8월 · 해운대"였고, 내레이�
   - 원문에 없는 장면·행동을 만들지 않는다 (_grounded)
   - 사진에서 확인되지 않은 행동을 사진의 내용으로 적지 않는다 (shows_action)
 
-별도 ContextNode나 사건 버전 관리를 두지 않았다. 맥락은 기억에 딸린 값이라
+별도 ContextNode나 추억 버전 관리를 두지 않았다. 맥락은 기억에 딸린 값이라
 기억을 지우면 함께 사라져야 한다 — 노드로 떼어 놓으면 거둔 말의 맥락이 그래프에
 남고, Film 자막에서 계속 읽힌다 (memories.delete_memory가 지우는 것은 노드
 하나다).
@@ -253,7 +253,7 @@ def normalize(raw: dict, content: str, speaker_id: Optional[str]) -> Optional[di
     subjects: list[str] = []
     unmatched: list[str] = []
     for term in _terms(raw.get("subjects")):
-        # 원문에 없는 사람은 버린다. 모델이 사건 제목이나 다른 기억에서 끌어온
+        # 원문에 없는 사람은 버린다. 모델이 추억 제목이나 다른 기억에서 끌어온
         # 이름일 수 있고, 그러면 이 기억이 하지 않은 말을 하게 된다.
         if not _grounded(term, content):
             continue
@@ -328,8 +328,8 @@ def relate_media(
 ) -> tuple[list[str], Optional[str]]:
     """이 맥락이 가리키는 사진을 고른다 (그래프에는 아무것도 쓰지 않는다)
 
-    후보는 이미 이 사건에 붙어 있는 기록뿐이다. 사건 밖에서 끌어오지 않는다 —
-    EXIF 날짜·좌표로 넓히면 "같은 날 찍힌 남의 사진"이 남의 기억에 붙는다. 사건은
+    후보는 이미 이 추억에 붙어 있는 기록뿐이다. 추억 밖에서 끌어오지 않는다 —
+    EXIF 날짜·좌표로 넓히면 "같은 날 찍힌 남의 사진"이 남의 기억에 붙는다. 추억은
     이미 날짜와 장소로 좁혀진 묶음이라 그 안에서 고르는 것으로 충분하다.
 
     확정할 근거가 없으면 빈 목록을 돌려준다. 맥락만 저장하고 사진은 잇지 않는 것이
@@ -372,7 +372,7 @@ def relate_media(
             for photo in photos
             if all(pid in (photo.get("detected_faces") or []) for pid in subjects)
         ]
-        # 사건의 사진 전부에 그 사람이 있으면 고른 것이 없는 것과 같다. 그때
+        # 추억의 사진 전부에 그 사람이 있으면 고른 것이 없는 것과 같다. 그때
         # 전부를 "이 맥락의 사진"으로 적으면, 가리키는 것이 없는데 가리킨 척이 된다.
         if person_hits and len(person_hits) < len(photos):
             return person_hits, BASIS_PERSON
@@ -392,7 +392,7 @@ def shows_action(context: Optional[dict]) -> bool:
 def resolve_media(context: dict, event_id: str, memory: dict) -> dict:
     """맥락에 사진 근거를 채워 돌려준다 (그래프는 그대로 둔다)
 
-    이름을 memories.attach_media와 다르게 둔 이유가 있다. 그쪽은 사진을 사건에
+    이름을 memories.attach_media와 다르게 둔 이유가 있다. 그쪽은 사진을 추억에
     실제로 잇고(CAPTURED_DURING) 여기는 아무 엣지도 만들지 않는다 — 같은 이름을
     쓰면 읽는 사람이 여기서도 잇는다고 오해한다.
     """
@@ -600,9 +600,9 @@ def caption(context: dict) -> str:
 
 
 def event_note(context: dict) -> str:
-    """이 사진을 가리키는 맥락이 아닐 때 (같은 사건에 남은 기억일 뿐이다)
+    """이 사진을 가리키는 맥락이 아닐 때 (같은 추억에 남은 기억일 뿐이다)
 
-    TV가 쓴다. 거실 화면은 사건에 걸린 사진을 차례로 넘기므로, 맥락이 가리키지
+    TV가 쓴다. 거실 화면은 추억에 걸린 사진을 차례로 넘기므로, 맥락이 가리키지
     않는 사진에도 자막이 올라간다. 그 자막이 이 사진의 설명으로 읽히면 안 된다.
     """
     return f"{_who(context)}의 기억에서 · 이 사진의 장면은 아닙니다"
@@ -700,13 +700,16 @@ def prompt_line(context: dict) -> str:
 # 프롬프트에만 쓰는 제목·표시. 모델이 이것을 답에 그대로 옮겨 적는 일이 있어서
 # (실제로 이야기 본문에 "[사진에서 확인되지 않음]"이 나왔다) 나가는 자리에서
 # 걷어낸다. 표시를 없애는 것과 걷어내는 것을 함께 한다 — 프롬프트에서 뺐다고
-# 끝이 아니고, 남은 제목([사건] · [기억 맥락])도 같은 방식으로 새어 나온다.
+# 끝이 아니고, 남은 제목([추억] · [기억 맥락])도 같은 방식으로 새어 나온다.
 _BRACKET_MARK = re.compile(
     r"\[\s*(?:"
     r"사진에서\s*확인[^\]]*"
     r"|다르게\s*기억[^\]]*"
     r"|기억\s*맥락"
     r"|기록"
+    r"|추억"
+    # 이름을 "추억"으로 바꾸기 전에 만들어져 저장된 글에는 아직 [사건]이 남아
+    # 있다. 걷어내는 쪽은 옛 이름도 계속 본다 — 프롬프트에는 쓰지 않는다.
     r"|사건"
     r"|가족이\s*남긴\s*기억"
     r"|연결된\s*사진의\s*장면\s*설명"
@@ -715,17 +718,18 @@ _BRACKET_MARK = re.compile(
 # 프롬프트에 넘긴 사실 목록을 본문에 그대로 베껴 오는 경우.
 #
 # 실제로 거실 화면(TV)의 이야기가 이렇게 시작했다:
-#   사건: 1998 부산 가족여행
+#   추억: 1998 부산 가족여행
 #   날짜: 1998-08-13
 #   장소: 부산 광안리 해수욕장
 #   참여: 김하늘, 박서연, 이준석
-# 이것은 이야기가 아니라 표다. 날짜·장소·사건명은 이미 자막에 있고, 3m 떨어져
+# 이것은 이야기가 아니라 표다. 날짜·장소·추억명은 이미 자막에 있고, 3m 떨어져
 # 보는 화면에서 같은 것이 두 번 나오면 읽을 것이 아니라 치울 것이 된다.
 #
 # 줄 전체가 "이름: 값"인 것만 떼어낸다. 문장 중간의 콜론은 건드리지 않는다 —
-# 사람이 쓴 기억에도 콜론이 나온다.
+# 사람이 쓴 기억에도 콜론이 나온다. 옛 이름("사건: …")도 함께 본다 — 이름을
+# 바꾸기 전에 만들어져 저장된 글이 있다.
 _FACT_LINE = re.compile(
-    r"^[ \t]*(?:사건|날짜|장소|참여|주제|사진들|[가-힣]{2,5}의\s*기억)\s*:[^\n]*$",
+    r"^[ \t]*(?:추억|사건|날짜|장소|참여|주제|사진들|[가-힣]{2,5}의\s*기억)\s*:[^\n]*$",
     re.MULTILINE,
 )
 # 대괄호를 소괄호로 바꿔 적어 오는 경우. 소괄호는 정상 문장에도 쓰이므로
@@ -798,7 +802,7 @@ def view(context: Optional[dict], visible_media_ids: Optional[set] = None) -> Op
     }
 
 
-# --- 사건 단위로 모으기 ------------------------------------------------------
+# --- 추억 단위로 모으기 ------------------------------------------------------
 
 
 def from_memories(
@@ -833,7 +837,7 @@ def from_memories(
 
 
 def contexts_of(event_id: str, viewer_id: Optional[str] = None) -> list[dict]:
-    """사건 하나에 쌓인 맥락 (TV처럼 기억 목록을 따로 들고 있지 않은 쪽이 쓴다)"""
+    """추억 하나에 쌓인 맥락 (TV처럼 기억 목록을 따로 들고 있지 않은 쪽이 쓴다)"""
     connected = graph_manager.get_connected_nodes(event_id)
     memories = visibility.filter_memories(
         [n for n in connected if n.get("node_type") == NodeType.MEMORY], viewer_id
@@ -859,7 +863,7 @@ def for_media(contexts: list[dict], media_id: str) -> Optional[dict]:
 
 
 def primary(contexts: list[dict]) -> Optional[dict]:
-    """사건을 대표하는 맥락 하나 (사진을 가리키는 것이 있으면 그쪽)"""
+    """추억을 대표하는 맥락 하나 (사진을 가리키는 것이 있으면 그쪽)"""
     if not contexts:
         return None
     for context in contexts:

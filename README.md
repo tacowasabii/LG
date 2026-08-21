@@ -1,6 +1,6 @@
 # LG HomeStory
 
-> 사람과 사건의 기억을 연결하고, 질문하면 실제 기록을 근거로 답해주는 "대화 가능한 기억 공간"
+> 사람과 추억의 기억을 연결하고, 질문하면 실제 기록을 근거로 답해주는 "대화 가능한 기억 공간"
 >
 > 엔진명: Family Memory Graph
 
@@ -10,7 +10,7 @@
 
 ## 한 줄 요약
 
-흩어진 가족의 기록을 AI가 사람·시간·장소·사건으로 연결해, 검색·대화·재생 가능한 디지털 자산으로 만듭니다.
+흩어진 가족의 기록을 AI가 사람·시간·장소·추억으로 연결해, 검색·대화·재생 가능한 디지털 자산으로 만듭니다.
 
 ---
 
@@ -55,9 +55,9 @@ prompthon-2026/
 │   │   └── tv.py            # TV Memory Journey
 │   ├── services/            # 비즈니스 로직
 │   │   ├── graph_manager.py # NetworkX Graph CRUD + 검색 (싱글톤)
-│   │   ├── album.py         # 사진첩 목록 (필터·정렬·연월·사건 묶음·커서·공개 범위, AI 없음)
+│   │   ├── album.py         # 사진첩 목록 (필터·정렬·연월·추억 묶음·커서·공개 범위, AI 없음)
 │   │   ├── media_analyzer.py# EXIF 추출, 썸네일 생성
-│   │   ├── event_resolver.py# 미디어→인물·장소 연결 (사건 자동 생성은 하지 않음)
+│   │   ├── event_resolver.py# 미디어→인물·장소 연결 (추억 자동 생성은 하지 않음)
 │   │   ├── chat_engine.py   # Graph RAG + EXAONE 호출
 │   │   ├── interview_engine.py # 인터뷰 질문 생성 + 답변 구조화
 │   │   ├── memories.py      # 추억 게시·기억 더하기·함께 기억한 이야기
@@ -75,7 +75,7 @@ prompthon-2026/
 │   │   ├── layouts/         # AppLayout (사이드바), TVLayout (풀스크린)
 │   │   └── pages/           # 화면들
 │   │       ├── HomePage.tsx       # 타임라인 + 통계 + 미디어 갤러리
-│   │       ├── AlbumPage.tsx      # 사진첩 — 연월·사건 그리드 + 필터 + Lightbox
+│   │       ├── AlbumPage.tsx      # 사진첩 — 연월·추억 그리드 + 필터 + Lightbox
 │   │       ├── CollectPage.tsx    # 모으기 — 업로드 → AI 초안 → 추억 만들기
 │   │       ├── GraphPage.tsx      # react-force-graph-2d 시각화
 │   │       ├── ChatPage.tsx       # 채팅 UI + 소스 뱃지
@@ -183,24 +183,24 @@ Memory Film의 사진은 기본적으로 CSS 카메라 움직임(느린 줌·패
 
 #### 만들 때 만들기 (`MOTION_AUTOGEN`)
 
-기본값은 **꺼짐**입니다. 켜면 사용자가 Film을 만들 때 그 사건의 **대표 사진**을
+기본값은 **꺼짐**입니다. 켜면 사용자가 Film을 만들 때 그 추억의 **대표 사진**을
 그 자리에서 만듭니다.
 
 ```bash
 MOTION_AUTOGEN=true
 MOTION_AUTOGEN_MAX=50          # 누적 상한. 50건 = 약 $10
-MOTION_COVERS_PER_EVENT=3      # 사건 하나에서 만들 사진 수의 상한
-MOTION_AUTOGEN_NEW_ONLY=true   # 앞으로 생기는 사건만 (기본)
+MOTION_COVERS_PER_EVENT=3      # 추억 하나에서 만들 사진 수의 상한
+MOTION_AUTOGEN_NEW_ONLY=true   # 앞으로 생기는 추억만 (기본)
 ```
 
-**기존 사건은 만들지 않습니다.** 켠 시점의 사건 목록이
-`STATE_DIR/motion_baseline.json`에 기준선으로 적히고, 그 뒤에 만들어진 사건만
+**기존 추억은 만들지 않습니다.** 켠 시점의 추억 목록이
+`STATE_DIR/motion_baseline.json`에 기준선으로 적히고, 그 뒤에 만들어진 추억만
 자동 생성 대상이 됩니다 — 이미 쌓여 있던 앨범 전체를 한꺼번에 만들면 지출이 한
-번에 튀기 때문입니다. 기존 사건에 클립을 넣으려면 아래 "미리 만들기"로 합니다.
+번에 튀기 때문입니다. 기존 추억에 클립을 넣으려면 아래 "미리 만들기"로 합니다.
 
 기준선은 **부팅할 때** 한 번 정해집니다(`main.py`). 처음 필요할 때 정하면 그
-사이에 만들어진 사건까지 기준선에 들어가서, 새 추억을 만들고 Film을 열면 그
-추억이 "기존 사건"으로 적혀 영원히 대상에서 빠집니다 — 배포에서 실제로 그렇게
+사이에 만들어진 추억까지 기준선에 들어가서, 새 추억을 만들고 Film을 열면 그
+추억이 "기존 추억"으로 적혀 영원히 대상에서 빠집니다 — 배포에서 실제로 그렇게
 됐습니다. 파일에 적어 두는 것도 요점입니다. id 모양(시드가 붙이는 `E01` 같은
 규칙)이나 만든 시각으로 가르면 재시드·이관에서 조용히 달라집니다.
 
@@ -222,11 +222,11 @@ MOTION_BASELINE_EVENT_IDS=                                    # 제외 없음(�
 ```
 
 `autogen`이 false면 키·ffmpeg·상한 중 하나가 빠진 것이고, `baseline_events`가
-예상보다 많으면 기준선이 새 사건까지 삼킨 것입니다.
+예상보다 많으면 기준선이 새 추억까지 삼킨 것입니다.
 
 **사진이 상한보다 적으면 전부 만듭니다.** 미세 모션은 파도가 치거나 머리카락·
 옷자락이 살짝 흔들리는 정도라, 정적으로 보이는 사진도 만들면 살아납니다. 세
-장뿐인 사건에서 골라낼 이유가 없습니다.
+장뿐인 추억에서 골라낼 이유가 없습니다.
 
 상한은 **사진 백 장인 앨범** 때문에 있습니다 (한 장에 약 $0.2). 그때는 대표를
 골라 그만큼만 만들고, 고르는 데 `cover_picker`가 모델을 씁니다.
@@ -242,11 +242,11 @@ MOTION_BASELINE_EVENT_IDS=                                    # 제외 없음(�
   돈이 계속 나갑니다. 선택은 `STATE_DIR/motion_covers.json`에 이유와 함께 남고,
   정원이 남아 다시 고를 때도 앞선 선택은 그대로 둡니다
 - **이미 클립이 있는 사진이 그 자리를 차지합니다.** 미리 만들어 커밋한 것이
-  있으면 그만큼 정원이 줄어 같은 사건에 또 만들지 않습니다
+  있으면 그만큼 정원이 줄어 같은 추억에 또 만들지 않습니다
 - **모델이 없으면 앞에서부터 채웁니다.** 목록이 시간순이라 아무 기준이 없는 것은
   아닙니다 — 키를 설정하지 않은 사람의 화면도 같은 방식으로 동작해야 합니다
 
-지금 데이터셋(사건 8개 · 사진 24장, 사건마다 3장)은 **전부 기준선에 들어가므로
+지금 데이터셋(추억 8개 · 사진 24장, 추억마다 3장)은 **전부 기준선에 들어가므로
 자동 생성되지 않습니다.** 새로 만든 추억은 사진이 3장 이하면 전부가 대표가 되고
 모델은 호출되지 않습니다 — 넘칠 때만 고르는 일이 생깁니다.
 
@@ -283,7 +283,7 @@ python scripts/build_motion_covers.py E01 --dry-run
 python scripts/build_motion_covers.py E01 --resolution 480p
 ```
 
-사건 id(`E01`)를 주면 그 사건의 대표 사진 한 장만, 사진 id(`E01_001`)를 주면
+추억 id(`E01`)를 주면 그 추억의 대표 사진 한 장만, 사진 id(`E01_001`)를 주면
 그 사진만 만듭니다. 결과는 `data/motion/`에 쌓이고 커밋 대상입니다 — 시드가
 `MEDIA_DIR/motion`으로 옮기고 화면이 재생합니다. **클립이 없는 사진은 지금까지처럼
 CSS 카메라 움직임으로 돕니다**, 그래서 일부만 만들어도 화면이 깨지지 않습니다.
@@ -351,7 +351,7 @@ Memory Film과 TV Journey를 재생하면 배경 음악이 함께 깔립니다. 
 Web Audio). 내레이션 낭독이 브라우저 목소리를 쓰는 것과 같은 분업입니다. 키도,
 자산도, 비용도 들지 않습니다.
 
-무엇을 깔지는 **서버가 정합니다** (`backend/services/film_music.py`). 사건이 가진
+무엇을 깔지는 **서버가 정합니다** (`backend/services/film_music.py`). 추억이 가진
 말(제목·설명·장소)에서 무드를 고르고, 그 근거를 문장으로 함께 내려보냅니다.
 화면은 무드로 소리를 만들고 근거를 그대로 적습니다 — 화면이 따로 고르면 적힌
 근거와 나는 소리가 갈라집니다(카메라 움직임에서 실제로 그랬습니다).
@@ -368,14 +368,14 @@ Web Audio). 내레이션 낭독이 브라우저 목소리를 쓰는 것과 같�
 걸리기 때문입니다 — 추모하는 자리를 가장 먼저 보고, 그것이 이깁니다. 제사에 밝은
 음악이 깔리는 것은 고치면 되는 실수가 아니라 그 자리를 망치는 일입니다.
 
-LLM에 맡기지 않습니다. 같은 사건이 열 때마다 다른 음악으로 시작하면 그 음악은
-이 사건의 것이 아닙니다 (모션 프롬프트를 낱말 표로 고르는 것과 같은 이유입니다).
+LLM에 맡기지 않습니다. 같은 추억이 열 때마다 다른 음악으로 시작하면 그 음악은
+이 추억의 것이 아닙니다 (모션 프롬프트를 낱말 표로 고르는 것과 같은 이유입니다).
 
-**TV는 여정 하나에 무드 하나입니다** (`film_music.pick_journey`). 여정은 사건
+**TV는 여정 하나에 무드 하나입니다** (`film_music.pick_journey`). 여정은 추억
 여럿을 엮은 것이라 모아서 정합니다 — 슬라이드마다 고르면 9초마다 곡이 갈립니다.
 모으는 규칙은 둘입니다: 추모하는 기록이 하나라도 있으면 그쪽이 이기고(성묘 사진
 한 장이 섞인 여정에 밝은 음악을 깔 수는 없습니다), 그 밖에는 가장 많은 무드입니다.
-사진 수가 아니라 **사건 수**로 셉니다 — 앨범이 두꺼운 사건 하나가 여정 전체의
+사진 수가 아니라 **추억 수**로 셉니다 — 앨범이 두꺼운 추억 하나가 여정 전체의
 소리를 혼자 정하지 않게.
 
 서버에 닿지 못해 TV가 로컬로 여정을 조립한 경우(정적 배포·백엔드 중단)에는
@@ -431,19 +431,19 @@ python tests/test_chat_search.py        # 검색 15개
 python tests/test_chat_graph.py         # 질의 계획 8개
 python tests/test_memories.py           # 추억 게시·기억 더하기·기억 삭제 10개
 python tests/test_memory_context.py     # 더한 기억에서 뽑은 맥락 -> Film·TV 11개
-python tests/test_events_and_voice.py   # 사건 요약·음성·화자 귀속 11개
+python tests/test_events_and_voice.py   # 추억 요약·음성·화자 귀속 11개
 python tests/test_film.py               # Memory Film 12개
-python tests/test_motion_clips.py       # 미세 모션 클립 15개 (새 사건만·대표 선정·상한·TV)
+python tests/test_motion_clips.py       # 미세 모션 클립 15개 (새 추억만·대표 선정·상한·TV)
 python tests/test_family_visibility.py  # 가족 공간·초대 참여·공개 범위 18개
 python tests/test_permissions.py        # 역할 가드 12개
 python tests/test_interview_extraction.py # 답변에서 인물·장소·시점 추출
 python tests/test_interview_questions.py  # 인터뷰 대상·없는 호칭·질문 반복 13개
 python tests/test_media_person_tags.py  # 기록에 있는 사람 지목 6개
-python tests/test_album.py              # 사진첩 목록·필터·사건 묶음·커서·공개 범위·삭제 31개
+python tests/test_album.py              # 사진첩 목록·필터·추억 묶음·커서·공개 범위·삭제 31개
 python tests/test_transcript_source.py  # 전사문 출처·녹음 분류 7개
 python tests/test_video_upload.py       # 영상 길이·첫 장면 썸네일 4개
 python tests/test_tv_motion.py          # TV가 미세 모션 클립을 쓰는지 5개
-python tests/test_tv_menu.py            # TV 메뉴에서 고른 사건·이야기가 그대로 나오는지 8개
+python tests/test_tv_menu.py            # TV 메뉴에서 고른 추억·이야기가 그대로 나오는지 8개
 python tests/test_faces.py              # 얼굴 인식 가드 9개
 python tests/test_geocoder.py           # 좌표 -> 대략적인 지명 7개
 
@@ -547,7 +547,7 @@ JSON 파일은 그대로 남습니다. `DATABASE_URL`을 지우면 다시 파일
 ### 3. 배포 후 확인
 
 - 사이드바에 가족 이름이 뜨는가 (안 뜨면 `VITE_API_URL` 또는 `ALLOWED_ORIGINS`)
-- 타임라인·지도에 사건 8개와 지도 점이 보이는가 (안 보이면 백엔드가 옛 코드)
+- 타임라인·지도에 추억 8개와 지도 점이 보이는가 (안 보이면 백엔드가 옛 코드)
 - 채팅에 질문했을 때 근거 뱃지가 붙는가 (안 붙으면 `EXAONE_API_KEY` 확인)
 
 ---
@@ -592,10 +592,10 @@ JSON 파일은 그대로 남습니다. `DATABASE_URL`을 지우면 다시 파일
 | Media | `POST /api/media/upload` | 파일 업로드 + 자동 분석 (음성은 길이·파형·전사, 영상은 길이·첫 장면을 함께 받음) |
 | | `PUT /api/media/{id}/persons` | 이 기록에 있는 사람 지목 (보낸 목록이 최종 상태) |
 | | `GET /api/media` | 미디어 목록 (`?media_type=audio&person_id=P02`) |
-| | `GET /api/media/album` | 사진첩 — 사진·영상만, 사건·인물·장소를 붙여 커서로 나눠 준다 (`?year=2025&person_id=P02&types=photo&event_status=unlinked`). `?event_id=E06`으로 사건 하나만, `?group_by=event`로 사건별로 묶어서 |
+| | `GET /api/media/album` | 사진첩 — 사진·영상만, 추억·인물·장소를 붙여 커서로 나눠 준다 (`?year=2025&person_id=P02&types=photo&event_status=unlinked`). `?event_id=E06`으로 추억 하나만, `?group_by=event`로 추억별로 묶어서 |
 | | `POST /api/media/bulk-delete` | 고른 원본 여러 개를 한 번에 삭제 (막힌 것은 이유와 함께 돌려준다) |
 | Graph | `GET /api/graph` | 전체 노드+엣지 |
-| | `GET /api/graph/events` | 사건 목록 + 장소 좌표·참여자·썸네일·기억 상태 |
+| | `GET /api/graph/events` | 추억 목록 + 장소 좌표·참여자·썸네일·기억 상태 |
 | | `GET /api/graph/event/{id}` | 이벤트 상세 |
 | | `GET /api/graph/persons` | 인물 목록 |
 | | `POST /api/graph/person` | 인물 추가 |
@@ -610,7 +610,7 @@ JSON 파일은 그대로 남습니다. `DATABASE_URL`을 지우면 다시 파일
 | | `POST /api/memories/{id}/memory` | 내 기억 더하기 (글·목소리·사진, 원본 보존) |
 | | `POST /api/memories/{id}/media` | 기존 추억에 사진·영상 추가 |
 | | `POST /api/memories/{id}/story` | 함께 기억한 이야기 생성 (누가 맞는지 판정하지 않음) |
-| Film | `POST /api/film` | 사건 하나를 30~60초 이야기로 구성 |
+| Film | `POST /api/film` | 추억 하나를 30~60초 이야기로 구성 |
 | | `GET /api/film/anniversaries` | 다가오는 기념일 |
 | Trust | `GET /api/trust/report` | 마지막 채점 리포트 |
 | | `POST /api/trust/run` | 채점 실행 (LLM 호출, 수 분) |
@@ -655,7 +655,7 @@ JSON 파일은 그대로 남습니다. `DATABASE_URL`을 지우면 다시 파일
 ## 주요 설계 원칙
 
 1. **사실 vs 추정 분리** — 모든 데이터에 `confidence`와 `source` 명시
-2. **관점별 기억 보존** — 같은 사건도 가족마다 다른 기억 병렬 저장
+2. **관점별 기억 보존** — 같은 추억도 가족마다 다른 기억 병렬 저장
 3. **Private by Default** — 가족 데이터는 기본 비공개
 4. **환각 최소화** — Chat 답변에 반드시 Source 연결
 

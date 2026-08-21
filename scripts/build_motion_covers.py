@@ -53,9 +53,9 @@ def load_metadata() -> tuple[dict, list]:
 
 
 def resolve_targets(tokens: list[str], events: dict, media: list) -> list[dict]:
-    """E01(사건) 또는 E01_001(사진) 을 모두 받는다
+    """E01(추억) 또는 E01_001(사진) 을 모두 받는다
 
-    사건을 주면 그 사건의 대표 사진 한 장만 고른다 — 앨범 표지가 움직이면
+    추억을 주면 그 추억의 대표 사진 한 장만 고른다 — 앨범 표지가 움직이면
     되는 것이고, 모든 사진을 미리 만들 이유도 예산도 없다. 사용자가 Film을
     만들 때는 서버가 나머지를 채운다.
     """
@@ -77,13 +77,13 @@ def resolve_targets(tokens: list[str], events: dict, media: list) -> list[dict]:
                 raise SystemExit(f"{token}: 사진이 없어 표지를 만들 수 없다")
             targets.append(candidates[0])
         else:
-            raise SystemExit(f"알 수 없는 id: {token} (사건 E01 또는 사진 E01_001)")
+            raise SystemExit(f"알 수 없는 id: {token} (추억 E01 또는 사진 E01_001)")
     return targets
 
 
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__.split("\n")[0])
-    parser.add_argument("ids", nargs="+", help="사건 id(E01) 또는 사진 id(E01_001)")
+    parser.add_argument("ids", nargs="+", help="추억 id(E01) 또는 사진 id(E01_001)")
     parser.add_argument("--resolution", default="480p", choices=list(motion_clips.PRICE))
     parser.add_argument("--seconds", type=int, default=5,
                         help="모델에 요청하는 생성 길이")
@@ -121,7 +121,7 @@ def main() -> None:
         plan.append({
             "media_id": item["media_id"],
             "photo": PHOTOS_DIR / item["file_name"],
-            # 스크립트는 태그를, 서버는 사진 설명·사건 제목을 넘긴다. 고르는
+            # 스크립트는 태그를, 서버는 사진 설명·추억 제목을 넘긴다. 고르는
             # 방법은 같다 (motion_clips.motion_prompt).
             "prompt": motion_clips.motion_prompt(
                 list(item.get("tags", [])) + list(event.get("tags", []))

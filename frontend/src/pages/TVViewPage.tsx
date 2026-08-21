@@ -20,7 +20,7 @@ import { ambientSlides, buildLocalJourney, eventTiles, tvPresets } from '../lib/
  *
  *  - 검색창이 없다. TV에는 키보드가 없어서 텍스트 입력은 조작이 아니라 벌이다.
  *    대신 대기화면이 먼저 오늘의 기억을 띄우고, 메뉴는 묶음 프리셋 한 줄과
- *    모든 사건을 연대순으로 깐 한 줄로 들어간다. 어느 기억도 메뉴 밖에 남지 않는다.
+ *    모든 추억을 연대순으로 깐 한 줄로 들어간다. 어느 기억도 메뉴 밖에 남지 않는다.
  *  - 화면은 3개뿐이다: 대기화면 → 재생 → 근거. 그래프·업로드·공개설정은
  *    TV에 올리지 않는다 (그건 모바일·웹의 몫이다).
  *  - 재생 화면에는 누를 수 있는 위젯을 두지 않는다. 포커스가 갈 곳이 없으면
@@ -35,8 +35,8 @@ import { ambientSlides, buildLocalJourney, eventTiles, tvPresets } from '../lib/
  *  - 미리 만들어 둔 미세 모션 클립이 있는 사진은 그것을 재생한다. 파도·불꽃처럼
  *    환경만 움직이고 인물의 행동은 만들지 않는다 (scripts/build_motion_covers.py).
  *    없던 픽셀이 생긴 것이므로 라벨을 카메라 움직임과 나눠 적는다
- *  - 날짜·장소·사건명을 자막으로 항상 띄운다
- *  - 사건에 연결된 실제 가족 음성의 전사문을 자막으로 함께 보여준다
+ *  - 날짜·장소·추억명을 자막으로 항상 띄운다
+ *  - 추억에 연결된 실제 가족 음성의 전사문을 자막으로 함께 보여준다
  *  - OK 버튼으로 원본·촬영 시점·출처를 열어 볼 수 있다
  *  - 움직임이 적용된 장면에는 AI 라벨을 숨기지 않고 표시한다
  *  - 배경 음악은 앱이 만든 소리다. 무드와 고른 근거를 밝히고, 가족의 목소리나
@@ -46,7 +46,7 @@ import { ambientSlides, buildLocalJourney, eventTiles, tvPresets } from '../lib/
  *   대기화면 후보  -> GET /api/tv/ambient ("N년 전 오늘" 계산을 서버로 옮길 자리)
  *   프리셋        -> GET /api/tv/presets
  *   장소·상태     -> GET /api/graph/events 에서 받아 자막에 쓴다 (완료)
- *   음성          -> 사건에 연결된 audio 미디어를 API로 가져오기
+ *   음성          -> 추억에 연결된 audio 미디어를 API로 가져오기
  *   깊이 기반 시차 -> 2.5D 렌더 파이프라인
  */
 
@@ -82,11 +82,11 @@ const SCRIM_PLAY =
   'linear-gradient(to top, rgba(14,13,11,0.88) 0%, rgba(14,13,11,0.2) 55%, rgba(14,13,11,0.5) 100%)'
 
 /**
- * 서버 캡션은 "1998-08-13 - 1998 부산 가족여행"처럼 날짜와 사건명을 이어 붙인
+ * 서버 캡션은 "1998-08-13 - 1998 부산 가족여행"처럼 날짜와 추억명을 이어 붙인
  * 문자열이다(backend/services/tv_curator.py의 _generate_caption). 그 둘은 이미
  * 위 자막에 있어서 그대로 쓰면 같은 말이 두 번 나오고, 자막의 "1998. 08. 13"과
  * 캡션의 "1998-08-13"이 나란히 붙어 표기까지 어긋난다. 그래서 캡션에서 날짜와
- * 사건명을 덜어내고, 남는 말이 있을 때만 한 줄 더 쓴다.
+ * 추억명을 덜어내고, 남는 말이 있을 때만 한 줄 더 쓴다.
  */
 function captionRemainder(
   caption: string,
@@ -178,16 +178,16 @@ export default function TVViewPage() {
 
   const ambient = useMemo(() => ambientSlides(events, allClips), [events, allClips])
   /*
-    메뉴에 깔 두 줄. 위는 골라 묶은 프리셋, 아래는 모든 사건이다.
+    메뉴에 깔 두 줄. 위는 골라 묶은 프리셋, 아래는 모든 추억이다.
 
-    예전에는 프리셋 여섯 개가 메뉴의 전부여서, 그 묶음에 들지 못한 사건은 TV에서
+    예전에는 프리셋 여섯 개가 메뉴의 전부여서, 그 묶음에 들지 못한 추억은 TV에서
     누를 방법이 아예 없었다. 묶음을 늘려 메우지 않고 줄을 하나 더 깐다 — 묶음은
-    "무엇부터 볼까"에 답하는 것이고, 모든 사건은 목록이라 성질이 다르다.
+    "무엇부터 볼까"에 답하는 것이고, 모든 추억은 목록이라 성질이 다르다.
   */
   const rails = useMemo(() => {
     const groups = [
       { id: 'presets', title: '묶어서 보기', items: tvPresets(events, allClips) },
-      { id: 'events', title: '사건 하나하나', items: eventTiles(events) },
+      { id: 'events', title: '추억 하나하나', items: eventTiles(events) },
     ]
     return groups.filter((g) => g.items.length > 0)
   }, [events, allClips])
@@ -239,7 +239,7 @@ export default function TVViewPage() {
 
     let result: TVJourney | null = null
     try {
-      // 고른 사건을 함께 보낸다. 그러면 서버가 제목을 키워드로 다시 훑지 않는다 —
+      // 고른 추억을 함께 보낸다. 그러면 서버가 제목을 키워드로 다시 훑지 않는다 —
       // 훑으면 "입학식"을 눌렀는데 같은 사람이 찍힌 다른 해의 사진이 섞인다.
       const fromServer = await createTVJourney(query, undefined, eventIds)
       // 타이틀 한 장만 오는 경우가 있어 실제 사진이 붙었는지까지 본다
@@ -415,7 +415,7 @@ export default function TVViewPage() {
         if (screen === 'menu') {
           if (key === 'back') setScreen('ambient')
           else if (key === 'ok') {
-            // 사건을 아직 못 받았으면 고를 것이 없다 (rails가 비어 있다)
+            // 추억을 아직 못 받았으면 고를 것이 없다 (rails가 비어 있다)
             const chosen = rails[menu.rail]?.items[menu.index]
             if (chosen) start(chosen.label, chosen.query, chosen.event_ids)
           } else menu.move(key)
@@ -552,7 +552,7 @@ export default function TVViewPage() {
     )
   }
 
-  // ── 메뉴 (묶음 한 줄 + 모든 사건 한 줄) ────────────────────────────────
+  // ── 메뉴 (묶음 한 줄 + 모든 추억 한 줄) ────────────────────────────────
   if (screen === 'menu') {
     return (
       <div className="tv-safe relative flex h-full w-full flex-col">
@@ -568,7 +568,7 @@ export default function TVViewPage() {
           화면 밖으로 밀려 영원히 보이지 않는다.
         */}
         <div className="mt-[2vh] flex min-h-0 flex-1 flex-col gap-[1.2vh]">
-          {/* 사건을 아직 못 받았을 때. 빈 화면으로 두면 리모컨이 고장 난 것처럼 보인다 */}
+          {/* 추억을 아직 못 받았을 때. 빈 화면으로 두면 리모컨이 고장 난 것처럼 보인다 */}
           {rails.length === 0 && (
             <p className="tv-heading animate-pulse self-center text-paper/50">
               기억을 불러오고 있어요…
@@ -611,7 +611,7 @@ export default function TVViewPage() {
                             style={{ filter: `brightness(${focused ? 1 : 0.62})` }}
                           />
                         ) : (
-                          // 사진이 아직 없는 사건도 목록에 남긴다. 감추면 그 기억은
+                          // 사진이 아직 없는 추억도 목록에 남긴다. 감추면 그 기억은
                           // TV에서 다시 사라진다 — 빈 칸으로 두면 고장으로 보인다
                           <span className="tv-caption text-paper/40">사진이 아직 없어요</span>
                         )}
@@ -753,7 +753,7 @@ export default function TVViewPage() {
         </div>
       ) : (
         <div className="tv-safe relative z-10 flex h-full flex-col justify-end pb-[14vh]">
-          {/* 자막 — 날짜 · 장소 · 사건명 */}
+          {/* 자막 — 날짜 · 장소 · 추억명 */}
           <div className="flex flex-wrap items-center gap-x-[1.2vw] gap-y-2">
             {slide.date && (
               <span className="tv-body text-paper/75">
@@ -848,7 +848,7 @@ export default function TVViewPage() {
                   ['원본 파일', slide.media_id || '알 수 없음'],
                   ['촬영 추정 시점', slide.date?.slice(0, 10).replace(/-/g, '. ') || '미상'],
                   ['장소', linkedEvent?.place?.name || linkedEvent?.location_name || '미상'],
-                  ['사건', slide.event_title || '미상'],
+                  ['추억', slide.event_title || '미상'],
                   ['적용된 움직임', '느린 패닝 · 줌 (원본 보존)'],
                 ].map(([label, value]) => (
                   <div

@@ -370,8 +370,8 @@ def test_event_delete_is_limited_to_its_author_and_admin():
             assert admin.status_code == 200, admin.text
             assert graph_manager.get_node(second) is None, "삭제가 반영되지 않았다"
 
-        # 시드 사건은 이 시험에서 건드리지 않는다
-        assert graph_manager.get_node(EVENT), "시드 사건이 지워졌다"
+        # 시드 추억은 이 시험에서 건드리지 않는다
+        assert graph_manager.get_node(EVENT), "시드 추억이 지워졌다"
         print("  추억 삭제 권한 OK (남·열람자 차단 · 만든 사람·관리자 허용)")
     finally:
         _restore()

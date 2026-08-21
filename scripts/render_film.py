@@ -3,7 +3,7 @@
     python scripts/render_film.py E01                    # 45초 · 성인
     python scripts/render_film.py E01 --length 30 --audience elder
     python scripts/render_film.py E01 --dry-run          # 계획만 본다 (인코딩 없음)
-    python scripts/render_film.py --all                  # 사건 전부
+    python scripts/render_film.py --all                  # 추억 전부
 
 화면의 Memory Film은 장면을 넘겨 보여 주는 미리보기였다. 내려받을 파일이 없어서
 가족에게 보낼 수도, TV에 넣을 수도 없었다.
@@ -27,7 +27,7 @@ webm이라 아이폰 사파리에서 재생되지 않는다. ffmpeg는 실시간
 (frontend/src/lib/filmMusic.ts) 음원 파일이 없다. 서버에서 다시 만들면 화면에서
 들리는 것과 다른 소리가 되므로, 없는 편이 낫다.
 
-목소리가 없는 사건은 소리 없는 영상이 된다. 자막으로 읽힌다.
+목소리가 없는 추억은 소리 없는 영상이 된다. 자막으로 읽힌다.
 
 ── 진정성 원칙은 파일 안에서도 지킨다
 
@@ -355,8 +355,8 @@ def render(event_id: str, length: int, audience: str, dry_run: bool) -> Path | N
 
 def main() -> int:
     parser = argparse.ArgumentParser(description="Memory Film을 mp4로 굽는다")
-    parser.add_argument("events", nargs="*", help="사건 id (예: E01)")
-    parser.add_argument("--all", action="store_true", help="사건 전부")
+    parser.add_argument("events", nargs="*", help="추억 id (예: E01)")
+    parser.add_argument("--all", action="store_true", help="추억 전부")
     parser.add_argument("--length", type=int, default=45, choices=(30, 45, 60))
     parser.add_argument("--audience", default="adult", choices=("child", "adult", "elder"))
     parser.add_argument("--dry-run", action="store_true", help="계획만 본다")
@@ -372,7 +372,7 @@ def main() -> int:
 
     targets = [e["id"] for e in graph_manager.get_events()] if args.all else args.events
     if not targets:
-        print("사건 id를 주세요 (또는 --all). 예: python scripts/render_film.py E01")
+        print("추억 id를 주세요 (또는 --all). 예: python scripts/render_film.py E01")
         return 1
 
     made = 0

@@ -154,7 +154,7 @@ def test_journey_carries_one_music_mood():
     """여정에는 무드가 하나 실린다 (슬라이드마다 바뀌지 않는다)
 
     소리는 화면이 만든다. 서버가 정하는 것은 무드와 그것을 고른 근거뿐이고,
-    Film과 같은 표를 쓴다 — 표가 갈라지면 같은 사건이 거실에서 다르게 들린다.
+    Film과 같은 표를 쓴다 — 표가 갈라지면 같은 추억이 거실에서 다르게 들린다.
     """
     journey = _journey()
     music = journey["music"]
@@ -189,19 +189,19 @@ def test_a_memorial_record_in_the_journey_wins():
 
 
 def test_music_counts_events_not_photos():
-    """무드는 사진 수가 아니라 사건 수로 센다
+    """무드는 사진 수가 아니라 추억 수로 센다
 
-    사진이 열 장인 사건과 한 장인 사건이 같은 무게여야 한다. 사진으로 세면 앨범이
-    두꺼운 사건 하나가 여정 전체의 소리를 혼자 정한다.
+    사진이 열 장인 추억과 한 장인 추억이 같은 무게여야 한다. 사진으로 세면 앨범이
+    두꺼운 추억 하나가 여정 전체의 소리를 혼자 정한다.
     """
     journey = _journey("아빠와의 추억")
     events, _places = tv_curator._slide_events(journey["slides"])
     event_ids = [e["id"] for e in events]
 
-    assert len(event_ids) == len(set(event_ids)), f"같은 사건을 여러 번 셌다: {event_ids}"
+    assert len(event_ids) == len(set(event_ids)), f"같은 추억을 여러 번 셌다: {event_ids}"
     photo_count = len([s for s in journey["slides"] if s.get("media_id")])
     assert photo_count >= len(event_ids), (photo_count, len(event_ids))
-    print(f"  사진 {photo_count}장 -> 사건 {len(event_ids)}개로 셈")
+    print(f"  사진 {photo_count}장 -> 추억 {len(event_ids)}개로 셈")
 
 
 def test_http_response_carries_music():

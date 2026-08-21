@@ -8,7 +8,7 @@
   - 적어 놓은 효과가 화면이 실제로 거는 것과 같은가
   - 요청한 길이를 넘지 않고, 잘라낸 장면 수를 밝히는가
   - 내레이션이 기록에 있는 사실만 쓰는가 (LLM 없이도 성립해야 한다)
-  - 배경 음악의 무드가 사건이 가진 말에서 나오고, 그 근거를 함께 밝히는가
+  - 배경 음악의 무드가 추억이 가진 말에서 나오고, 그 근거를 함께 밝히는가
 
 LLM 키가 없어도 통과해야 한다. 내레이션은 폴백 경로로 검증한다.
 
@@ -28,7 +28,7 @@ from backend.services import film_composer, film_music  # noqa: E402
 from backend.services.graph_manager import graph_manager  # noqa: E402
 
 EVENT = "E01"  # 1998 부산 가족여행 (사진 3장 + 영상 1개)
-# 세 길이 모두 채울 수 있는 사건. 자료가 적으면 긴 길이는 화면에서 잠긴다.
+# 세 길이 모두 채울 수 있는 추억. 자료가 적으면 긴 길이는 화면에서 잠긴다.
 RICH_EVENT = "E07"  # 2021 하늘 결혼식 (사진 3장 + 영상 2개)
 
 
@@ -95,7 +95,7 @@ def test_video_scenes_have_no_effects():
     board = asyncio.run(film_composer.compose(EVENT))
 
     video_scenes = [s for s in board["scenes"] if s["media_id"].startswith("video_")]
-    assert video_scenes, "이 사건에 영상이 없다 (시드 확인)"
+    assert video_scenes, "이 추억에 영상이 없다 (시드 확인)"
     for scene in video_scenes:
         assert scene["ai_effects"] == [], scene["ai_effects"]
         assert "원본 영상" in scene["source_label"], scene["source_label"]
@@ -127,7 +127,7 @@ def test_selectable_lengths_each_make_a_different_film():
         for sec in (30, 45, 60)
     }
     unlocked = [sec for sec, board in boards.items() if sec <= board["max_sec"]]
-    assert unlocked == [30, 45, 60], f"이 사건은 60초까지 채워져야 한다: {unlocked}"
+    assert unlocked == [30, 45, 60], f"이 추억은 60초까지 채워져야 한다: {unlocked}"
 
     totals = [boards[sec]["total_sec"] for sec in unlocked]
     assert len(set(totals)) == len(totals), f"길이를 바꿨는데 같은 영상이다: {totals}"
@@ -211,7 +211,7 @@ def test_music_carries_a_mood_and_its_reason():
 def test_memorial_records_never_get_bright_music():
     """추모하는 자리에는 밝은 음악을 깔지 않는다
 
-    한 사건이 여러 낱말에 걸린다 — "추석 가족모임 겸 성묘"에는 잔치의 말과 추모의
+    한 추억이 여러 낱말에 걸린다 — "추석 가족모임 겸 성묘"에는 잔치의 말과 추모의
     말이 함께 있다. 그때 추모가 이겨야 한다. 제사에 밝은 음악이 깔리는 것은 고치면
     되는 실수가 아니라 그 자리를 망치는 일이다.
     """
@@ -230,7 +230,7 @@ def test_old_records_are_remembered_and_recent_ones_are_not():
     """한 세대가 지난 기록은 회상으로, 같은 자리라도 최근이면 그 자리의 소리로
 
     판단 순서를 못 박아 둔다. 20년이 넘은 기록은 그것 자체가 회상이라 낱말보다
-    먼저 본다 — 순서를 정해 두지 않으면 같은 사건이 열 때마다 다르게 들린다.
+    먼저 본다 — 순서를 정해 두지 않으면 같은 추억이 열 때마다 다르게 들린다.
     """
     today = date(2026, 8, 21)
     old = {"title": "1998 부산 가족여행", "date_start": "1998-08-13"}
@@ -257,9 +257,9 @@ def test_music_follows_the_audience_pace():
 
 
 def test_missing_event_returns_none():
-    """자료가 없는 사건은 억지로 만들지 않는다"""
-    assert asyncio.run(film_composer.compose("없는-사건")) is None
-    print("  없는 사건 처리 OK")
+    """자료가 없는 추억은 억지로 만들지 않는다"""
+    assert asyncio.run(film_composer.compose("없는-추억")) is None
+    print("  없는 추억 처리 OK")
 
 
 def test_anniversaries_are_upcoming_and_sorted():
@@ -288,7 +288,7 @@ def test_http_film_endpoints():
         assert board["scenes"], board
         assert board["title"], board
 
-        missing = client.post("/api/film", json={"event_id": "없는-사건"})
+        missing = client.post("/api/film", json={"event_id": "없는-추억"})
         assert missing.status_code == 404, missing.status_code
 
         anniv = client.get("/api/film/anniversaries")

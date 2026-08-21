@@ -7,7 +7,7 @@
 
     1. 답변에서 말한 사람·대상·장면·행동이 뽑힌다 (원문에 있는 것만)
     2. 원문(content)은 바뀌지 않는다
-    3. 사건의 제목·날짜·장소는 바뀌지 않는다
+    3. 추억의 제목·날짜·장소는 바뀌지 않는다
     4. 맥락이 추억 상세로 내려간다
     5. Film의 자막·내레이션에 맥락이 반영된다
     6. TV 슬라이드의 자막에 맥락이 반영된다
@@ -15,7 +15,7 @@
        적지 않는다
 
 LLM 키가 없어도 통과해야 한다. 모델이 줄 값은 normalize()에 직접 넣어 시험하고,
-사건에 맥락을 붙이는 경로는 extract를 갈아 끼워 확인한다 — 추출 규칙과 모델
+추억에 맥락을 붙이는 경로는 extract를 갈아 끼워 확인한다 — 추출 규칙과 모델
 호출을 갈라 둔 이유가 이것이다.
 
 그래프를 실제로 바꾸므로 만든 것은 끝에서 지운다. 데모 데이터를 더럽히지 않는다.
@@ -169,11 +169,11 @@ def test_unknown_person_is_reported_not_created():
     print("  없는 사람 안 만듦 OK")
 
 
-# --- 2 · 3. 원본과 사건은 그대로 ---------------------------------------------
+# --- 2 · 3. 원본과 추억은 그대로 ---------------------------------------------
 
 
 def test_original_text_and_event_are_untouched():
-    """원문도 사건의 제목·날짜·장소도 바뀌지 않는다"""
+    """원문도 추억의 제목·날짜·장소도 바뀌지 않는다"""
     before = graph_manager.get_node(EVENT)
     snapshot = (
         before.get("title"),
@@ -195,8 +195,8 @@ def test_original_text_and_event_are_untouched():
         after.get("date_start"),
         after.get("location_id"),
         after.get("description"),
-    ) == snapshot, "사건이 바뀌었다"
-    print("  원문·사건 불변 OK")
+    ) == snapshot, "추억이 바뀌었다"
+    print("  원문·추억 불변 OK")
 
 
 # --- 4. 상세 화면 ------------------------------------------------------------
@@ -298,7 +298,7 @@ def test_photos_are_linked_only_when_there_is_a_reason():
     """근거가 없으면 사진을 잇지 않는다 (맥락만 저장한다)"""
     context = memory_context.normalize(MODEL_OUTPUT, ANSWER, SPEAKER)
 
-    # 사건의 사진 전부에 그 사람이 있으면 가리키는 것이 없는 것과 같다
+    # 추억의 사진 전부에 그 사람이 있으면 가리키는 것이 없는 것과 같다
     everywhere = [
         _photo(["P01", "P02", "P03"], "해변에서 웃고 있다", "A"),
         _photo(["P01", "P02", "P03"], "물가에 앉아 있다", "B"),

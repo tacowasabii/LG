@@ -3,7 +3,7 @@
 > 예선 MVP 범위: Memory Graph + Memory Chat + AI Interview + 추억 초안·기억 이어가기 + TV Memory Journey
 >
 > **기획 변경 (Memory Gap → 기억 이어가기)**: 이 문서의 초판은 빈칸을 "Memory Gap"
-> 목록으로 보여주고 가족 전원이 확인해야 사건이 완료되는 구조였다. 가족에는 앱이
+> 목록으로 보여주고 가족 전원이 확인해야 추억이 완료되는 구조였다. 가족에는 앱이
 > 익숙하지 않은 고령자와 아이가 함께 있어 그 완료 조건이 성립하지 않는다. 그래서
 > 추억은 한 사람이 만들면 즉시 게시되고, 다른 가족은 의무 없이 기억을 더하기만 한다.
 > 아래 2.5절과 화면 구성이 그 변경을 반영한다.
@@ -17,7 +17,7 @@
 | 노드 타입 | 주요 속성 | 설명 |
 |-----------|-----------|------|
 | **Person** | `id`, `name`, `relation` (아빠/엄마/아들 등), `birth_year`, `thumbnail_url` | 가족 구성원 |
-| **Event** | `id`, `title`, `description`, `date_start`, `date_end`, `location_id`, `confidence` | 사건 단위 (여행, 생일 등) |
+| **Event** | `id`, `title`, `description`, `date_start`, `date_end`, `location_id`, `confidence` | 추억 단위 (여행, 생일 등) |
 | **Place** | `id`, `name`, `address`, `lat`, `lng` | 장소 |
 | **Media** | `id`, `type` (photo/video/audio), `file_path`, `thumbnail_path`, `created_at`, `metadata` | 업로드된 미디어 파일 |
 | **Memory** | `id`, `content`, `source_type` (interview/upload/manual), `contributor_id`, `confidence`, `created_at` | 구술 기억, 설명 텍스트 등 |
@@ -215,7 +215,7 @@ src/
 │   └── FamilyPage.tsx        # 가족 구성원 카드
 ├── components/
 │   ├── MediaCard.tsx         # 사진/영상/음성 썸네일 카드
-│   ├── EventCard.tsx         # 사건 요약 카드
+│   ├── EventCard.tsx         # 추억 요약 카드
 │   ├── ChatBubble.tsx        # 채팅 말풍선 (답변 + 소스 링크)
 │   ├── GraphVisualization.tsx # D3 or react-force-graph
 │   ├── TimelineView.tsx      # 세로 타임라인

@@ -5,7 +5,7 @@
  * 그래서 근거의 원본 이미지를 알약의 왼쪽 눈으로 쓴다. 종류·제목·근거 강도를
  * 한 줄에 담아 답변 아래로 여러 개가 흘러도 답변보다 무거워지지 않게 한다.
  *
- * 썸네일은 백엔드가 내려주는 source.thumbnail을 쓴다. 사건 근거에는 그 사건의
+ * 썸네일은 백엔드가 내려주는 source.thumbnail을 쓴다. 추억 근거에는 그 추억의
  * 사진 한 장이 얼굴로 붙어 온다 (chat_engine._event_thumbnail).
  */
 
@@ -14,7 +14,7 @@ import { ChatSource, mediaUrl } from '../lib/api'
 
 const TYPE_LABEL: Record<string, string> = {
   media: '기록',
-  event: '사건',
+  event: '추억',
   memory: '기억',
   person: '인물',
   place: '장소',

@@ -63,7 +63,7 @@ def test_target_is_the_person_who_answers():
 
 
 def test_target_event_includes_the_speaker():
-    """물어보는 사건은 그 사람이 함께 있었던 사건이다
+    """물어보는 추억은 그 사람이 함께 있었던 추억이다
 
     없던 자리를 물으면 남는 것은 기억이 아니라 추측이다.
     """
@@ -72,22 +72,22 @@ def test_target_event_includes_the_speaker():
     for speaker in (FATHER, MOTHER, DAUGHTER, SON):
         target = pick_target(speaker_id=speaker)
         event = target["event"]
-        assert event, f"{speaker}에게 물어볼 사건을 못 골랐다"
+        assert event, f"{speaker}에게 물어볼 추억을 못 골랐다"
         participants = {
             n["id"]
             for n in graph_manager.get_connected_nodes(event["id"])
             if n.get("node_type") == "person"
         }
         assert speaker in participants, (speaker, event["id"], participants)
-    print("  참여한 사건에서만 고름 OK")
+    print("  참여한 추억에서만 고름 OK")
 
 
 def test_repeated_starts_ask_about_different_events():
-    """연달아 시작하면 다른 사건을 묻는다
+    """연달아 시작하면 다른 추억을 묻는다
 
     화면에서 이런 일이 있었다: "인터뷰 시작하기"를 누를 때마다 1998 부산
-    가족여행이 다시 나왔다. 시드된 그래프는 여덟 사건 모두 날짜·장소·설명·사진이
-    채워져 있어 점수가 같고, 같으면 목록의 첫 사건이 늘 이겼다. 시작만 하고
+    가족여행이 다시 나왔다. 시드된 그래프는 여덟 추억 모두 날짜·장소·설명·사진이
+    채워져 있어 점수가 같고, 같으면 목록의 첫 추억이 늘 이겼다. 시작만 하고
     그만두면 그래프도 그대로여서 다음 계산이 같은 답을 냈다.
     """
     _require_seeded_graph()
@@ -97,7 +97,7 @@ def test_repeated_starts_ask_about_different_events():
         picked = []
         for _ in range(3):
             event = pick_target(speaker_id=DAUGHTER)["event"]
-            assert event, "물어볼 사건을 못 골랐다"
+            assert event, "물어볼 추억을 못 골랐다"
             picked.append(event["id"])
             # 답하지 않고 다시 시작한 경우다 — 그래프는 그대로다
             remember_asked(DAUGHTER, event["id"])
@@ -105,7 +105,7 @@ def test_repeated_starts_ask_about_different_events():
         assert len(set(picked)) == 3, picked
     finally:
         forget_asked()
-    print("  연속 시작 시 사건 회전 OK:", " → ".join(picked))
+    print("  연속 시작 시 추억 회전 OK:", " → ".join(picked))
 
 
 def test_unknown_speaker_falls_back_to_gap():
@@ -113,7 +113,7 @@ def test_unknown_speaker_falls_back_to_gap():
     _require_seeded_graph()
 
     target = pick_target(speaker_id="P99")
-    assert target["event"], "폴백에서 사건을 못 골랐다"
+    assert target["event"], "폴백에서 추억을 못 골랐다"
     print("  없는 화자 폴백 OK:", target["person_name"])
 
 
@@ -248,11 +248,11 @@ def test_fallback_question_skips_asked_ones():
     print("  폴백 질문 중복 회피 OK")
 
 
-# --- 같은 사건이어도 사람마다 다르게 묻는가 -----------------------------------
+# --- 같은 추억이어도 사람마다 다르게 묻는가 -----------------------------------
 
 
 def test_age_at_event_is_counted_per_person():
-    """사건 당시 나이를 사람마다 따로 센다"""
+    """추억 당시 나이를 사람마다 따로 센다"""
     _require_seeded_graph()
 
     busan = graph_manager.get_node("E01")  # 1998-08-13
@@ -264,7 +264,7 @@ def test_age_at_event_is_counted_per_person():
     assert ages[MOTHER] == 25, ages
     assert ages[DAUGHTER] == 2, ages
     assert ages[SON] == -2, ages  # 2000년생 — 이 여행 뒤에 태어난다
-    print("  사건 당시 나이 OK:", ages)
+    print("  추억 당시 나이 OK:", ages)
 
 
 def test_toddler_and_adult_get_different_instructions():
@@ -366,13 +366,13 @@ def test_own_memories_and_others_memories_are_separated():
     busan = graph_manager.get_node("E01")  # 기록된 기억이 둘 다 김민수의 것이다
 
     father = interview_engine._build_interview_context(busan, graph_manager.get_node(FATHER))
-    assert "김민수님이 이 사건에 이미 남긴 기억" in father, father
+    assert "김민수님이 이 추억에 이미 남긴 기억" in father, father
     assert "다른 가족이 남긴 기억" not in father, father
 
     mother = interview_engine._build_interview_context(busan, graph_manager.get_node(MOTHER))
     assert "다른 가족이 남긴 기억" in mother, mother
     assert "박서연님이 본 것을 새로 물어도 좋다" in mother, mother
-    assert "박서연님이 이 사건에 이미 남긴 기억" not in mother, mother
+    assert "박서연님이 이 추억에 이미 남긴 기억" not in mother, mother
     print("  기억 분리 OK")
 
 
@@ -451,7 +451,7 @@ def test_fallback_questions_also_differ_by_person():
 def test_media_target_also_knows_the_age():
     """사진을 타겟으로 시작한 인터뷰도 그때 나이를 안다
 
-    날짜가 사건은 date_start, 미디어는 exif_date에 있다. 사건만 보면
+    날짜가 추억은 date_start, 미디어는 exif_date에 있다. 추억만 보면
     target_type="media"로 시작한 인터뷰는 나이를 모른 채 묻는다.
     """
     _require_seeded_graph()

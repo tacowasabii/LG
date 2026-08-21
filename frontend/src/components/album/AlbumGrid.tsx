@@ -1,5 +1,5 @@
 /**
- * 사진첩 그리드 — 촬영 연월 또는 사건으로 나눈 정사각형 격자
+ * 사진첩 그리드 — 촬영 연월 또는 추억으로 나눈 정사각형 격자
  *
  * Masonry를 쓰지 않는다. 가족 사진은 세로·가로·정사각형이 뒤섞여 있어서 높이가
  * 제각각인 격자에서는 훑는 눈이 자꾸 걸린다. 훑는 것이 이 화면의 유일한 목적이다.
@@ -9,7 +9,7 @@
  * 어느 추억에도 안 붙었는지(미분류). 촬영일·추억·인물은 마우스를 올리거나
  * 키보드로 짚었을 때 나온다. 파일명은 그리드에 내지 않는다 (상세에 있다).
  *
- * 묶음은 두 가지다. 촬영 연월과 사건 — 어느 쪽이든 서버가 준 순서를 그대로 두고
+ * 묶음은 두 가지다. 촬영 연월과 추억 — 어느 쪽이든 서버가 준 순서를 그대로 두고
  * 나누기만 한다 (AlbumPage가 group을 주소에 담아 서버에 넘긴다).
  *
  * 원본은 여기서 부르지 않는다. 썸네일이 없는 사진만 원본 경로를 쓰고, 그것도
@@ -26,7 +26,7 @@ import { AlbumGroupBy, AlbumMediaItem, mediaUrl } from '../../lib/api'
 const UNDATED_KEY = '__undated__'
 export const UNDATED_LABEL = '날짜를 알 수 없는 사진'
 
-/** 어느 추억에도 붙지 않은 사진들이 모이는 칸 (사건별로 묶어 볼 때) */
+/** 어느 추억에도 붙지 않은 사진들이 모이는 칸 (추억별로 묶어 볼 때) */
 const UNLINKED_KEY = '__unlinked__'
 export const UNLINKED_LABEL = '아직 어느 추억에도 없는 사진'
 
@@ -36,7 +36,7 @@ export interface AlbumSection {
   items: AlbumMediaItem[]
   /** 그 사진들이 전체 목록에서 몇 번째인지 (Lightbox가 이어서 넘길 수 있게) */
   offsets: number[]
-  /** 사건 묶음일 때만. 묶음 머리에서 추억 상세로 넘어갈 고리다 */
+  /** 추억 묶음일 때만. 묶음 머리에서 추억 상세로 넘어갈 고리다 */
   event?: AlbumMediaItem['event']
 }
 
@@ -67,11 +67,11 @@ export function groupByMonth(items: AlbumMediaItem[]): AlbumSection[] {
 }
 
 /**
- * 사건별로 나눈다. 여기서도 서버가 준 순서를 그대로 둔다 — 사건 묶음의 순서와
+ * 추억별로 나눈다. 여기서도 서버가 준 순서를 그대로 둔다 — 추억 묶음의 순서와
  * 묶음 안 사진의 순서는 서버가 이미 세워 두었다 (backend/services/album.py).
  *
- * 어느 추억에도 붙지 않은 사진은 맨 뒤의 한 칸으로 모은다. 사건이 아니므로
- * 사건들 사이에 끼우지 않는다.
+ * 어느 추억에도 붙지 않은 사진은 맨 뒤의 한 칸으로 모은다. 추억이 아니므로
+ * 추억들 사이에 끼우지 않는다.
  */
 export function groupByEvent(items: AlbumMediaItem[]): AlbumSection[] {
   const sections = new Map<string, AlbumSection>()
@@ -98,7 +98,7 @@ export function groupByEvent(items: AlbumMediaItem[]): AlbumSection[] {
   return [...ordered.filter((s) => s.key !== UNLINKED_KEY), ...unlinked]
 }
 
-/** 1998-08-13 → 1998년 8월 13일. 사건 묶음 머리에 적는다 */
+/** 1998-08-13 → 1998년 8월 13일. 추억 묶음 머리에 적는다 */
 function eventDateLabel(date: string | null | undefined): string {
   if (!date) return ''
   const [year, month, day] = date.slice(0, 10).split('-')
@@ -127,7 +127,7 @@ interface AlbumGridProps {
   /** 무엇으로 묶어 그릴까 (서버가 그 순서로 보내 준다) */
   groupBy?: AlbumGroupBy
   /**
-   * 사건 묶음 머리의 "이 추억만" — 이미 그 추억만 보고 있으면 주지 않는다
+   * 추억 묶음 머리의 "이 추억만" — 이미 그 추억만 보고 있으면 주지 않는다
    * (AlbumPage가 정한다). 없으면 단추를 그리지 않는다.
    */
   onPickEvent?: (eventId: string) => void
@@ -168,7 +168,7 @@ export default function AlbumGrid({
             <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1">
               <h3 className="t-h3 m-0">{section.label}</h3>
               {/*
-                사건 묶음에서는 그 추억으로 넘어갈 길을 함께 둔다. 사진을 보다가
+                추억 묶음에서는 그 추억으로 넘어갈 길을 함께 둔다. 사진을 보다가
                 "이게 무슨 일이었지"가 되는 자리가 여기다.
               */}
               {section.event && (

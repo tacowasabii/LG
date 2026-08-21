@@ -179,7 +179,7 @@ export default function PrivacyPage() {
     }
   }
 
-  // 사진이 많으므로 사건 대신 파일 단위로, 최근 것부터 보여준다
+  // 사진이 많으므로 추억 대신 파일 단위로, 최근 것부터 보여준다
   const visibleMedia = media.slice(0, 12)
 
   return (

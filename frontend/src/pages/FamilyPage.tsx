@@ -163,7 +163,7 @@ export default function FamilyPage() {
                   </span>
                   <span className="t-caption mt-0.5 block text-ink-300">
                     {person.birth_year ? `${person.birth_year}년생 · ` : ''}
-                    {eventCount}개 사건
+                    {eventCount}개 추억
                   </span>
                   <span className="mt-2.5 flex flex-wrap gap-1.5">
                     {info && (
@@ -279,7 +279,7 @@ export default function FamilyPage() {
             )}
 
             <div className="mt-6">
-              <p className="t-eyebrow m-0 mb-2.5">함께한 사건</p>
+              <p className="t-eyebrow m-0 mb-2.5">함께한 추억</p>
               {(selectedPerson.events?.length
                 ? selectedPerson.events.map((e) => ({
                     key: e.id,

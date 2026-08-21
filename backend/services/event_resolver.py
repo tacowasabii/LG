@@ -1,6 +1,6 @@
 """사진·영상을 사람·장소에 잇는다
 
-예전 이름 그대로 두었지만, 이 파일이 하던 가장 큰 일 — EXIF를 읽어 사건을
+예전 이름 그대로 두었지만, 이 파일이 하던 가장 큰 일 — EXIF를 읽어 추억을
 자동으로 찾거나 없으면 새로 만드는 일 — 은 없앴다.
 
     자동으로 기억을 병합하지 않는다.
@@ -36,7 +36,7 @@ PARTICIPANT_VIA_MEDIA = "media"
 def resolve_place(lat: float, lng: float, event_id: Optional[str] = None) -> Optional[str]:
     """GPS 좌표로 기존 장소를 찾거나 새로 만든다
 
-    event_id를 주면 그 사건에도 잇는다. 같은 이름의 장소가 둘 생기면 지도에
+    event_id를 주면 그 추억에도 잇는다. 같은 이름의 장소가 둘 생기면 지도에
     점이 겹치므로, 가까운 기존 장소를 먼저 찾는다.
     """
     existing_places = graph_manager.get_places()
@@ -45,7 +45,7 @@ def resolve_place(lat: float, lng: float, event_id: Optional[str] = None) -> Opt
         if place.get("lat") and place.get("lng"):
             dist = _haversine_km(lat, lng, place["lat"], place["lng"])
             if dist <= PLACE_DISTANCE_THRESHOLD_KM:
-                # 기존 장소 재사용, 사건에도 연결
+                # 기존 장소 재사용, 추억에도 연결
                 if event_id:
                     _ensure_event_place_edge(event_id, place["id"])
                 return place["id"]
@@ -70,14 +70,14 @@ def place_is_orphan(place_id: str, referenced: Optional[set] = None) -> bool:
     장소는 파생 노드다. 사진의 EXIF 좌표에서 짐작한 지명이 추억의 장소 칸에
     채워지고(routers/media.py의 place_guess -> memories._resolve_place_by_name),
     그 추억이 가리키는 동안만 존재할 이유가 있다. 스스로 열리는 화면이 없다 —
-    지도는 사건을 그리고 사진첩은 원본을 그린다.
+    지도는 추억을 그리고 사진첩은 원본을 그린다.
 
-    가리키는 것을 두 가지로 본다. 엣지(LOCATED_AT · TAKEN_AT)와 사건의
+    가리키는 것을 두 가지로 본다. 엣지(LOCATED_AT · TAKEN_AT)와 추억의
     location_id다. 둘째를 빠뜨리면 엣지 없이 location_id로만 이어진 장소를
     "아무도 안 쓴다"고 읽어 지운다 — 지우는 판정이므로 넓게 잡는 편이 맞다.
 
     Args:
-        referenced: 미리 모아 둔 location_id 집합. 여러 장소를 볼 때 사건 목록을
+        referenced: 미리 모아 둔 location_id 집합. 여러 장소를 볼 때 추억 목록을
             매번 다시 읽지 않게 한다. 없으면 여기서 읽는다.
     """
     node = graph_manager.get_node(place_id)
@@ -91,7 +91,7 @@ def place_is_orphan(place_id: str, referenced: Optional[set] = None) -> bool:
 
 
 def _referenced_place_ids() -> set:
-    """사건이 대표 장소로 지목한 장소 id"""
+    """추억이 대표 장소로 지목한 장소 id"""
     return {
         event.get("location_id")
         for event in graph_manager.get_events()
@@ -117,7 +117,7 @@ def orphan_places() -> list[dict]:
 def prune_orphan_places(place_ids: list[str]) -> list[str]:
     """이 중 아무것도 걸리지 않게 된 장소를 거둔다
 
-    사건·원본을 지운 자리에서 그 뒤에 부른다 (memories.delete_event). 아직
+    추억·원본을 지운 자리에서 그 뒤에 부른다 (memories.delete_event). 아직
     가리키는 것이 있으면 손대지 않는다 — 장소는 한 추억만의 것이 아니다.
 
     Returns:
@@ -224,19 +224,19 @@ def set_media_persons(media_id: str, person_ids: list[str]) -> list[str]:
             "faces_source": SourceType.USER_INPUT.value,
         })
 
-    # 지목이 바뀌면 이 기록이 붙은 사건의 "함께한 사람"도 바뀐다
+    # 지목이 바뀌면 이 기록이 붙은 추억의 "함께한 사람"도 바뀐다
     sync_event_participants(media_id)
 
     return wanted
 
 
 def sync_event_participants(media_id: str) -> list[str]:
-    """이 기록이 붙은 사건의 참여자를 사진에 지목된 사람과 맞춘다
+    """이 기록이 붙은 추억의 참여자를 사진에 지목된 사람과 맞춘다
 
-    사진에 지목된 사람은 그 사건에 함께 있던 사람이다. 붙이는 순간에만 그것을
-    옮기면(memories.attach_media), 나중에 지목한 사람은 사건에 닿지 않는다 —
+    사진에 지목된 사람은 그 추억에 함께 있던 사람이다. 붙이는 순간에만 그것을
+    옮기면(memories.attach_media), 나중에 지목한 사람은 추억에 닿지 않는다 —
     얼굴 인식이 할머니를 놓쳐서 화면에서 직접 지목했는데도 추억 상세의 "함께한
-    사람"과 Film·TV 이야기에는 할머니가 없다. 이야기는 사건에 이어진 인물을
+    사람"과 Film·TV 이야기에는 할머니가 없다. 이야기는 추억에 이어진 인물을
     읽어 쓰기 때문이다 (film_composer._narration의 "참여").
 
     Returns: 이번에 새로 이어진 person_id 목록
@@ -252,9 +252,9 @@ def sync_event_participants(media_id: str) -> list[str]:
 
 
 def events_of_media(media_id: str) -> list[str]:
-    """이 기록이 붙은 사건 id
+    """이 기록이 붙은 추억 id
 
-    기록을 지우기 전에 미리 읽어 두는 자리이기도 하다 — 지운 뒤에는 어느 사건의
+    기록을 지우기 전에 미리 읽어 두는 자리이기도 하다 — 지운 뒤에는 어느 추억의
     참여자를 다시 세야 하는지 알 수 없다 (routers/media.py의 삭제 경로).
     """
     return [
@@ -266,20 +266,23 @@ def events_of_media(media_id: str) -> list[str]:
     ]
 
 
-def sync_participants_of_event(event_id: str) -> list[str]:
-    """사건 하나의 참여자를 그 사건에 붙은 사진·영상의 지목에서 다시 센다
+def depicted_in_event(event_id: str, edges: Optional[list[dict]] = None) -> set[str]:
+    """이 추억의 사진·영상에 지목된 사람
 
-    한 장만 보고 더하지 않는다. 사진 하나에서 뗀 사람이 같은 사건의 다른 사진에
-    아직 남아 있으면 그 사람은 여전히 그 자리에 있던 사람이다.
+    detected_faces와 DEPICTS 엣지를 함께 읽는다. 둘은 함께 맞춰지지만
+    (set_media_persons) 시드·이전 데이터에는 한쪽만 있는 경우가 있다
+    (album.person_ids_of와 같은 이유).
 
-    뗄 때는 이 경로로 붙은 참여자만 뗀다 (properties.via == "media"). 추억을
-    만들 때 고른 사람과 기억을 남긴 사람은 사진과 무관하게 참여자다 — 사진 태그
-    하나를 지웠다고 그것까지 지우면, 사람이 적어 넣은 것을 자동 정리가 덮는다
-    (autotag_media_persons와 같은 판단).
+    읽는 자리가 둘이라 함수로 떼어 두었다. 참여자를 다시 세는 근거이고
+    (sync_participants_of_event), 사람이 손으로 참여자를 뗄 때 "이 사람은 사진에
+    남아 있어 되돌아옵니다"를 밝히는 근거이기도 하다 (memories.update_memory).
+    같은 질문에 답이 두 벌이면 화면이 약속한 것과 실제가 어긋난다.
 
-    Returns: 이번에 새로 이어진 person_id 목록
+    Args:
+        edges: 미리 읽어 둔 엣지 전체. 없으면 여기서 읽는다.
     """
-    edges = graph_manager.get_all_edges()
+    if edges is None:
+        edges = graph_manager.get_all_edges()
 
     media_ids = {
         node["id"]
@@ -293,16 +296,32 @@ def sync_participants_of_event(event_id: str) -> list[str]:
     for media_id in media_ids:
         node = graph_manager.get_node(media_id) or {}
         depicted.update(node.get("detected_faces") or [])
-    # 엣지도 함께 읽는다. 둘은 함께 맞춰지지만(set_media_persons) 시드·이전
-    # 데이터에는 한쪽만 있는 경우가 있다 (album.person_ids_of와 같은 이유).
     for edge in edges:
         if edge["source"] in media_ids and edge["relation"] == RelationType.DEPICTS:
             depicted.add(edge["target"])
-    depicted = {
+
+    return {
         person_id
         for person_id in depicted
         if (graph_manager.get_node(person_id) or {}).get("node_type") == NodeType.PERSON
     }
+
+
+def sync_participants_of_event(event_id: str) -> list[str]:
+    """추억 하나의 참여자를 그 추억에 붙은 사진·영상의 지목에서 다시 센다
+
+    한 장만 보고 더하지 않는다. 사진 하나에서 뗀 사람이 같은 추억의 다른 사진에
+    아직 남아 있으면 그 사람은 여전히 그 자리에 있던 사람이다.
+
+    뗄 때는 이 경로로 붙은 참여자만 뗀다 (properties.via == "media"). 추억을
+    만들 때 고른 사람과 기억을 남긴 사람은 사진과 무관하게 참여자다 — 사진 태그
+    하나를 지웠다고 그것까지 지우면, 사람이 적어 넣은 것을 자동 정리가 덮는다
+    (autotag_media_persons와 같은 판단).
+
+    Returns: 이번에 새로 이어진 person_id 목록
+    """
+    edges = graph_manager.get_all_edges()
+    depicted = depicted_in_event(event_id, edges)
 
     current = {
         edge["source"]: (edge.get("properties") or {})
@@ -324,7 +343,7 @@ def sync_participants_of_event(event_id: str) -> list[str]:
 
     for person_id, properties in current.items():
         if person_id not in depicted and properties.get("via") == PARTICIPANT_VIA_MEDIA:
-            _unlink(person_id, event_id, RelationType.PARTICIPATED_IN)
+            unlink(person_id, event_id, RelationType.PARTICIPATED_IN)
 
     return linked
 
@@ -367,10 +386,10 @@ def autotag_media_persons(media_id: str) -> list[str]:
 
 def _unlink_media_from_person(media_id: str, person_id: str) -> None:
     """DEPICTS 하나만 떼어낸다"""
-    _unlink(media_id, person_id, RelationType.DEPICTS)
+    unlink(media_id, person_id, RelationType.DEPICTS)
 
 
-def _unlink(source: str, target: str, relation: str) -> None:
+def unlink(source: str, target: str, relation: str) -> None:
     """두 노드 사이에서 관계 하나만 떼어낸다
 
     remove_edge는 두 노드 사이의 관계를 모두 지운다 (JSON·Postgres 양쪽 다).

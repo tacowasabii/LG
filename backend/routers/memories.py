@@ -53,8 +53,8 @@ async def draft_memory(
     촬영 시점·좌표·등장인물·기존 가족 기록을 읽어 제목·날짜·장소·설명을 채운다.
     확정이 아니다 — 사용자가 고치고 저장할 때 비로소 추억이 된다.
 
-    여러 사건에 걸친 사진이면 날짜·장소로 갈라 묶음마다 초안 하나를 돌려준다.
-    "같은 사건인 사진만 골라 올리세요"를 사용자에게 요구하지 않기 위한 것이다.
+    여러 추억에 걸친 사진이면 날짜·장소로 갈라 묶음마다 초안 하나를 돌려준다.
+    "같은 추억인 사진만 골라 올리세요"를 사용자에게 요구하지 않기 위한 것이다.
     """
     permissions.require_writer(actor)
     groups = await memory_drafter.draft_groups(
@@ -203,7 +203,7 @@ async def add_memory(
         raise HTTPException(status_code=404, detail="추억 또는 인물을 찾을 수 없습니다.")
 
     # 문장을 먼저 저장한 뒤에 맥락을 뽑는다. 모델이 실패해도 가족이 남긴 말은
-    # 이미 그래프에 있고, 사건의 제목·날짜·장소는 여기서 바뀌지 않는다.
+    # 이미 그래프에 있고, 추억의 제목·날짜·장소는 여기서 바뀌지 않는다.
     context = await memories.extract_context(event_id, memory["id"])
 
     return {

@@ -223,7 +223,7 @@ export default function MemoryDetailPage() {
     setError(null)
     try {
       const result = await deleteMemoryEvent(eventId)
-      // 홈·지도·TV·Film이 세는 사건 목록에서도 즉시 빠져야 한다
+      // 홈·지도·TV·Film이 세는 추억 목록에서도 즉시 빠져야 한다
       invalidateEvents()
       // 목소리도 함께 지워졌다. 캐시를 두면 사진첩과 인물 화면이 없는 녹음을
       // 계속 재생 목록에 올린다 (사진첩의 원본 삭제와 같은 처리다)
@@ -388,7 +388,7 @@ export default function MemoryDetailPage() {
         </span>
       </div>
 
-      {/* 가족이 남긴 목소리 (사건에 직접 붙은 녹음) */}
+      {/* 가족이 남긴 목소리 (추억에 직접 붙은 녹음) */}
       {audios.length > 0 && (
         <div className="mt-6 flex flex-col gap-2">
           {audios.map((item) => (

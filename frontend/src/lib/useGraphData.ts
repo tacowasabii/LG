@@ -1,10 +1,10 @@
 /**
  * 여러 화면이 함께 쓰는 그래프 데이터 훅
  *
- * 사건 요약과 음성은 홈·지도·채팅·인물·TV가 모두 필요로 한다. 화면마다 fetch를
+ * 추억 요약과 음성은 홈·지도·채팅·인물·TV가 모두 필요로 한다. 화면마다 fetch를
  * 새로 쓰면 필드 이름과 실패 처리가 조금씩 달라지므로 여기로 모았다.
  *
- * 캐시는 모듈 스코프에 둔다. 사건 8개 규모라 정교한 캐시가 필요하지 않고,
+ * 캐시는 모듈 스코프에 둔다. 추억 8개 규모라 정교한 캐시가 필요하지 않고,
  * 화면을 옮길 때마다 목록이 다시 깜빡이지 않는 것이 더 중요하다.
  * 무언가를 새로 남긴 뒤에는 invalidate*()를 불러 다음 조회에서 다시 받는다.
  */
@@ -26,7 +26,7 @@ export function invalidateVoiceClips(): void {
 export interface EventsState {
   events: EventListItem[]
   loading: boolean
-  /** id로 사건 찾기 — 근거 뱃지·슬라이드가 장소와 확인 상태를 붙일 때 쓴다 */
+  /** id로 추억 찾기 — 근거 뱃지·슬라이드가 장소와 확인 상태를 붙일 때 쓴다 */
   eventById: (id: string | null | undefined) => EventListItem | undefined
   reload: () => void
 }
@@ -71,7 +71,7 @@ export function useEvents(): EventsState {
 export interface VoiceState {
   clips: VoiceClip[]
   loading: boolean
-  /** 그 사건에서 남긴 목소리 */
+  /** 그 추억에서 남긴 목소리 */
   clipsForEvent: (eventId: string | null | undefined) => VoiceClip[]
   reload: () => void
 }

@@ -9,14 +9,14 @@
  * 걸려 있는지가 결과 목록보다 먼저 읽혀야 하고, 띠는 그 역할에 카드보다 조용하다.
  *
  * 지도의 점과 목록의 카드는 두 걸음으로 나눠 둔다. 점을 누르면 오른쪽 목록에서
- * 그 사건의 카드를 찾아 눈에 보이는 자리로 옮기고 표시만 한다. 상세를 여는 것은
+ * 그 추억의 카드를 찾아 눈에 보이는 자리로 옮기고 표시만 한다. 상세를 여는 것은
  * 카드를 누를 때다 — 지도는 훑는 곳이라, 점을 스칠 때마다 화면 전체를 덮는 것이
  * 뜨면 다른 점을 보러 가는 길이 매번 막힌다.
  *
- * 카드를 누르면 EventSpotlight가 그 사건의 사진을 Memory Film처럼 크게 띄우고
+ * 카드를 누르면 EventSpotlight가 그 추억의 사진을 Memory Film처럼 크게 띄우고
  * 그날에 남은 기록을 함께 보여준다. 카드의 썸네일 세 장은 미리보기일 뿐이다.
  *
- * 사건·장소·참여자·확인 상태는 GET /api/graph/events에서 온다.
+ * 추억·장소·참여자·확인 상태는 GET /api/graph/events에서 온다.
  * 남은 교체 지점: KoreaMap -> 지도 SDK 컴포넌트 (좌표 변환 규칙은 그대로 쓴다)
  */
 
@@ -45,17 +45,17 @@ export default function MapPage() {
   const [decades, setDecades] = useState<string[]>([])
   const [selectedId, setSelectedId] = useState<string | null>(null)
   /*
-    크게 열어 둔 사건. 예전에는 사건을 눌러도 테두리 색만 바뀌었다 — 카드의
-    썸네일 세 장이 그 사건에 남은 사진 전부인 것처럼 읽혔고, 누른 사람이
-    기대한 "이 사건 보기"가 아무 데도 닿지 않았다.
+    크게 열어 둔 추억. 예전에는 추억을 눌러도 테두리 색만 바뀌었다 — 카드의
+    썸네일 세 장이 그 추억에 남은 사진 전부인 것처럼 읽혔고, 누른 사람이
+    기대한 "이 추억 보기"가 아무 데도 닿지 않았다.
   */
   const [openId, setOpenId] = useState<string | null>(null)
 
-  /* 목록의 카드들. 지도에서 고른 사건을 화면 안으로 데려오는 데만 쓴다 */
+  /* 목록의 카드들. 지도에서 고른 추억을 화면 안으로 데려오는 데만 쓴다 */
   const cardRefs = useRef<Record<string, HTMLButtonElement | null>>({})
 
   /**
-   * 지도의 점을 눌렀을 때 — 오른쪽 목록에서 그 사건을 찾아 준다.
+   * 지도의 점을 눌렀을 때 — 오른쪽 목록에서 그 추억을 찾아 준다.
    *
    * 상세를 바로 열지 않는다. 점 하나를 누른 것은 "이게 뭐지"에 가깝고, 여는 것은
    * 카드를 보고 나서 정할 일이다. 표시만 하고 두면 목록 아래쪽 카드는 화면 밖에
@@ -70,7 +70,7 @@ export default function MapPage() {
     card.scrollIntoView({ behavior: reduced ? 'auto' : 'smooth', block: 'center' })
   }
 
-  // 카드를 누르면 그 사건을 크게 본다
+  // 카드를 누르면 그 추억을 크게 본다
   const openEvent = (id: string) => {
     setSelectedId(id)
     setOpenId(id)
@@ -102,7 +102,7 @@ export default function MapPage() {
 
   const gaps = useMemo(() => coverageGaps(filtered), [filtered])
 
-  // 좌표가 없는 사건은 지도에 점을 찍을 수 없다 (목록에는 그대로 남는다)
+  // 좌표가 없는 추억은 지도에 점을 찍을 수 없다 (목록에는 그대로 남는다)
   const located: MapPoint[] = filtered
     .filter((e) => e.place && e.place.lat != null && e.place.lng != null)
     .map((e) => ({
@@ -133,7 +133,7 @@ export default function MapPage() {
       <PageHeader
         eyebrow="Timeline & Map"
         title="타임라인 · 지도"
-        lead="가족의 사건을 연도와 장소로 함께 봅니다. 비어 있는 시기도 함께 보여줍니다."
+        lead="가족의 추억을 연도와 장소로 함께 봅니다. 비어 있는 시기도 함께 보여줍니다."
       />
 
       <div
@@ -144,7 +144,7 @@ export default function MapPage() {
         }}
       >
         <div className="min-w-[280px]">
-          <p className="t-eyebrow m-0 mb-2.5 text-ink-300">인물 · 모두 참여한 사건</p>
+          <p className="t-eyebrow m-0 mb-2.5 text-ink-300">인물 · 모두 참여한 추억</p>
           <div className="flex flex-wrap gap-1.5">
             {members.map((m) => (
               <button
@@ -201,7 +201,7 @@ export default function MapPage() {
           </div>
           <p className="t-caption mt-2.5">
             점 크기는 그 장소에 남은 기록 수입니다. 점선은 연도순 이동입니다. 점을 누르면
-            오른쪽 목록에서 그 사건을 찾아 줍니다.
+            오른쪽 목록에서 그 추억을 찾아 줍니다.
           </p>
           {offMap.length > 0 && (
             <p className="t-caption mt-1.5" style={{ color: 'var(--ink-400)' }}>
@@ -215,9 +215,9 @@ export default function MapPage() {
         <div className="flex flex-col gap-3">
           {!loading && filtered.length > 0 && (
             <div className="flex items-baseline justify-between">
-              <p className="t-eyebrow m-0">사건</p>
+              <p className="t-eyebrow m-0">추억</p>
               <span className="t-caption">
-                누르면 그 사건의 사진을 크게 보고 남은 기록을 함께 읽습니다
+                누르면 그 추억의 사진을 크게 보고 남은 기록을 함께 읽습니다
               </span>
             </div>
           )}
@@ -226,7 +226,7 @@ export default function MapPage() {
             <p className="t-body-sm py-12 text-center text-ink-300">불러오는 중…</p>
           ) : filtered.length === 0 ? (
             <p className="t-body-sm py-12 text-center text-ink-300">
-              조건에 맞는 사건이 없습니다.
+              조건에 맞는 추억이 없습니다.
             </p>
           ) : null}
 
@@ -313,7 +313,7 @@ export default function MapPage() {
           {gaps.length > 0 && (
             <div className="rule-strong mt-5 pt-5">
               <p className="t-eyebrow m-0 mb-1">비어 있는 시기</p>
-              <p className="t-caption m-0 mb-4">사건 사이가 3년 이상 벌어진 구간입니다.</p>
+              <p className="t-caption m-0 mb-4">추억 사이가 3년 이상 벌어진 구간입니다.</p>
               {gaps.map((gap) => (
                 <div
                   key={gap.from_year + '-' + gap.to_year}

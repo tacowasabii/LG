@@ -32,7 +32,7 @@ async def list_events(
     """이벤트 목록 (타임라인 · 지도 · TV 공용)
 
     장소 좌표, 참여자, 썸네일, 기억·음성 개수, 기억이 쌓인 정도까지 한 번에 내려준다.
-    화면이 사건마다 상세를 다시 부르거나 목데이터로 메우지 않게 하는 것이 목적이다.
+    화면이 추억마다 상세를 다시 부르거나 목데이터로 메우지 않게 하는 것이 목적이다.
     """
     events = graph_manager.get_events()
 
@@ -51,7 +51,7 @@ async def list_events(
         )
         places = [n for n in connected if n.get("node_type") == NodeType.PLACE]
 
-        # 사건의 대표 장소. location_id가 있으면 그것을 우선한다
+        # 추억의 대표 장소. location_id가 있으면 그것을 우선한다
         # (엣지로만 이어진 장소가 여러 개일 수 있다).
         place_node = graph_manager.get_node(event.get("location_id") or "") or (
             places[0] if places else None
@@ -107,8 +107,8 @@ async def get_event_detail(
 ):
     """이벤트 상세
 
-    이 화면이 사건의 사진을 펼쳐 보여주므로, 목록과 같은 판정을 지나야 한다.
-    예전에는 여기만 걸러지지 않아서 비공개로 바꾼 사진이 사건을 펼치면 보였다.
+    이 화면이 추억의 사진을 펼쳐 보여주므로, 목록과 같은 판정을 지나야 한다.
+    예전에는 여기만 걸러지지 않아서 비공개로 바꾼 사진이 추억을 펼치면 보였다.
     """
     detail = graph_manager.get_event_detail(event_id)
     if not detail:

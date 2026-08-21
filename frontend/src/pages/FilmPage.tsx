@@ -1,7 +1,7 @@
 /**
  * Memory Film (기획안 02장 CORE · STORY)
  *
- * 하나의 사건에 연결된 사진·영상·음성을 30~60초 이야기로 묶는다.
+ * 하나의 추억에 연결된 사진·영상·음성을 30~60초 이야기로 묶는다.
  * 기획안의 진정성 원칙에 따라 장면마다 원본 출처와 적용된 AI 효과를 드러낸다.
  *
  * AI 효과 표시에 경고색을 쓰지 않는다. AI가 손을 댄 것은 잘못이 아니라 사실이고,
@@ -79,12 +79,12 @@ export default function FilmPage() {
   const { clips } = useVoiceClips()
   const [searchParams] = useSearchParams()
   /*
-    ?event=E01로 들어오면 그 사건으로 시작한다. 타임라인·지도에서 사건을 크게
-    보다가 "한 편의 이야기로 보기"를 누르는 길이다 — 여기서 사건을 다시 고르게
-    하면 방금 보던 사건을 이름으로 찾아야 한다.
+    ?event=E01로 들어오면 그 추억으로 시작한다. 타임라인·지도에서 추억을 크게
+    보다가 "한 편의 이야기로 보기"를 누르는 길이다 — 여기서 추억을 다시 고르게
+    하면 방금 보던 추억을 이름으로 찾아야 한다.
 
-    들어온 뒤 칩으로 다른 사건을 고르면 주소는 그대로 둔다. 이 값은 시작점일
-    뿐이고, 주소를 따라 고쳐 쓰면 뒤로 가기가 사건 선택을 되짚는 기록이 된다.
+    들어온 뒤 칩으로 다른 추억을 고르면 주소는 그대로 둔다. 이 값은 시작점일
+    뿐이고, 주소를 따라 고쳐 쓰면 뒤로 가기가 추억 선택을 되짚는 기록이 된다.
   */
   const [eventId, setEventId] = useState<string | null>(searchParams.get('event'))
   const [length, setLength] = useState<FilmLength>(45)
@@ -103,7 +103,7 @@ export default function FilmPage() {
     저절로 달라지는 것이 고장처럼 보인다. 만드는 중이라고 밝히고 다 되면
     시작하는 편이 정직하다.
 
-    total은 이 사건에서 만들기 시작한 장수다 (진행률의 분모).
+    total은 이 추억에서 만들기 시작한 장수다 (진행률의 분모).
     skipWait은 기다리지 않고 먼저 보겠다고 누른 경우 — 40초씩 걸리는 일이라
     빠져나갈 길은 있어야 한다.
   */
@@ -117,7 +117,7 @@ export default function FilmPage() {
   const narrator = useNarrator()
   const music = useFilmMusic()
 
-  // 사진이 가장 많은 사건에서 시작한다 (이야기가 될 자료가 있는 쪽)
+  // 사진이 가장 많은 추억에서 시작한다 (이야기가 될 자료가 있는 쪽)
   useEffect(() => {
     if (eventId || events.length === 0) return
     const richest = [...events].sort((a, b) => b.media_count - a.media_count)[0]
@@ -128,7 +128,7 @@ export default function FilmPage() {
     getAnniversaries().then(setAnniversaries).catch(console.error)
   }, [])
 
-  // 사건·길이·대상이 바뀌면 서버가 다시 구성한다
+  // 추억·길이·대상이 바뀌면 서버가 다시 구성한다
   useEffect(() => {
     if (!eventId) return
 
@@ -137,8 +137,8 @@ export default function FilmPage() {
     setError(null)
     setPlaying(false)
     setElapsed(0)
-    // 기다림은 사건마다 새로 센다. 다른 사건으로 옮기면 앞서 기다린 시간과
-    // "먼저 보기"를 눌렀던 것도 그 사건의 이야기다.
+    // 기다림은 추억마다 새로 센다. 다른 추억으로 옮기면 앞서 기다린 시간과
+    // "먼저 보기"를 눌렀던 것도 그 추억의 이야기다.
     setMotionTotal(0)
     setWaitedSec(0)
     setSkipWait(false)
@@ -151,7 +151,7 @@ export default function FilmPage() {
         console.error(e)
         if (!cancelled) {
           setBoard(null)
-          setError('이 사건으로는 아직 이야기를 만들 수 없습니다. 사진이나 영상을 먼저 연결해주세요.')
+          setError('이 추억으로는 아직 이야기를 만들 수 없습니다. 사진이나 영상을 먼저 연결해주세요.')
         }
       })
       .finally(() => {
@@ -170,7 +170,7 @@ export default function FilmPage() {
 
   /** 아직 만들고 있어서 이야기를 내주지 않는 상태 */
   const waitingForMotion = motionPending.length > 0 && !skipWait
-  /** 이 사건에서 만들기 시작한 장수 중 끝난 것 */
+  /** 이 추억에서 만들기 시작한 장수 중 끝난 것 */
   const motionDone = Math.max(0, motionTotal - motionPending.length)
 
   // 분모는 줄지 않는다 — 하나 끝날 때마다 전체도 같이 줄면 진행률이 늘 100%다
@@ -248,10 +248,10 @@ export default function FilmPage() {
     채울 수 있는 길이만 고르게 한다.
 
     서버는 사진 한 장을 세워 두는 시간에 상한을 둔다 (film_composer.PHOTO_MAX_SEC).
-    그래서 사진 세 장뿐인 사건은 60초를 채울 방법이 없고, 예전에는 그 60초가
+    그래서 사진 세 장뿐인 추억은 60초를 채울 방법이 없고, 예전에는 그 60초가
     눌리기는 하는데 눌러도 영상이 그대로였다. 자료로 닿을 수 없는 길이는 잠근다.
 
-    가장 짧은 길이는 잠그지 않는다. 사진 한 장뿐인 사건이면 30초에도 닿지 못하는데
+    가장 짧은 길이는 잠그지 않는다. 사진 한 장뿐인 추억이면 30초에도 닿지 못하는데
     거기서 전부 잠그면 아무것도 고를 수 없는 자리가 된다 — 그때는 짧게 나오고
     아래 문구가 몇 초까지였는지 밝힌다.
   */
@@ -265,7 +265,7 @@ export default function FilmPage() {
     // 켜진 채로 남아 있으면 무엇이 만들어졌는지 화면이 거짓말을 한다.
     if (length <= board.max_sec) return
     const fits = LENGTHS.filter((l) => l <= board.max_sec)
-    // 닿는 것이 하나도 없으면(사진 한 장뿐인 사건 — 16초) 가장 짧은 쪽으로 내려온다.
+    // 닿는 것이 하나도 없으면(사진 한 장뿐인 추억 — 16초) 가장 짧은 쪽으로 내려온다.
     // 그 자리는 잠기지 않아서(reachable) 고를 수 있고, 아래 문구가 몇 초까지인지
     // 밝힌다. 예전에는 여기서 아무것도 하지 않아 45초가 잠긴 채로 켜져 있었다.
     setLength(fits.length > 0 ? fits[fits.length - 1] : LENGTHS[0])
@@ -289,7 +289,7 @@ export default function FilmPage() {
   /*
     이야기가 멈추면 음악도 멈춘다.
 
-    멈추는 길이 여럿이다 — 일시정지 · 끝까지 재생 · 사건·길이·대상 변경. 한 자리에서
+    멈추는 길이 여럿이다 — 일시정지 · 끝까지 재생 · 추억·길이·대상 변경. 한 자리에서
     받아야 어느 길로 멈춰도 소리가 남지 않는다.
 
     시작은 여기서 하지 못한다. 소리는 사용자 동작 없이 시작할 수 없어서(자동재생
@@ -330,7 +330,7 @@ export default function FilmPage() {
     <Page width={1000}>
       <PageHeader
         eyebrow="Memory Film"
-        title="한 사건, 한 편의 이야기"
+        title="한 추억, 한 편의 이야기"
         lead="사진·영상·음성을 짧은 이야기로 묶습니다. 장면마다 원본 출처와 적용된 AI 효과를 함께 남깁니다."
       />
 
@@ -341,13 +341,13 @@ export default function FilmPage() {
           borderBottom: '1px solid var(--border)',
         }}
       >
-        <p className="t-eyebrow m-0 mb-2.5 text-ink-300">어떤 사건으로 만들까요</p>
+        <p className="t-eyebrow m-0 mb-2.5 text-ink-300">어떤 추억으로 만들까요</p>
         <div className="flex flex-wrap gap-1.5">
           {events.map((event) => {
             const ready = event.media_count > 0
             /*
-              자료가 없는 사건은 눌러도 아무 일이 없는 칩으로 두지 않는다.
-              사진첩에서 사진을 다 지우면 사건은 남고(원본을 지울 때 끊기는 것은
+              자료가 없는 추억은 눌러도 아무 일이 없는 칩으로 두지 않는다.
+              사진첩에서 사진을 다 지우면 추억은 남고(원본을 지울 때 끊기는 것은
               연결뿐이다) 여기에 옅은 칩으로 계속 뜨는데, 예전에는 그것을 치울
               길이 이 화면에 없었다. 상세로 보낸다 — 거기서 사진을 더하거나
               추억을 지운다.
@@ -377,7 +377,7 @@ export default function FilmPage() {
         </div>
         {events.some((event) => event.media_count === 0) && (
           <p className="t-caption m-0 mt-2">
-            옅은 사건은 연결된 사진·영상이 없어 이야기를 만들 수 없습니다. 누르면 그
+            옅은 추억은 연결된 사진·영상이 없어 이야기를 만들 수 없습니다. 누르면 그
             추억으로 가서 사진을 더하거나 추억을 지울 수 있습니다.
           </p>
         )}
@@ -704,7 +704,7 @@ export default function FilmPage() {
             {board.omitted_scenes > 0 && (
               <p className="t-caption m-0 mt-2">
                 {board.requested_sec}초에 맞추려고 장면 {board.omitted_scenes}개를 뺐습니다.{' '}
-                {/* 가장 긴 길이에서도 넘칠 수 있다 (자료가 많은 사건 · 어르신용).
+                {/* 가장 긴 길이에서도 넘칠 수 있다 (자료가 많은 추억 · 어르신용).
                     그 자리에서 "더 긴 길이를 고르면 된다"고 적으면 없는 길을 가리킨다. */}
                 {LENGTHS.some((l) => l > length && reachable(l))
                   ? '더 긴 길이를 고르면 모두 들어갑니다.'

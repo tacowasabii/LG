@@ -24,7 +24,7 @@ async def compose_film(
     request: FilmRequest,
     actor: Optional[dict] = Depends(current_actor),
 ):
-    """사건 하나를 30~60초 이야기로 구성
+    """추억 하나를 30~60초 이야기로 구성
 
     장면마다 원본 기록과 적용된 효과를 함께 내려보낸다. 화면이 그것을 감추지
     않고 표시하는 것이 기획안의 진정성 원칙이다.
@@ -39,7 +39,7 @@ async def compose_film(
     if not board:
         raise HTTPException(
             status_code=404,
-            detail="이 사건으로는 아직 이야기를 만들 수 없습니다. 사진이나 영상을 먼저 연결해주세요.",
+            detail="이 추억으로는 아직 이야기를 만들 수 없습니다. 사진이나 영상을 먼저 연결해주세요.",
         )
 
     return FilmResponse(**board)

@@ -20,7 +20,7 @@
 누가 맞는지는 AI도 가족도 여기서 판정하지 않는다.
 
 남긴 기억은 지울 수 있다 (delete_memory). 지우는 것은 그 사람이 남긴 문장이고,
-함께 올린 사진·영상·목소리는 사건에 그대로 남는다 — 원본을 지우는 자리는
+함께 올린 사진·영상·목소리는 추억에 그대로 남는다 — 원본을 지우는 자리는
 사진첩이다. 남긴 사람과 가족 관리자만 지운다. 판정하지 않는 것과 지우지 못하는
 것은 다르다: 내가 한 말을 거둘 수 없으면 그건 보존이 아니라 구속이다.
 
@@ -197,9 +197,9 @@ def create_memory(
     다른 가족의 승인을 받지 않는다. AI 초안을 그대로 쓰든 고쳐 쓰든, 저장은
     한 번이고 그 순간부터 가족이 함께 본다.
 
-    설명(description)은 사건에 남고, 같은 문장이 작성자의 기억으로도 남는다.
+    설명(description)은 추억에 남고, 같은 문장이 작성자의 기억으로도 남는다.
     상세 화면이 "최초 작성자의 기억"을 세우려면 사람에게 귀속된 문장이 있어야
-    한다 — 사건 설명은 누구의 것도 아니다.
+    한다 — 추억 설명은 누구의 것도 아니다.
     """
     title = (title or "").strip() or "제목 없는 추억"
     description = (description or "").strip()
@@ -291,9 +291,9 @@ def attach_media(event_id: str, media_ids: list[str]) -> list[str]:
         ))
         attached.append(media_id)
 
-    # 사진에 지목된 사람은 그 사건에 함께 있던 사람이기도 하다. 붙일 때만 하지
+    # 사진에 지목된 사람은 그 추억에 함께 있던 사람이기도 하다. 붙일 때만 하지
     # 않고 한 자리에서 다시 센다 (event_resolver.sync_participants_of_event) —
-    # 나중에 지목한 사람도 같은 규칙으로 사건에 닿아야 한다. 규칙이 두 벌이면
+    # 나중에 지목한 사람도 같은 규칙으로 추억에 닿아야 한다. 규칙이 두 벌이면
     # 한쪽만 고쳐졌을 때 이야기에 들어가는 사람이 경로마다 달라진다.
     if attached:
         event_resolver.sync_participants_of_event(event_id)
@@ -317,15 +317,15 @@ def add_contribution(
 ) -> Optional[dict]:
     """다른 가족이 만든 추억에 내 기억을 더한다
 
-    원본을 수정하거나 덮어쓰지 않는다. 별도 기억으로 저장하고 사건에 잇는다 —
+    원본을 수정하거나 덮어쓰지 않는다. 별도 기억으로 저장하고 추억에 잇는다 —
     상세 화면에서 최초 작성자의 기억 아래에 나란히 쌓인다.
 
-    사진·영상을 함께 올린 경우 그 기록은 사건에도 붙고(CAPTURED_DURING), 이
+    사진·영상을 함께 올린 경우 그 기록은 추억에도 붙고(CAPTURED_DURING), 이
     기억의 근거로도 이어진다(EVIDENCED_BY). 문장에서 원본으로 되짚을 수 있어야
     한다.
 
     Returns:
-        만들어진 기억 노드. 사건이나 사람이 없으면 None.
+        만들어진 기억 노드. 추억이나 사람이 없으면 None.
     """
     event = graph_manager.get_node(event_id)
     if not event or event.get("node_type") != NodeType.EVENT:
@@ -412,10 +412,10 @@ def toggle_echo(event_id: str, person_id: str) -> Optional[dict]:
 
 
 def attached_memory(event_id: str, memory_id: str) -> Optional[dict]:
-    """이 사건에 붙어 있는 기억 하나 (아니면 None)
+    """이 추억에 붙어 있는 기억 하나 (아니면 None)
 
-    사건을 함께 받는 이유는 "사건에서 지운다"는 말을 지키기 위해서다. 다른
-    사건의 기억 id를 넣어도 여기서 걸린다 — 화면이 보고 있는 추억과 지워지는
+    추억을 함께 받는 이유는 "추억에서 지운다"는 말을 지키기 위해서다. 다른
+    추억의 기억 id를 넣어도 여기서 걸린다 — 화면이 보고 있는 추억과 지워지는
     문장이 어긋나면, 지운 사람은 무엇을 지웠는지 모른다.
     """
     event = graph_manager.get_node(event_id)
@@ -435,7 +435,7 @@ def attached_memory(event_id: str, memory_id: str) -> Optional[dict]:
 
 
 def _story_may_quote(event: dict, memory: dict) -> bool:
-    """사건에 저장된 "함께 기억한 이야기"가 이 기억을 담고 있을 수 있는가
+    """추억에 저장된 "함께 기억한 이야기"가 이 기억을 담고 있을 수 있는가
 
     이야기를 쓴 시점이 기억이 생긴 시점보다 뒤라면 담고 있다. 그보다 앞서 쓰인
     이야기는 이 기억을 볼 수 없었으므로 그대로 둔다 — 지울 이유가 없는 것까지
@@ -474,17 +474,17 @@ def _voices_to_erase(memory_id: str, evidence: list[dict]) -> list[dict]:
 
     목소리로 남긴 기억은 문장과 녹음이 한 몸이다. 문장만 지우고 녹음을 남기면
     지운 것이 아니라 형태만 바꿔 남긴 것이 된다 — 전사문이 그 녹음 노드에 함께
-    있어서 말한 내용이 그대로 읽히고, 사건 상세의 "가족이 남긴 목소리"에서 계속
+    있어서 말한 내용이 그대로 읽히고, 추억 상세의 "가족이 남긴 목소리"에서 계속
     재생된다. visibility.py가 원본과 그 원본을 설명한 문장을 함께 가리는 것과
     같은 이유다.
 
-    사진·영상은 지우지 않는다. 그것은 가족이 사건에 올린 기록이고, 문장 하나를
+    사진·영상은 지우지 않는다. 그것은 가족이 추억에 올린 기록이고, 문장 하나를
     거두는 일과 무게가 다르다. 원본을 지우는 자리는 사진첩이다.
 
     다른 기억이 아직 근거로 쓰는 녹음은 남긴다. 인터뷰 녹음 하나에 여러 문장이
     매달릴 수 있고, 그때 지우면 남의 기억에서 근거가 사라진다.
 
-    사건에만 붙은 녹음(POST /{id}/media로 더한 것)은 근거 엣지가 없으므로 애초에
+    추억에만 붙은 녹음(POST /{id}/media로 더한 것)은 근거 엣지가 없으므로 애초에
     여기 들어오지 않는다.
     """
     voices = []
@@ -505,13 +505,13 @@ def _voices_to_erase(memory_id: str, evidence: list[dict]) -> list[dict]:
 
 
 def delete_memory(event_id: str, memory_id: str) -> Optional[dict]:
-    """사건에서 기억 문장 하나를 지운다
+    """추억에서 기억 문장 하나를 지운다
 
     목소리로 남긴 기억이면 그 녹음도 함께 지운다 (_voices_to_erase). 문장만 지우고
-    녹음을 남기면 지운 것이 아니다 — 전사문이 녹음에 함께 있고, 사건 상세에서 그
+    녹음을 남기면 지운 것이 아니다 — 전사문이 녹음에 함께 있고, 추억 상세에서 그
     목소리가 계속 재생된다.
 
-    사진·영상은 남는다. 그것은 가족이 사건에 올린 기록이고, 원본을 지우는 자리는
+    사진·영상은 남는다. 그것은 가족이 추억에 올린 기록이고, 원본을 지우는 자리는
     사진첩이다 (원본을 지울 때 기억 문장이 남는 것과 짝을 맞춘 것이다). 대신 무엇이
     지워지고 무엇이 남았는지 돌려준다. 지운 사람이 "다 지웠다"고 오해하는 것이 가장
     나쁜 실패다.
@@ -525,7 +525,7 @@ def delete_memory(event_id: str, memory_id: str) -> Optional[dict]:
     무엇이 남는지만 정한다.
 
     Returns:
-        지운 것과 남은 것. 사건·기억이 없거나 서로 붙어 있지 않으면 None.
+        지운 것과 남은 것. 추억·기억이 없거나 서로 붙어 있지 않으면 None.
     """
     memory = attached_memory(event_id, memory_id)
     if not memory:
@@ -542,7 +542,7 @@ def delete_memory(event_id: str, memory_id: str) -> Optional[dict]:
     story_cleared = _story_may_quote(event, memory)
 
     # 한 묶음으로 지운다. 갈라지면 지운 문장을 담은 이야기만 남거나, 문장 없는
-    # 녹음이 사건에 떠도는 상태가 생긴다.
+    # 녹음이 추억에 떠도는 상태가 생긴다.
     with graph_manager.batch():
         if story_cleared:
             graph_manager.update_node(event_id, {
@@ -571,7 +571,7 @@ def delete_memory(event_id: str, memory_id: str) -> Optional[dict]:
 def _event_media(event_id: str, memory_ids: Optional[list[str]] = None) -> list[dict]:
     """이 추억이 데리고 있는 사진·영상·목소리
 
-    두 길로 붙는다. 사건에 직접 붙은 것(CAPTURED_DURING)과, 이 사건의 기억이
+    두 길로 붙는다. 추억에 직접 붙은 것(CAPTURED_DURING)과, 이 추억의 기억이
     근거로 매단 것(EVIDENCED_BY)이다. 목소리로 남긴 기억의 녹음은 뒤쪽만 있다 —
     add_contribution이 그 녹음을 기억의 근거로만 잇는다. 앞쪽만 세면 추억을 지운
     뒤에 주인 없는 녹음이 남는다.
@@ -622,7 +622,7 @@ def delete_event_plan(event_id: str) -> Optional[dict]:
     같은 함수를 다시 불러 판정하므로 규칙이 두 벌이 되지 않는다.
 
     Returns:
-        지울 것들. 그 id의 사건이 없으면 None.
+        지울 것들. 그 id의 추억이 없으면 None.
     """
     event = graph_manager.get_node(event_id)
     if not event or event.get("node_type") != NodeType.EVENT:
@@ -649,7 +649,7 @@ def delete_event_plan(event_id: str) -> Optional[dict]:
         "media": media,
         # 다른 추억에도 붙어 있어 남는 원본
         "shared_media": shared,
-        # 이 사건이 걸려 있던 장소. 사건을 지운 뒤에 아직 쓰이는지 다시 본다
+        # 이 추억이 걸려 있던 장소. 추억을 지운 뒤에 아직 쓰이는지 다시 본다
         "place_ids": [
             node["id"] for node in connected if node.get("node_type") == NodeType.PLACE
         ],
@@ -658,7 +658,7 @@ def delete_event_plan(event_id: str) -> Optional[dict]:
 
 
 def delete_event(event_id: str, keep_media: Optional[Mapping[str, str]] = None) -> Optional[dict]:
-    """추억 하나를 지운다 — 사건과 거기에 딸린 것 전부
+    """추억 하나를 지운다 — 그 추억과 거기에 딸린 것 전부
 
     사진이 0장이 된 것을 신호로 삼아 자동으로 지우지 않는다. 그 추억에는 다른
     가족이 남긴 기억 문장과 "나도 기억나요"가 붙어 있을 수 있고, 사진 한 장
@@ -667,7 +667,7 @@ def delete_event(event_id: str, keep_media: Optional[Mapping[str, str]] = None) 
 
     함께 지우는 것:
 
-      - 기억 문장(MemoryNode)과 그 관계. 사건이 없어지면 그 문장은 어디에도
+      - 기억 문장(MemoryNode)과 그 관계. 추억이 없어지면 그 문장은 어디에도
         걸리지 않고, 상세로 들어갈 길조차 없다
       - 사진·영상·목소리의 노드와 원본 파일(media_analyzer.erase_files).
         예전에는 이것을 남겨 두고 "원본을 지우는 자리는 사진첩"이라고 안내했다.
@@ -685,8 +685,8 @@ def delete_event(event_id: str, keep_media: Optional[Mapping[str, str]] = None) 
       - 지울 권한이 없는 원본(keep_media). 남이 올린 사진은 그 사람이나
         가족 관리자만 지운다 — 라우터가 판정해 이유와 함께 여기로 넘긴다
 
-    공개 범위로 걸러 세지 않는다. 내가 볼 수 없는 기억·원본도 이 사건에 붙어
-    있으면 함께 지워진다 — 남겨 두면 사건 없는 문장이 저장소에 떠돌고, 어느
+    공개 범위로 걸러 세지 않는다. 내가 볼 수 없는 기억·원본도 이 추억에 붙어
+    있으면 함께 지워진다 — 남겨 두면 추억 없는 문장이 저장소에 떠돌고, 어느
     화면에서도 거둘 수 없다. 대신 무엇이 지워지고 무엇이 남았는지 세어 돌려준다.
     "지웠습니다" 한 마디로 끝내면 사용자는 무엇이 사라졌는지 모른다.
 
@@ -699,7 +699,7 @@ def delete_event(event_id: str, keep_media: Optional[Mapping[str, str]] = None) 
             판정한 자리에만 있기 때문이다 — 누가 올린 사진인지는 라우터가 안다.
 
     Returns:
-        지운 것과 남은 것. 그 id의 사건이 없으면 None.
+        지운 것과 남은 것. 그 id의 추억이 없으면 None.
     """
     plan = delete_event_plan(event_id)
     if not plan:
@@ -708,7 +708,7 @@ def delete_event(event_id: str, keep_media: Optional[Mapping[str, str]] = None) 
     blocked = dict(keep_media or {})
     doomed_media = [node for node in plan["media"] if node["id"] not in blocked]
 
-    # 한 묶음으로 지운다. 갈라지면 사건은 없는데 그 사건의 기억 문장만 남는
+    # 한 묶음으로 지운다. 갈라지면 추억은 없는데 그 추억의 기억 문장만 남는
     # 상태가 생기고, 그 문장은 어느 화면에서도 지울 수 없다.
     with graph_manager.batch():
         for memory_id in plan["memory_ids"]:
@@ -716,7 +716,7 @@ def delete_event(event_id: str, keep_media: Optional[Mapping[str, str]] = None) 
         for node in doomed_media:
             graph_manager.delete_node(node["id"])
         graph_manager.delete_node(event_id)
-        # 사건이 없어진 뒤에 판정한다 — 먼저 보면 이 사건의 엣지가 아직 남아
+        # 추억이 없어진 뒤에 판정한다 — 먼저 보면 이 추억의 엣지가 아직 남아
         # 있어 모든 장소가 "쓰이는 중"으로 읽힌다
         deleted_places = event_resolver.prune_orphan_places(plan["place_ids"])
 
@@ -1057,7 +1057,7 @@ async def extract_context(event_id: str, memory_id: str) -> Optional[dict]:
     순서를 바꾸지 않는다. 문장을 먼저 저장하고 그 다음에 맥락을 뽑는다 — 모델
     호출이 실패하든 형식이 어긋나든 가족이 남긴 말은 이미 그래프에 있다.
 
-    사건은 건드리지 않는다. 제목·날짜·장소·참여자는 여기서 바뀌지 않고, 사진을
+    추억은 건드리지 않는다. 제목·날짜·장소·참여자는 여기서 바뀌지 않고, 사진을
     새로 잇지도 않는다. 맥락은 기억 노드 안에만 들어간다
     (services/memory_context.py의 첫 주석이 그 이유를 적어 두었다).
 
@@ -1114,7 +1114,7 @@ async def compose_together_story(event_id: str, viewer_id: Optional[str] = None)
     "누구는 이렇게, 누구는 저렇게 기억한다"로 남긴다. 이 규칙을 프롬프트에서
     빼면 모델은 반드시 한쪽으로 정리한다.
 
-    결과는 사건 노드에 저장한다. 화면이 매번 모델을 부르지 않게 하고, 기억이 더
+    결과는 추억 노드에 저장한다. 화면이 매번 모델을 부르지 않게 하고, 기억이 더
     쌓이면 낡았다는 표시(together_story_stale)가 화면에 뜬다.
     """
     event = graph_manager.get_node(event_id)
@@ -1204,7 +1204,7 @@ async def compose_together_story(event_id: str, viewer_id: Optional[str] = None)
                 {
                     "role": "user",
                     "content": (
-                        "[사건]\n"
+                        "[추억]\n"
                         + "\n".join(facts)
                         + "\n\n[가족이 남긴 기억]\n"
                         + lines

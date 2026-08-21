@@ -288,7 +288,7 @@ def seed():
     print(f"  ✓ 사진 {photo_count}개 + 영상 {video_count}개")
 
     # === 5. Memories ===
-    # 사건마다 첫 기억을 남긴 사람이 그 추억을 만든 사람이다. kind=author로
+    # 추억마다 첫 기억을 남긴 사람이 그 추억을 만든 사람이다. kind=author로
     # 표시해 두면 상세 화면이 "최초 작성자의 기억"을 세울 수 있다
     # (backend/services/memories.author_memory).
     authored: set = set()

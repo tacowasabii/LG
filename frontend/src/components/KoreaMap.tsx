@@ -110,7 +110,7 @@ interface Props {
   points: MapPoint[]
   selectedId?: string | null
   onSelect?: (id: string) => void
-  /** 사건을 연도순으로 이은 이동 경로 */
+  /** 추억을 연도순으로 이은 이동 경로 */
   showRoute?: boolean
 }
 
@@ -144,7 +144,7 @@ export default function KoreaMap({ points, selectedId, onSelect, showRoute = tru
       <path d={toPath(MAINLAND)} fill="var(--ink-50)" stroke="var(--ink-100)" strokeWidth="1" />
       <path d={toPath(JEJU)} fill="var(--ink-50)" stroke="var(--ink-100)" strokeWidth="1" />
 
-      {/* 이동 경로 — 사건을 연도순으로 이은 점선 */}
+      {/* 이동 경로 — 추억을 연도순으로 이은 점선 */}
       {showRoute && drawn.length > 1 && (
         <path
           d={routePath}

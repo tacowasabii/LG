@@ -10,12 +10,12 @@
                        대략적인 지명 (services/geocoder.py)
     등장인물           지목된 사람 + 기존 기록에서의 동시 등장 추정
     주요 내용          scene_description — 모델이 사진을 보고 쓴다 (services/vision.py)
-    기존 가족 기록     비슷한 날짜·같은 장소·같은 사람의 사건
+    기존 가족 기록     비슷한 날짜·같은 장소·같은 사람의 추억
 
 네 가지를 지킨다.
 
-0. 어떤 사진이 같은 사건인지 사용자에게 묻지 않는다. 한 번에 올린 사진이 여러
-   사건에 걸쳐 있는 것이 정상이고(첫 사용자는 앨범에서 아무 사진이나 고른다),
+0. 어떤 사진이 같은 추억인지 사용자에게 묻지 않는다. 한 번에 올린 사진이 여러
+   추억에 걸쳐 있는 것이 정상이고(첫 사용자는 앨범에서 아무 사진이나 고른다),
    날짜와 좌표를 읽을 수 있는 쪽이 갈라야 한다. `draft_groups`가 묶음마다 초안
    하나를 만든다. 갈린 결과가 틀렸으면 화면에서 전부 하나로 합칠 수 있다.
 1. 없는 것을 만들지 않는다. 날짜를 못 읽으면 비워 두고 화면이 묻는다.
@@ -41,7 +41,7 @@ from backend.services import event_resolver, geocoder, llm_client, vision
 from backend.services.graph_manager import graph_manager
 
 
-# 같은 사건으로 볼 만한 시간 범위 (일)
+# 같은 추억으로 볼 만한 시간 범위 (일)
 NEAR_DAYS = 3
 # 같은 장소로 볼 거리 (km)
 NEAR_KM = 5.0
@@ -317,9 +317,9 @@ def _fallback_text(
 
 
 def cluster_media(media_nodes: list[dict]) -> list[list[dict]]:
-    """올린 기록을 같은 사건으로 보이는 묶음으로 가른다
+    """올린 기록을 같은 추억으로 보이는 묶음으로 가른다
 
-    예전에는 업로드 하나가 사건 하나였다. 그 가정에서 1998년 부산 사진과 2015년
+    예전에는 업로드 하나가 추억 하나였다. 그 가정에서 1998년 부산 사진과 2015년
     서울 사진을 함께 올리면 날짜는 1998년이 되고 좌표는 두 곳의 평균 —
     아무도 가 본 적 없는 지점 — 이 되어 그 근처 장소 이름이 붙었다.
 
@@ -351,7 +351,7 @@ def cluster_media(media_nodes: list[dict]) -> list[list[dict]]:
         near_day = gap is not None and gap <= NEAR_DAYS
 
         # 좌표가 양쪽에 있을 때만 장소로 가른다. 한쪽만 있으면 날짜만 본다 —
-        # GPS가 없는 사진을 다른 사건으로 밀어내지 않기 위해서다.
+        # GPS가 없는 사진을 다른 추억으로 밀어내지 않기 위해서다.
         far_place = False
         anchor = next(
             (n for n in reversed(current) if n.get("exif_lat") is not None), None

@@ -1,8 +1,8 @@
 /**
- * 사건 크게 보기 — 타임라인 · 지도에서 사건 하나를 열었을 때
+ * 추억 크게 보기 — 타임라인 · 지도에서 추억 하나를 열었을 때
  *
  * 지도 목록의 카드는 썸네일 세 장으로 "여기 뭔가 있다"까지만 말한다. 그걸
- * 누른 사람이 보고 싶은 것은 그 사건의 사진 전부와, 그날에 대해 남은 기록이다.
+ * 누른 사람이 보고 싶은 것은 그 추억의 사진 전부와, 그날에 대해 남은 기록이다.
  * 예전에는 눌러도 테두리 색만 바뀌어서 누른 것이 아무 데도 닿지 않았다.
  *
  * 그래서 Memory Film과 같은 방식으로 띄운다 — 어두운 면에 사진 한 장을 크게,
@@ -10,11 +10,11 @@
  * 자르지 않는다는 것이다 (object-contain). Film은 이야기를 위해 화면비를
  * 맞추지만 여기는 사진 자체를 보는 자리라서, 가족 얼굴이 잘려서는 안 된다.
  *
- * 주소는 바꾸지 않는다. 지도에서 사건을 훑다가 하나를 열고 다시 훑는 동작이라
+ * 주소는 바꾸지 않는다. 지도에서 추억을 훑다가 하나를 열고 다시 훑는 동작이라
  * 그 사이에 페이지가 바뀌면 걸어 둔 인물·시기 조건과 스크롤을 잃는다.
  *
  * 한 번의 GET /api/memories/{event_id}로 사진 · 참여자 · 기억 문장 · 목소리가
- * 함께 온다 (getMemoryDetail). 사건마다 여러 번 부르지 않는다.
+ * 함께 온다 (getMemoryDetail). 추억마다 여러 번 부르지 않는다.
  */
 
 import { ReactNode, useCallback, useEffect, useRef, useState } from 'react'
@@ -59,8 +59,8 @@ export default function EventSpotlight({ eventId, onClose }: Props) {
         if (alive) setDetail(d)
       })
       .catch((e) => {
-        console.error('[map] 사건을 불러오지 못했습니다', e)
-        if (alive) setError('이 사건을 불러오지 못했습니다. 잠시 뒤 다시 시도해 주세요.')
+        console.error('[map] 추억을 불러오지 못했습니다', e)
+        if (alive) setError('이 추억을 불러오지 못했습니다. 잠시 뒤 다시 시도해 주세요.')
       })
       .finally(() => {
         if (alive) setLoading(false)
@@ -141,14 +141,14 @@ export default function EventSpotlight({ eventId, onClose }: Props) {
       style={{ background: 'rgba(14,13,11,0.94)' }}
       role="dialog"
       aria-modal="true"
-      aria-label={detail ? `${detail.title} 크게 보기` : '사건 크게 보기'}
+      aria-label={detail ? `${detail.title} 크게 보기` : '추억 크게 보기'}
     >
       <div
         className="flex shrink-0 items-center justify-between gap-4 px-5 py-3"
         style={{ borderBottom: '1px solid rgba(255,255,255,0.12)' }}
       >
         <span className="min-w-0 truncate text-[13px] text-white/85">
-          {detail?.title || (loading ? '불러오는 중…' : '사건')}
+          {detail?.title || (loading ? '불러오는 중…' : '추억')}
           {detail?.date_start && (
             <span className="t-mono ml-2.5 text-[12px] text-white/45">{detail.date_start}</span>
           )}
@@ -191,7 +191,7 @@ export default function EventSpotlight({ eventId, onClose }: Props) {
 
             {!loading && !error && visuals.length === 0 && (
               <div className="text-center">
-                <p className="t-body m-0 text-white/70">이 사건에는 아직 사진이 없습니다.</p>
+                <p className="t-body m-0 text-white/70">이 추억에는 아직 사진이 없습니다.</p>
                 <Link
                   to="/collect"
                   className="btn-outline mt-4 inline-block no-underline hover:no-underline"
@@ -389,7 +389,7 @@ export default function EventSpotlight({ eventId, onClose }: Props) {
                 </p>
                 {memories.length === 0 ? (
                   <p className="m-0 text-[13px] text-white/45">
-                    아직 이 사건에 남은 기억 문장이 없습니다.
+                    아직 이 추억에 남은 기억 문장이 없습니다.
                   </p>
                 ) : (
                   <div className="flex flex-col gap-2">
@@ -475,7 +475,7 @@ export default function EventSpotlight({ eventId, onClose }: Props) {
           )}
 
           {!detail && !loading && (
-            <p className="m-0 text-[13px] text-white/60">{error || '사건을 찾을 수 없습니다.'}</p>
+            <p className="m-0 text-[13px] text-white/60">{error || '추억을 찾을 수 없습니다.'}</p>
           )}
         </aside>
       </div>

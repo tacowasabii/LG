@@ -23,11 +23,11 @@ from backend.routers import (
 # 있는 것은 전혀 다른 이야기이고, 후자만 볼륨이 붙었다는 증거가 된다.
 BOOTED_AT = datetime.now(timezone.utc)
 
-# 미세 모션 자동 생성에서 뺄 사건 목록을 여기서 정한다 (MOTION_AUTOGEN_NEW_ONLY).
+# 미세 모션 자동 생성에서 뺄 추억 목록을 여기서 정한다 (MOTION_AUTOGEN_NEW_ONLY).
 #
 # 부팅 때여야 한다. 처음 필요할 때(누군가 Film을 여는 순간) 정하면 그 사이에
-# 만들어진 사건까지 기준선에 들어가서, 새 추억을 만들고 Film을 열면 그 추억이
-# "기존 사건"으로 적혀 영원히 대상에서 빠진다. 배포에서 실제로 그렇게 됐다.
+# 만들어진 추억까지 기준선에 들어가서, 새 추억을 만들고 Film을 열면 그 추억이
+# "기존 추억"으로 적혀 영원히 대상에서 빠진다. 배포에서 실제로 그렇게 됐다.
 #
 # 시드는 uvicorn보다 먼저 돌기 때문에(scripts/docker_start.sh) 이 시점의 그래프는
 # 이미 채워져 있다.
@@ -35,7 +35,7 @@ MOTION_BASELINE = motion_clips.ensure_baseline()
 
 app = FastAPI(
     title="LG HomeStory",
-    description="사람과 사건의 기억을 연결하고 대화할 수 있는 AI Native 서비스",
+    description="사람과 추억의 기억을 연결하고 대화할 수 있는 AI Native 서비스",
     version="0.1.0",
 )
 

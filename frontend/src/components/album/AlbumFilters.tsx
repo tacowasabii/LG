@@ -26,7 +26,7 @@ export interface AlbumFilterValue {
   type: string
   year: number | null
   personId: string | null
-  /** 이 추억에 붙은 사진만 (사건 하나로 좁혀 볼 때) */
+  /** 이 추억에 붙은 사진만 (추억 하나로 좁혀 볼 때) */
   eventId: string | null
   eventStatus: AlbumEventStatus
   sort: AlbumSort
@@ -56,7 +56,7 @@ const SORTS: Array<{ value: AlbumSort; label: string }> = [
 
 const GROUPS: Array<{ value: AlbumGroupBy; label: string }> = [
   { value: 'month', label: '연월별' },
-  { value: 'event', label: '사건별' },
+  { value: 'event', label: '추억별' },
 ]
 
 interface AlbumFiltersProps {
@@ -194,19 +194,19 @@ export default function AlbumFilters({
 
         {/*
           추억은 칩이 아니라 목록 상자로 둔다. 제목이 "2024 부모님 환갑 가족모임"
-          처럼 길어서 칩으로 깔면 띠가 화면 절반을 먹고, 가족이 사건을 더 만들수록
+          처럼 길어서 칩으로 깔면 띠가 화면 절반을 먹고, 가족이 추억을 더 만들수록
           늘어난다. 개수를 함께 적는 이유는 고르기 전에 몇 장인지 보이게 하는 것 —
           다른 조건(인물·연도·검색)이 걸린 채로는 0장인 추억도 있다.
         */}
         <div className="min-w-[260px]">
-          <p className="t-eyebrow m-0 mb-2 text-[10px] text-ink-300">사건 · 어느 추억의 사진인가</p>
+          <p className="t-eyebrow m-0 mb-2 text-[10px] text-ink-300">어느 추억의 사진인가</p>
           <select
             value={value.eventId ?? ''}
             onChange={(e) => onChange({ eventId: e.target.value || null })}
             className="field field-sm cursor-pointer"
-            aria-label="사건"
+            aria-label="추억"
           >
-            <option value="">전체 사건</option>
+            <option value="">전체 추억</option>
             {events.map((event) => (
               <option key={event.id} value={event.id}>
                 {event.title} ({event.count}개)
@@ -214,7 +214,7 @@ export default function AlbumFilters({
             ))}
           </select>
           {events.length === 0 && (
-            <p className="t-caption m-0 mt-1.5">고를 수 있는 사건이 없습니다</p>
+            <p className="t-caption m-0 mt-1.5">고를 수 있는 추억이 없습니다</p>
           )}
         </div>
 

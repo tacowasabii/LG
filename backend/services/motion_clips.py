@@ -69,7 +69,7 @@ SERVE_DIR = MEDIA_DIR / "motion"
 MASKS_DIR = MOTION_DIR / "masks"
 
 # 무엇이 움직이는지 고르는 말. 사람의 행동은 넣지 않는다.
-# 열쇠는 한국어다 — 태그·사진 설명·사건 제목·장소 이름에서 그대로 찾는다.
+# 열쇠는 한국어다 — 태그·사진 설명·추억 제목·장소 이름에서 그대로 찾는다.
 MOTION_BY_WORD = {
     "해수욕장": "gentle ocean waves rolling in, sea breeze moving hair slightly",
     "바다": "gentle ocean waves lapping the shore, soft sea breeze",
@@ -118,7 +118,7 @@ def motion_prompt(texts: Iterable[Optional[str]]) -> str:
     LLM에 맡기지 않는다. 무엇이 움직이는지는 만드는 사람이 알고 정해야 하는
     것이고, 모델이 매번 다르게 지어내면 같은 사진이 다르게 움직인다.
 
-    스크립트는 태그를, 서버는 사진 설명·사건 제목·장소 이름을 넘긴다. 어느
+    스크립트는 태그를, 서버는 사진 설명·추억 제목·장소 이름을 넘긴다. 어느
     쪽이든 한국어 낱말을 찾는 같은 방법이다.
     """
     haystack = " ".join(t for t in texts if t)
@@ -430,11 +430,11 @@ _worker = ThreadPoolExecutor(max_workers=1, thread_name_prefix="motion")
 
 
 def ensure_baseline() -> Optional[set[str]]:
-    """자동 생성에서 뺄 사건 목록을 부팅할 때 한 번 정한다
+    """자동 생성에서 뺄 추억 목록을 부팅할 때 한 번 정한다
 
     **부팅 때 정해야 한다.** 처음 필요할 때(누군가 Film을 여는 순간) 정하면 그
-    사이에 만들어진 사건까지 기준선에 들어간다 — 새 추억을 만들고 Film을 열면
-    그 추억이 "기존 사건"으로 적혀 영원히 대상에서 빠진다. 배포에서 실제로
+    사이에 만들어진 추억까지 기준선에 들어간다 — 새 추억을 만들고 Film을 열면
+    그 추억이 "기존 추억"으로 적혀 영원히 대상에서 빠진다. 배포에서 실제로
     그렇게 됐다.
 
     파일에 적어 두는 것이 요점이다. id 모양(시드가 붙이는 E01 같은 규칙)이나
@@ -464,9 +464,9 @@ def ensure_baseline() -> Optional[set[str]]:
         json.dumps(
             {
                 "event_ids": ids,
-                "note": "이 사건들은 자동 생성에서 뺀다 (MOTION_AUTOGEN_NEW_ONLY). "
+                "note": "이 추억들은 자동 생성에서 뺀다 (MOTION_AUTOGEN_NEW_ONLY). "
                         "부팅할 때 한 번 적힌다. 고치려면 MOTION_BASELINE_EVENT_IDS "
-                        "환경변수로 덮거나 이 파일을 지운다. 기존 사건에 클립을 "
+                        "환경변수로 덮거나 이 파일을 지운다. 기존 추억에 클립을 "
                         "넣으려면 scripts/build_motion_covers.py 를 쓴다.",
             },
             ensure_ascii=False,
@@ -490,13 +490,13 @@ def baseline_event_ids() -> Optional[set[str]]:
 
 
 def is_new_event(event_id: str) -> bool:
-    """이 사건이 기준선을 정한 뒤에 생긴 것인가"""
+    """이 추억이 기준선을 정한 뒤에 생긴 것인가"""
     if not MOTION_AUTOGEN_NEW_ONLY:
         return True
 
     baseline = baseline_event_ids()
     if baseline is None:
-        # 기준선을 아직 못 적었다. 이때는 아무것도 새 사건으로 보지 않는다 —
+        # 기준선을 아직 못 적었다. 이때는 아무것도 새 추억으로 보지 않는다 —
         # 기준선 없이 만들기 시작하면 앨범 전체가 대상이 되어 지출이 튄다.
         # 기능이 조용히 안 되는 쪽이 돈이 조용히 나가는 쪽보다 낫다.
         return False

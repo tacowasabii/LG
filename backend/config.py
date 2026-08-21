@@ -36,10 +36,10 @@ GRAPH_FILE = STATE_DIR / "graph.json"
 # 전용이라(이미지에 구워져 있다) 쓰는 것은 반드시 이쪽이어야 한다.
 MOTION_RUNTIME_MANIFEST_FILE = STATE_DIR / "motion_manifest.json"
 MOTION_LEDGER_FILE = STATE_DIR / "motion_spend.json"
-# 사건마다 고른 대표 사진. 한 번 고른 것을 지켜야 한다 — 고를 때마다 달라지면
+# 추억마다 고른 대표 사진. 한 번 고른 것을 지켜야 한다 — 고를 때마다 달라지면
 # 매번 다른 사진을 만들어 지출이 늘어난다 (cover_picker).
 MOTION_COVERS_FILE = STATE_DIR / "motion_covers.json"
-# 자동 생성에서 빼 둘 사건 (기능을 켠 시점에 이미 있던 것). 처음 물을 때 적힌다.
+# 자동 생성에서 빼 둘 추억 (기능을 켠 시점에 이미 있던 것). 처음 물을 때 적힌다.
 MOTION_BASELINE_FILE = STATE_DIR / "motion_baseline.json"
 EXPORT_DIR = STATE_DIR / "exports"
 SPACE_FILE = STATE_DIR / "family_space.json"
@@ -150,27 +150,27 @@ LLM_EXTRACT_PROVIDER = os.getenv("LLM_EXTRACT_PROVIDER", "bedrock").strip().lowe
 MOTION_AUTOGEN = os.getenv("MOTION_AUTOGEN", "false").lower() == "true"
 # 480p 한 건이 약 $0.2다. 기본 50건 = 약 $10.
 MOTION_AUTOGEN_MAX = int(os.getenv("MOTION_AUTOGEN_MAX", "50"))
-# 사건 하나에서 움직이게 만들 대표 사진 수의 상한.
+# 추억 하나에서 움직이게 만들 대표 사진 수의 상한.
 #
 # 사진이 이 수보다 적으면 전부 만든다. 많으면 대표를 골라 그만큼만 만든다 —
 # 사진 백 장인 앨범에서 전부 만들면 지출이 한 번에 튄다.
 MOTION_COVERS_PER_EVENT = int(os.getenv("MOTION_COVERS_PER_EVENT", "3"))
 
-# 앞으로 생기는 사건만 만들지 여부.
+# 앞으로 생기는 추억만 만들지 여부.
 #
-# 켜면(기본) 기능을 처음 쓰는 시점의 사건 목록을 기준선으로 적어 두고, 그 뒤에
-# 만들어진 사건만 자동 생성한다. 이미 쌓인 앨범 전체를 한꺼번에 만들면 지출이
-# 한 번에 튀기 때문이다 — 기존 사건에 클립을 넣으려면 스크립트로 미리 만든다
+# 켜면(기본) 기능을 처음 쓰는 시점의 추억 목록을 기준선으로 적어 두고, 그 뒤에
+# 만들어진 추억만 자동 생성한다. 이미 쌓인 앨범 전체를 한꺼번에 만들면 지출이
+# 한 번에 튀기 때문이다 — 기존 추억에 클립을 넣으려면 스크립트로 미리 만든다
 # (scripts/build_motion_covers.py).
 #
-# false로 두면 기존 사건도 대상이 된다.
+# false로 두면 기존 추억도 대상이 된다.
 MOTION_AUTOGEN_NEW_ONLY = os.getenv("MOTION_AUTOGEN_NEW_ONLY", "true").lower() == "true"
 
 # 기준선을 환경변수로 직접 지정한다. 파일보다 우선한다.
 #
 # 배포 볼륨에 잘못 적힌 기준선을 고칠 때 쓴다 — 컨테이너에 들어가 파일을 지울 수
 # 없으니 밖에서 덮을 길이 필요하다. 빈 값으로 두면("MOTION_BASELINE_EVENT_IDS=")
-# 제외할 사건이 없다는 뜻이고, 그러면 모든 사건이 자동 생성 대상이 된다.
+# 제외할 추억이 없다는 뜻이고, 그러면 모든 추억이 자동 생성 대상이 된다.
 #
 #   MOTION_BASELINE_EVENT_IDS="E01,E02,E03,E04,E05,E06,E07,E08"
 _baseline_env = os.getenv("MOTION_BASELINE_EVENT_IDS")

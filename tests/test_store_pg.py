@@ -45,7 +45,7 @@ store = None
 def _fixture():
     """테스트용 노드 세 개와 관계를 넣는다"""
     store.add_person(PersonNode(id=PERSON, name="테스트인물", relation="이모"))
-    store.add_event(EventNode(id=EVENT, title="테스트사건", description="100% 확실한 날"))
+    store.add_event(EventNode(id=EVENT, title="테스트추억", description="100% 확실한 날"))
     store.add_media(MediaNode(id=MEDIA, original_filename="t.jpg", scene_description="바다_사진"))
     store.add_edge(Edge(source=MEDIA, target=EVENT, relation=RelationType.CAPTURED_DURING))
     store.add_edge(Edge(source=PERSON, target=EVENT, relation=RelationType.PARTICIPATED_IN))
@@ -78,7 +78,7 @@ def test_search_treats_wildcards_literally():
 
     percent = store.search_nodes("%")
     assert len(percent) < all_count, f"%가 와일드카드로 동작한다 ({len(percent)}건)"
-    # "100% 확실한" 을 가진 사건은 글자 그대로 찾혀야 한다
+    # "100% 확실한" 을 가진 추억은 글자 그대로 찾혀야 한다
     assert [n["id"] for n in store.search_nodes("100% 확실")] == [EVENT]
 
     # 밑줄도 마찬가지 — "바다_사진"은 찾히고, "바다X사진"은 찾히지 않는다
@@ -186,7 +186,7 @@ def test_delete_node_removes_its_edges():
 def test_listing_order_is_stable():
     """같은 질의를 두 번 하면 같은 순서로 온다
 
-    순서가 흔들리면 사건 썸네일 3장과 TV 재생 순서가 호출마다 바뀐다.
+    순서가 흔들리면 추억 썸네일 3장과 TV 재생 순서가 호출마다 바뀐다.
     """
     first = [n["id"] for n in store.get_connected_nodes(EVENT)]
     second = [n["id"] for n in store.get_connected_nodes(EVENT)]
@@ -203,13 +203,13 @@ def test_listing_order_is_stable():
 
 
 def test_details_group_by_node_type():
-    """사건·인물 상세가 종류별로 갈라 담긴다"""
+    """추억·인물 상세가 종류별로 갈라 담긴다"""
     detail = store.get_event_detail(EVENT)
     assert [p["id"] for p in detail["participants"]] == [PERSON]
     assert [m["id"] for m in detail["media"]] == [MEDIA]
     assert detail["memories"] == []
 
-    # 사건 id로 인물 상세를 물으면 None (종류를 확인한다)
+    # 추억 id로 인물 상세를 물으면 None (종류를 확인한다)
     assert store.get_person_detail(EVENT) is None
     assert store.get_event_detail(PERSON) is None
     print("  상세 분류 OK")

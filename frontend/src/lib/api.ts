@@ -220,7 +220,7 @@ export async function getMediaList(): Promise<MediaItem[]> {
 /**
  * 사진첩 한 칸.
  *
- * MediaItem과 나눠 둔 이유: 사진첩은 사건·인물·장소·공개 범위를 한 목록에서
+ * MediaItem과 나눠 둔 이유: 사진첩은 추억·인물·장소·공개 범위를 한 목록에서
  * 그려야 하는데, 반대로 음성 전용 필드(파형·전사문)는 쓰지 않는다.
  */
 export interface AlbumMediaItem {
@@ -236,7 +236,7 @@ export interface AlbumMediaItem {
   captured_at?: string | null;
   uploaded_at: string;
   duration_sec?: number | null;
-  /** date는 추억에 적힌 날짜다 (사건별로 묶어 볼 때 묶음 머리에 적는다) */
+  /** date는 추억에 적힌 날짜다 (추억별로 묶어 볼 때 묶음 머리에 적는다) */
   event?: { id: string; title: string; date?: string | null } | null;
   /** 사람이 직접 지목한 사람들만 (얼굴 인식이 없다) */
   people: Array<{
@@ -343,9 +343,9 @@ export async function getMediaDetail(mediaId: string): Promise<MediaDetail> {
 export type AlbumSort = 'captured_desc' | 'captured_asc' | 'uploaded_desc';
 export type AlbumEventStatus = 'all' | 'linked' | 'unlinked';
 /**
- * 무엇으로 묶어 볼까. 연월은 사진을 훑는 순서고, 사건은 "그때 무슨 일이었나"다.
+ * 무엇으로 묶어 볼까. 연월은 사진을 훑는 순서고, 추억은 "그때 무슨 일이었나"다.
  *
- * 묶음의 순서는 서버가 정한다 — 화면이 페이지마다 다시 묶으면 같은 사건이
+ * 묶음의 순서는 서버가 정한다 — 화면이 페이지마다 다시 묶으면 같은 추억이
  * 60장 경계에서 토막난다 (backend/services/album.py).
  */
 export type AlbumGroupBy = 'month' | 'event';
@@ -409,7 +409,7 @@ export async function getAlbum(query: AlbumQuery = {}): Promise<AlbumResponse> {
 /**
  * 녹음한 음성 업로드.
  * 길이와 파형은 브라우저가 계산해서 함께 보낸다 — 서버에 오디오 디코더를 두지
- * 않기 위한 분업이다. eventId를 주면 그 사건의 기록으로 바로 이어진다.
+ * 않기 위한 분업이다. eventId를 주면 그 추억의 기록으로 바로 이어진다.
  */
 export async function uploadVoice(
   blob: Blob,
@@ -564,8 +564,8 @@ export interface PersonRef {
 }
 
 /**
- * 타임라인 · 지도 · TV가 함께 쓰는 사건 요약.
- * 좌표·참여자·썸네일·확인 상태까지 한 번에 온다 (화면이 사건마다 상세를 다시
+ * 타임라인 · 지도 · TV가 함께 쓰는 추억 요약.
+ * 좌표·참여자·썸네일·확인 상태까지 한 번에 온다 (화면이 추억마다 상세를 다시
  * 부르지 않게 하려는 것이다).
  */
 export interface EventListItem {
@@ -624,7 +624,7 @@ export interface EventDetail {
 }
 
 /**
- * 사건 하나의 상세. 화면이 자기 손으로 fetch하지 않고 이 함수를 쓴다 —
+ * 추억 하나의 상세. 화면이 자기 손으로 fetch하지 않고 이 함수를 쓴다 —
  * 예전에는 홈이 raw fetch로 '/api/...'를 직접 불러서, 백엔드가 다른 도메인에
  * 있는 배포(VITE_API_URL)에서는 사진 펼치기가 조용히 실패했다. 열람자도 함께
  * 나가지 않아 서버가 공개 범위를 적용할 수 없었다.
@@ -761,13 +761,13 @@ export interface InterviewStartResult {
   context?: { target_type?: string; target_id?: string; target_title?: string } | null;
 }
 
-/** 답변에서 뽑아 그래프에 이은 것 (기획안 02장 "답변에서 사건·인물·시점 추출") */
+/** 답변에서 뽑아 그래프에 이은 것 (기획안 02장 "답변에서 추억·인물·시점 추출") */
 export interface ExtractedFromAnswer {
   /** 그래프에 있는 인물로 맞춰진 것 */
   persons: Array<{ id: string; name: string; term: string }>;
   place?: { id: string; name: string; term: string } | null;
   date?: string | null;
-  /** 비어 있어서 이 답변으로 채운 사건 필드 */
+  /** 비어 있어서 이 답변으로 채운 추억 필드 */
   filled: string[];
   /** 답변에 나왔지만 그래프에 없어서 잇지 않은 표현 */
   unmatched: string[];
@@ -854,7 +854,7 @@ export interface TVSlide {
   context_contributor?: string | null;
   /** 그 자막의 출처. "이 사진의 장면은 아닙니다"까지 서버가 적는다 */
   context_source?: string;
-  /** 맥락이 가리키는 원본. 비어 있으면 이 사진이 아니라 같은 사건의 기억이다 */
+  /** 맥락이 가리키는 원본. 비어 있으면 이 사진이 아니라 같은 추억의 기억이다 */
   context_media_ids?: string[];
 }
 
@@ -878,8 +878,8 @@ export interface TVJourney {
 /**
  * 여정 만들기.
  *
- * eventIds를 주면 서버가 말을 다시 해석하지 않고 그 사건들의 사진만 쓴다.
- * TV 메뉴처럼 이미 사건을 고른 화면에서는 이쪽이 맞다 — 제목을 키워드로 다시
+ * eventIds를 주면 서버가 말을 다시 해석하지 않고 그 추억들의 사진만 쓴다.
+ * TV 메뉴처럼 이미 추억을 고른 화면에서는 이쪽이 맞다 — 제목을 키워드로 다시
  * 훑으면 "입학식"을 눌렀는데 같은 사람이 찍힌 다른 해의 사진이 섞인다.
  */
 export async function createTVJourney(
@@ -1101,7 +1101,7 @@ export interface FilmStoryboard {
   total_sec: number;
   audience: string;
   requested_sec: number;
-  /** 이 사건·대상으로 채울 수 있는 최대 길이. 이보다 긴 선택지는 화면에서 잠긴다 */
+  /** 이 추억·대상으로 채울 수 있는 최대 길이. 이보다 긴 선택지는 화면에서 잠긴다 */
   max_sec: number;
   /** 길이에 맞추려고 뺀 장면 수 */
   omitted_scenes: number;
@@ -1128,7 +1128,7 @@ export interface MotionStatus {
   /** 런타임 생성이 켜져 있는가 (키·ffmpeg·상한을 모두 통과했는가) */
   enabled: boolean;
   attempts_left: number;
-  /** 앞으로 생긴 사건만 만드는가 (기존 사건은 기준선에 있어 대상이 아니다) */
+  /** 앞으로 생긴 추억만 만드는가 (기존 추억은 기준선에 있어 대상이 아니다) */
   new_events_only?: boolean;
 }
 
@@ -1455,7 +1455,7 @@ export interface MemoryDraft {
 }
 
 export interface MemoryDraftGroups {
-  /** 묶음마다 초안 하나. 여러 사건의 사진을 한꺼번에 올리면 여러 개가 온다 */
+  /** 묶음마다 초안 하나. 여러 추억의 사진을 한꺼번에 올리면 여러 개가 온다 */
   groups: MemoryDraft[];
   total: number;
   /** 갈랐는가 (화면이 "2개 묶음으로 갈랐어요"를 말할 수 있게) */
@@ -1491,7 +1491,7 @@ export function normalizeDraft(raw: Partial<MemoryDraft> | null | undefined): Me
 /**
  * 올린 기록으로 초안을 만든다.
  *
- * 기본은 날짜·장소로 갈라 묶음마다 초안 하나다 — 어떤 사진이 같은 사건인지
+ * 기본은 날짜·장소로 갈라 묶음마다 초안 하나다 — 어떤 사진이 같은 추억인지
  * 고르는 일을 사용자에게 맡기지 않는다. AI가 잘못 갈랐으면 merge로 다시 부른다.
  *
  * 묶음이 없는 예전 응답(초안 하나를 그대로 준다)도 받아 준다. 프론트와 백엔드가
@@ -1605,7 +1605,7 @@ export async function addMemoryContribution(
 }
 
 /**
- * 사건에서 내가 남긴 기억 하나 지우기.
+ * 추억에서 내가 남긴 기억 하나 지우기.
  *
  * 문장과 함께, 그 기억으로 남긴 목소리가 지워진다(deleted_voices). 목소리는 문장과
  * 한 몸이라 따로 남기면 지운 것이 아니다 — 전사문이 녹음에 함께 있다. 사진·영상은
@@ -1655,7 +1655,7 @@ export async function deleteMemoryEntry(
 export async function deleteMemoryEvent(eventId: string): Promise<{
   event_id: string;
   title: string;
-  /** 함께 지운 기억 문장. 사건이 없어지면 걸릴 자리가 없다 */
+  /** 함께 지운 기억 문장. 추억이 없어지면 걸릴 자리가 없다 */
   deleted_memories: string[];
   /** 함께 지운 원본. 노드와 파일이 모두 사라진다 */
   deleted_media: string[];

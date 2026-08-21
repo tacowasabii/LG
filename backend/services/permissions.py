@@ -120,7 +120,7 @@ def require_owner_of(node: dict, actor: Optional[dict], what: str = "기록") ->
     """
     role = _role(actor)
     # 기억 문장의 주인은 그것을 남긴 사람이다. 원본(미디어)은 owner_id에 올린
-    # 사람이 남고, 기억에는 contributor_id에 말한 사람이 남고, 추억(사건)에는
+    # 사람이 남고, 기억에는 contributor_id에 말한 사람이 남고, 추억에는
     # author_id에 만든 사람이 남는다 — 이름만 다르고 "이 기록은 누구의 것인가"는
     # 같은 질문이므로 규칙을 세 벌로 두지 않는다.
     owner_id = (

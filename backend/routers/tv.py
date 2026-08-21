@@ -57,7 +57,7 @@ async def create_tv_journey(request: TVJourneyRequest):
     리모컨으로 넘기는 자리라 40초를 기다릴 수 없고, 넘기는 것만으로 돈이
     나가면 안 된다.
 
-    event_ids가 오면 그 사건들의 사진만 쓴다 (TV 메뉴의 타일). 없으면 예전처럼
+    event_ids가 오면 그 추억들의 사진만 쓴다 (TV 메뉴의 타일). 없으면 예전처럼
     query를 규칙으로 해석한다 — 채팅·검색에서 문장으로 부르는 길이다.
     """
     return _journey(

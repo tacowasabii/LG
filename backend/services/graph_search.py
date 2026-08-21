@@ -119,7 +119,7 @@ def search_graph(query: str) -> list[dict]:
 def entity_exists(entity: str) -> bool:
     """그래프가 이 단어를 아는지
 
-    질의 계획이 뽑아낸 인물·장소·사건이 실제로 그래프에 있는지 판정해,
+    질의 계획이 뽑아낸 인물·장소·추억이 실제로 그래프에 있는지 판정해,
     없는 대상을 물었을 때 "확인된 기록 기반"이라고 표시하지 않도록 한다.
     """
     entity = (entity or "").strip()

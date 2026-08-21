@@ -1,10 +1,10 @@
 """시드 사진을 정답 메타데이터의 id로 되돌린다
 
 배포 화면에서 사진을 지우고 같은 파일을 다시 올리면 노드 id가 새로 발급된다
-(E06_001 -> media_deb40ef6). 파일도 사건 연결도 살아 있어서 화면에는 그대로
+(E06_001 -> media_deb40ef6). 파일도 추억 연결도 살아 있어서 화면에는 그대로
 보이지만, 정답표(data/metadata/media.json)가 그 사진을 E06_001로 적어 두었기
 때문에 Trust Harness의 Relation Accuracy가 그 관계를 찾지 못한다. 배포에서
-기대 154개 중 15개가 이렇게 빠져 90.3이 나왔다 — E06 사진 3장 × (사건 연결
+기대 154개 중 15개가 이렇게 빠져 90.3이 나왔다 — E06 사진 3장 × (추억 연결
 1개 + 인물 4명).
 
 다시 올린 사진은 인물 정보도 잃는다. 업로드 경로는 EXIF(촬영일시·좌표)는
@@ -46,8 +46,10 @@ from backend.config import (  # noqa: E402
 from backend.models.graph_models import (  # noqa: E402
     Confidence,
     Edge,
+    EventNode,
     MediaNode,
     MediaType,
+    PlaceNode,
     RelationType,
     SourceType,
 )
@@ -61,6 +63,11 @@ def _store_label() -> str:
 def _load_metadata() -> list[dict]:
     with open(METADATA_DIR / "media.json", "r", encoding="utf-8") as f:
         return json.load(f)
+
+
+def _load_events() -> dict[str, dict]:
+    with open(METADATA_DIR / "events.json", "r", encoding="utf-8") as f:
+        return {row["event_id"]: row for row in json.load(f)}
 
 
 def _media_node(item: dict) -> MediaNode:
@@ -91,7 +98,7 @@ def _media_node(item: dict) -> MediaNode:
 def _wanted_edges(item: dict) -> list[Edge]:
     """정답표가 이 사진에 요구하는 관계
 
-    Trust Harness가 대조하는 세 가지(사건 연결·인물·참여자)에, 시드가 함께
+    Trust Harness가 대조하는 세 가지(추억 연결·인물·참여자)에, 시드가 함께
     만들던 장소 연결을 더한다. 장소 노드가 없는 그래프에서는 그것만 건너뛴다 —
     없는 노드로 가는 엣지를 만들면 고아 엣지가 되어 Asset Integrity가 깨진다.
     """
@@ -111,7 +118,7 @@ def _wanted_edges(item: dict) -> list[Edge]:
             relation=RelationType.DEPICTS,
             properties={"confidence": 1.0},
         ))
-        # 사진에 찍힌 사람은 그 사건의 참여자다 (시드와 같은 규칙)
+        # 사진에 찍힌 사람은 그 추억의 참여자다 (시드와 같은 규칙)
         edges.append(Edge(
             source=person_id,
             target=event_id,
@@ -122,7 +129,57 @@ def _wanted_edges(item: dict) -> list[Edge]:
     return edges
 
 
-def _plan(items: list[dict]) -> list[dict]:
+def _plan_events(items: list[dict], events_data: dict[str, dict]) -> list[dict]:
+    """사진이 붙어야 할 추억이 그래프에 남아 있는지
+
+    추억 노드가 사라진 채로 사진만 되살리면 captured_during·participated_in이
+    없는 노드를 가리켜 고아 엣지가 된다 — Asset Integrity가 깨지고, 화면에서는
+    어디에도 속하지 않은 사진이 된다. 그래서 추억을 먼저 되살린다.
+
+    실제로 배포에서 E01("1998 부산 가족여행") 추억이 삭제된 채로 그 사진 3장만
+    다시 올라온 상태를 만났다. 그때 사진만 되돌리면 고아 엣지가 6개 생긴다.
+    """
+    plans: dict[str, dict] = {}
+    for item in items:
+        event_id = item["event_id"]
+        if event_id in plans or gm.get_node(event_id):
+            continue
+        row = events_data.get(event_id)
+        if row:
+            plans[event_id] = {"event_id": event_id, "row": row}
+    return list(plans.values())
+
+
+def _apply_events(event_plans: list[dict]) -> None:
+    """추억과 그 장소를 시드가 만들던 것과 같게 되살린다"""
+    for plan in event_plans:
+        event_id = plan["event_id"]
+        row = plan["row"]
+
+        place_id = f"place_{event_id}"
+        if not gm.get_node(place_id):
+            gm.add_place(PlaceNode(
+                id=place_id,
+                name=row.get("location_name", ""),
+                lat=row.get("lat"),
+                lng=row.get("lon"),
+            ))
+            print(f"  {event_id}: 장소 {place_id} 를 되살렸다")
+
+        gm.add_event(EventNode(
+            id=event_id,
+            title=row["title"],
+            description=row.get("summary", ""),
+            date_start=row.get("date"),
+            location_id=place_id,
+            confidence=Confidence.CONFIRMED,
+            source=SourceType.USER_INPUT,
+        ))
+        gm.add_edge(Edge(source=event_id, target=place_id, relation=RelationType.LOCATED_AT))
+        print(f"  {event_id}: 추억을 되살렸다 — {row['title']}")
+
+
+def _plan(items: list[dict], events_data: dict[str, dict]) -> list[dict]:
     """무엇을 고칠지 먼저 정한다
 
     상태를 셋으로 나눈다.
@@ -144,6 +201,16 @@ def _plan(items: list[dict]) -> list[dict]:
     for item in items:
         if item.get("type", "photo") != "photo":
             print(f"  건너뜀: {item['media_id']} 는 사진이 아니다 ({item.get('type')})")
+            continue
+
+        # 추억이 그래프에도 정답표에도 없으면 이 사진은 손대지 않는다. 되살려도
+        # 없는 노드로 가는 엣지가 되고, 그것이 고아 엣지다.
+        event_id = item["event_id"]
+        if not gm.get_node(event_id) and event_id not in events_data:
+            print(
+                f"  건너뜀: {item['media_id']} 의 추억 {event_id} 이 "
+                "그래프에도 정답표에도 없다"
+            )
             continue
 
         media_id = item["media_id"]
@@ -303,10 +370,18 @@ def main() -> int:
         f"누락 {before['missing_count']}개 · {before['accuracy']}\n"
     )
 
-    plans = _plan(items)
-    if not plans:
+    events_data = _load_events()
+    event_plans = _plan_events(items, events_data)
+    plans = _plan(items, events_data)
+    if not (plans or event_plans):
         print("어긋난 것이 없다. 고칠 것이 없다.")
         return 0
+
+    if event_plans:
+        print(f"되살릴 추억 {len(event_plans)}개")
+        for plan in event_plans:
+            print(f"  [{plan['event_id']}] {plan['row']['title']}")
+        print()
 
     print(f"고칠 것 {len(plans)}건")
     for plan in plans:
@@ -319,7 +394,9 @@ def main() -> int:
     print("\n적용")
     # 한 트랜잭션으로 묶는다. 중간에 실패하면 반쯤 지워진 그래프가 남는다 —
     # 대체 노드는 지웠는데 새 노드를 못 만든 상태가 제일 나쁘다.
+    # 추억을 먼저 되살린다. 사진의 관계가 그 노드를 가리킨다.
     with gm.batch():
+        _apply_events(event_plans)
         _apply(plans)
 
     after = trust_harness.score_relations()
@@ -331,6 +408,14 @@ def main() -> int:
         print("아직 빠진 관계 (앞 20개):")
         for row in after["missing"]:
             print(f"  {row['source']} -> {row['target']} : {row['relation']}")
+
+    # 없는 노드를 가리키는 엣지가 생겼는지 함께 본다. 되살리는 일이 그것을
+    # 만들면 관계 점수는 올라가고 자산 점수가 내려간다.
+    asset = trust_harness.score_asset_integrity()
+    print(
+        f"고아 엣지 {asset['orphan_edge_count']}개 · "
+        f"파일 없는 미디어 {asset['missing_file_count']}개 (자산 {asset['score']})"
+    )
 
     print(
         "\n/trust 화면은 저장된 리포트를 읽는다. 숫자를 갱신하려면 채점을 다시 돌린다:"

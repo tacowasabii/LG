@@ -1,7 +1,7 @@
 """사진첩 조회 (기획안 사진첩 09장 GET /api/media/album)
 
-사진첩은 사건도 이야기도 거치지 않고 사진 자체를 훑는 자리다. 기존
-`GET /api/media`는 목록에 사건·인물·장소·공개 범위를 붙여 주지 않고
+사진첩은 추억도 이야기도 거치지 않고 사진 자체를 훑는 자리다. 기존
+`GET /api/media`는 목록에 추억·인물·장소·공개 범위를 붙여 주지 않고
 페이지도 나누지 않아서, 사진첩을 그 응답으로 그리면 화면이 목록 하나로
 수백 장의 원본을 부르게 된다. 응답 구조를 바꾸면 이미 그 목록을 쓰는
 홈·인물·채팅·TV가 함께 깨지므로, 사진첩이 필요한 것만 여기서 따로 만든다.
@@ -11,9 +11,9 @@ AI는 쓰지 않는다. 목록·정렬·연도·인물·페이지는 전부 데�
 사람이 직접 지목한 태그(DEPICTS · detected_faces)만 본다. 얼굴 인식이 없는
 상태에서 사진을 임의로 누군가의 사진으로 분류하지 않는다.
 
-묶는 방식은 두 가지다. 촬영 연월(month)과 사건(event). 사건별은 화면에서 나눌
-수 없다 — 한 페이지 60장 안에서만 묶으면 같은 사건이 페이지마다 토막나고, 뒤
-페이지에 있는 사진은 어느 묶음에도 못 들어간다. 그래서 사건 묶음의 순서까지
+묶는 방식은 두 가지다. 촬영 연월(month)과 추억(event). 추억별은 화면에서 나눌
+수 없다 — 한 페이지 60장 안에서만 묶으면 같은 추억이 페이지마다 토막나고, 뒤
+페이지에 있는 사진은 어느 묶음에도 못 들어간다. 그래서 추억 묶음의 순서까지
 서버가 세워 커서에 담는다.
 
 두 가지를 특별히 다룬다.
@@ -48,33 +48,33 @@ DEFAULT_LIMIT = 60
 
 SORTS = ("captured_desc", "captured_asc", "uploaded_desc")
 EVENT_STATUSES = ("all", "linked", "unlinked")
-# 무엇으로 묶어 보는가. 연월은 사진을 훑는 순서고, 사건은 "그때 무슨 일이었나"다.
+# 무엇으로 묶어 보는가. 연월은 사진을 훑는 순서고, 추억은 "그때 무슨 일이었나"다.
 GROUP_BYS = ("month", "event")
 
-# 사건 묶음을 줄 세우는 값에서 날짜와 사건 id를 가르는 글자. 날짜·id에 쓰이는
+# 추억 묶음을 줄 세우는 값에서 날짜와 추억 id를 가르는 글자. 날짜·id에 쓰이는
 # 어떤 글자보다 작아서(0x23), 이어 붙인 문자열을 견주는 것이 (날짜, id) 짝을
 # 견주는 것과 같은 순서가 된다 — 정렬과 커서가 같은 값을 쓰기 위한 것이다.
 _KEY_SEP = "#"
 
 
 class MediaLinks:
-    """미디어에 붙은 사건·인물·장소를 한 번만 색인한다
+    """미디어에 붙은 추억·인물·장소를 한 번만 색인한다
 
     미디어마다 get_connected_nodes나 get_node를 부르지 않는다. Postgres에서는
     그 한 번이 질의 한 번이라(stores/pg_store.get_node) 사진 500장이면 질의가
-    수천 번이 된다. 엣지 한 번 + 사건·장소·인물 목록 한 번씩만 읽는다.
+    수천 번이 된다. 엣지 한 번 + 추억·장소·인물 목록 한 번씩만 읽는다.
     """
 
     __slots__ = ("events", "places", "people", "persons", "event_nodes")
 
     def __init__(self) -> None:
-        # 사건 전부. 사진이 하나도 안 붙은 사건도 들고 있는다 — 고른 사건의
-        # 이름은 그 사건에 사진이 없어도 화면에 적어야 한다 (_event_facets).
+        # 추억 전부. 사진이 하나도 안 붙은 추억도 들고 있는다 — 고른 추억의
+        # 이름은 그 추억에 사진이 없어도 화면에 적어야 한다 (_event_facets).
         self.event_nodes: dict[str, dict] = {
             node["id"]: {
                 "id": node["id"],
                 "title": node.get("title", ""),
-                # 사건 묶음을 줄 세우는 날짜. 화면은 묶음 머리에 이걸 적는다.
+                # 추억 묶음을 줄 세우는 날짜. 화면은 묶음 머리에 이걸 적는다.
                 "date": node.get("date_start") or None,
             }
             for node in graph_manager.get_events()
@@ -102,7 +102,7 @@ class MediaLinks:
             source, target = edge["source"], edge["target"]
 
             if relation == RelationType.CAPTURED_DURING:
-                # 사진 하나가 두 사건에 걸리는 일은 없다. 있어도 먼저 붙은 것을 쓴다.
+                # 사진 하나가 두 추억에 걸리는 일은 없다. 있어도 먼저 붙은 것을 쓴다.
                 if source not in self.events and target in self.event_nodes:
                     self.events[source] = self.event_nodes[target]
             elif relation == RelationType.TAKEN_AT:
@@ -157,11 +157,11 @@ def query(
       total          지금 조건에 맞는 전체 개수 (이 페이지 개수가 아니다)
       available_years 연도 필터만 뺀 조건에서 고를 수 있는 연도들.
                       고른 연도 때문에 나머지 연도가 사라지면 되돌아갈 수 없다.
-      available_events 사건 필터만 뺀 조건에서 고를 수 있는 사건들 (사진 수까지).
-                      같은 이유다 — 사건 하나를 고른 뒤에도 다른 사건으로 옮겨간다.
+      available_events 추억 필터만 뺀 조건에서 고를 수 있는 추억들 (사진 수까지).
+                      같은 이유다 — 추억 하나를 고른 뒤에도 다른 추억으로 옮겨간다.
 
-    group_by="event"면 사건 묶음의 순서까지 여기서 정한다. 화면이 페이지마다
-    다시 묶으면 같은 사건이 페이지 경계에서 토막난다.
+    group_by="event"면 추억 묶음의 순서까지 여기서 정한다. 화면이 페이지마다
+    다시 묶으면 같은 추억이 페이지 경계에서 토막난다.
     """
     sort = sort if sort in SORTS else "captured_desc"
     group_by = group_by if group_by in GROUP_BYS else "month"
@@ -196,7 +196,7 @@ def query(
         ]
 
     # 고를 수 있는 것은 그 조건 하나만 뺀 데서 센다. 연도를 고르면 연도 목록이,
-    # 사건을 고르면 사건 목록이 그 선택 때문에 줄어들어 되돌아갈 수 없게 된다.
+    # 추억을 고르면 추억 목록이 그 선택 때문에 줄어들어 되돌아갈 수 없게 된다.
     available_years = sorted(
         {row["_year"] for row in matching(with_year=False) if row["_year"] is not None},
         reverse=True,
@@ -323,7 +323,7 @@ def _matches(
     if person_id and person_id not in row["_person_ids"]:
         return False
 
-    # 사건 하나만 보기. event_status와 함께 걸린다 — 사건을 고른 채 "미분류"를
+    # 추억 하나만 보기. event_status와 함께 걸린다 — 추억을 고른 채 "미분류"를
     # 누르면 0장이 맞다 (필터가 서로를 덮지 않는다).
     if event_id and (not row["event"] or row["event"]["id"] != event_id):
         return False
@@ -341,17 +341,17 @@ def _matches(
     return True
 
 
-# --- 사건 --------------------------------------------------------------------
+# --- 추억 --------------------------------------------------------------------
 
 
 def _event_facets(rows: Iterable[dict], links: MediaLinks, selected_id: Optional[str]) -> list[dict]:
-    """고를 수 있는 사건과 그 개수 (사건 조건만 뺀 데서 센 것)
+    """고를 수 있는 추억과 그 개수 (추억 조건만 뺀 데서 센 것)
 
-    개수를 함께 주는 이유: 인물·연도·검색이 걸린 상태에서 사건을 고르면 몇 장이
-    남는지 미리 보여야 한다. 0장인 사건까지 목록에 두면 빈 화면을 누르게 된다.
+    개수를 함께 주는 이유: 인물·연도·검색이 걸린 상태에서 추억을 고르면 몇 장이
+    남는지 미리 보여야 한다. 0장인 추억까지 목록에 두면 빈 화면을 누르게 된다.
 
-    고른 사건은 0장이어도 남긴다. 다른 조건 때문에 남는 사진이 없어지면 그
-    사건이 목록에서 사라지고, 화면에서 되돌릴(끄는) 길이 없어진다.
+    고른 추억은 0장이어도 남긴다. 다른 조건 때문에 남는 사진이 없어지면 그
+    추억이 목록에서 사라지고, 화면에서 되돌릴(끄는) 길이 없어진다.
     """
     counts: dict[str, int] = {}
     for row in rows:
@@ -378,13 +378,13 @@ def _event_facets(rows: Iterable[dict], links: MediaLinks, selected_id: Optional
 
 
 def _event_keys(rows: Iterable[dict], links: MediaLinks) -> dict[str, str]:
-    """사건 묶음을 줄 세울 값
+    """추억 묶음을 줄 세울 값
 
-    사건에 적힌 날짜(date_start)를 먼저 쓴다. 없으면 그 사건에 걸린 사진 중
-    가장 이른 촬영일을 대신 쓴다 — 날짜가 없는 사건을 전부 한 칸에 몰아 두면
+    추억에 적힌 날짜(date_start)를 먼저 쓴다. 없으면 그 추억에 걸린 사진 중
+    가장 이른 촬영일을 대신 쓴다 — 날짜가 없는 추억을 전부 한 칸에 몰아 두면
     사진에는 1998년이 적혀 있는데 묶음은 맨 뒤에 놓인다.
 
-    사진에도 촬영일이 없으면 빈 값으로 남긴다. 그 묶음은 날짜를 아는 사건들
+    사진에도 촬영일이 없으면 빈 값으로 남긴다. 그 묶음은 날짜를 아는 추억들
     뒤로 간다 (_order · _position의 event_rank).
     """
     earliest: dict[str, str] = {}
@@ -408,10 +408,10 @@ def _event_keys(rows: Iterable[dict], links: MediaLinks) -> dict[str, str]:
 
 
 def _event_sort_key(event_id: str, event_keys: dict[str, str]) -> str:
-    """사건 묶음의 자리. 정렬과 커서가 같은 값을 본다
+    """추억 묶음의 자리. 정렬과 커서가 같은 값을 본다
 
-    날짜를 모르는 사건은 id만 남긴다 — 그 묶음은 event_rank로 이미 뒤에 있고,
-    빈 날짜를 앞에 붙이면 날짜를 아는 사건과 섞여 견주게 된다.
+    날짜를 모르는 추억은 id만 남긴다 — 그 묶음은 event_rank로 이미 뒤에 있고,
+    빈 날짜를 앞에 붙이면 날짜를 아는 추억과 섞여 견주게 된다.
     """
     date = event_keys.get(event_id) or ""
     return f"{date}{_KEY_SEP}{event_id}" if date else event_id
@@ -426,10 +426,10 @@ def _order(
     group_by: str = "month",
     event_keys: Optional[dict[str, str]] = None,
 ) -> list[dict]:
-    """정렬. 사건별이면 사건 묶음을 세운 뒤 묶음 안에서 다시 시간순으로 세운다
+    """정렬. 추억별이면 추억 묶음을 세운 뒤 묶음 안에서 다시 시간순으로 세운다
 
     묶음의 순서도 고른 정렬을 따른다 — "오래된순"에서 사진은 오래된 것부터인데
-    사건은 최근 것부터면 화면을 위아래로 되짚어야 한다.
+    추억은 최근 것부터면 화면을 위아래로 되짚어야 한다.
     """
     rows = list(rows)
     if group_by != "event":
@@ -441,8 +441,8 @@ def _order(
         groups.setdefault(row["event"]["id"] if row["event"] else "", []).append(row)
 
     reverse = sort != "captured_asc"
-    # 날짜를 아는 사건이 먼저. 모르는 사건을 빈 날짜로 섞으면 오래된순의 맨 앞이
-    # "날짜 모르는 사건"이 된다 (촬영일 미상 사진과 같은 처리다).
+    # 날짜를 아는 추억이 먼저. 모르는 추억을 빈 날짜로 섞으면 오래된순의 맨 앞이
+    # "날짜 모르는 추억"이 된다 (촬영일 미상 사진과 같은 처리다).
     dated = sorted(
         (event_id for event_id in groups if event_id and keys.get(event_id)),
         key=lambda event_id: _event_sort_key(event_id, keys),
@@ -457,7 +457,7 @@ def _order(
     ordered: list[dict] = []
     for event_id in [*dated, *undated]:
         ordered.extend(_order_by_time(groups[event_id], sort))
-    # 어느 추억에도 붙지 않은 사진은 사건 묶음이 아니다 — 언제나 맨 뒤
+    # 어느 추억에도 붙지 않은 사진은 추억 묶음이 아니다 — 언제나 맨 뒤
     ordered.extend(_order_by_time(groups.get("", []), sort))
     return ordered
 
@@ -499,12 +499,12 @@ def _position(
 ) -> Position:
     """정렬에서 이 사진이 앉은 자리 (커서가 그대로 담는 값)
 
-    (bucket, event_rank, event_key, rank, key, id) 여섯 자리다. 앞의 셋은 사건별로
+    (bucket, event_rank, event_key, rank, key, id) 여섯 자리다. 앞의 셋은 추억별로
     묶어 볼 때만 쓰인다 — 연월 묶음에서는 늘 같은 값이라 뒤의 셋만 견주게 된다.
 
-      bucket      사건에 붙은 사진(0)인가 미분류(1)인가. 미분류는 언제나 맨 뒤다.
-      event_rank  그 사건이 날짜를 아는가(0) 모르는가(1).
-      event_key   사건 묶음의 자리 (_event_sort_key)
+      bucket      추억에 붙은 사진(0)인가 미분류(1)인가. 미분류는 언제나 맨 뒤다.
+      event_rank  그 추억이 날짜를 아는가(0) 모르는가(1).
+      event_key   추억 묶음의 자리 (_event_sort_key)
       rank        이 사진이 촬영일을 아는가(0) 모르는가(1). 모르는 것은 묶음 안
                   에서 언제나 뒤이므로(_order_by_time) 날짜보다 먼저 본다.
     """
@@ -535,9 +535,9 @@ def _comes_after(row: Position, anchor: Position, sort: str) -> bool:
     if row[0] != anchor[0]:
         return row[0] > anchor[0]  # 미분류 사진은 언제나 뒤다
     if row[1] != anchor[1]:
-        return row[1] > anchor[1]  # 날짜를 아는 사건이 언제나 앞이다
+        return row[1] > anchor[1]  # 날짜를 아는 추억이 언제나 앞이다
 
-    # 오래된순만 오름차순이다 (사건 묶음의 순서도 사진과 같은 방향을 따른다)
+    # 오래된순만 오름차순이다 (추억 묶음의 순서도 사진과 같은 방향을 따른다)
     ascending = sort == "captured_asc"
     if row[2] != anchor[2]:
         return row[2] > anchor[2] if ascending else row[2] < anchor[2]

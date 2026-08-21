@@ -17,6 +17,6 @@ export const AUDIENCE_LABEL: Record<Audience, string> = {
 
 export const AUDIENCE_DESC: Record<Audience, string> = {
   child: '쉬운 낱말, 짧은 문장, 인물 이름을 자주 부릅니다.',
-  adult: '사건의 배경과 관계를 설명합니다.',
+  adult: '추억의 배경과 관계를 설명합니다.',
   elder: '전환을 늦추고, 당시 호칭을 그대로 씁니다.',
 }

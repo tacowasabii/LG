@@ -396,7 +396,7 @@ export default function MediaLightbox({
     setSaving(true)
     try {
       await addMediaToMemory(event.id, [item.id])
-      // 날짜까지 함께 넘긴다 — 사건별로 묶어 보는 중이면 새 묶음 머리에 바로 적힌다
+      // 날짜까지 함께 넘긴다 — 추억별로 묶어 보는 중이면 새 묶음 머리에 바로 적힌다
       onItemUpdate(item.id, {
         event: { id: event.id, title: event.title, date: event.date_start ?? null },
       })

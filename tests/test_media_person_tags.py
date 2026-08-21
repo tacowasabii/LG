@@ -15,7 +15,7 @@
   - 없는 id·인물이 아닌 id·중복을 걸러내는가
   - 지목된 사람으로 인물별 조회가 되는가
   - 지목된 사람이 비공개를 요청하면 그 기록이 다른 가족에게 가려지는가
-  - 나중에 지목한 사람이 그 사건의 "함께한 사람"과 이야기에 들어가는가
+  - 나중에 지목한 사람이 그 추억의 "함께한 사람"과 이야기에 들어가는가
   - 뗄 때 사람이 직접 적어 넣은 참여자는 그대로 남는가
   - 사람이 늘면 이미 쓰인 "함께 기억한 이야기"가 낡은 것으로 표시되는가
 
@@ -89,8 +89,8 @@ def _restore(before):
         "speaker_id": before["speaker_id"],
     })
 
-    # 지목은 사건의 "함께한 사람"까지 바꾼다. 태그만 되돌리면 사진에 없는
-    # 사람이 사건에 남아 다음 테스트의 이야기에 섞인다.
+    # 지목은 추억의 "함께한 사람"까지 바꾼다. 태그만 되돌리면 사진에 없는
+    # 사람이 추억에 남아 다음 테스트의 이야기에 섞인다.
     event_resolver.sync_participants_of_event(EVENT)
 
 
@@ -244,12 +244,12 @@ def test_tagged_person_private_request_hides_media():
 
 
 def test_tagging_after_attach_reaches_the_event_and_its_story():
-    """나중에 지목한 사람이 그 사건의 "함께한 사람"과 이야기에 들어간다
+    """나중에 지목한 사람이 그 추억의 "함께한 사람"과 이야기에 들어간다
 
     얼굴 인식이 할머니를 놓친 사진을 사람이 직접 지목하는 경우다. 사진에 붙는
-    순간에만 사건으로 옮기면(예전 memories.attach_media), 지목은 사진첩에서만
+    순간에만 추억으로 옮기면(예전 memories.attach_media), 지목은 사진첩에서만
     보이고 추억 상세의 "함께한 사람"과 Film·TV 이야기에는 할머니가 없다 —
-    이야기는 사건에 이어진 인물을 읽어 쓴다.
+    이야기는 추억에 이어진 인물을 읽어 쓴다.
     """
     _require_seeded_graph()
     before = _snapshot()
@@ -271,7 +271,7 @@ def test_tagging_after_attach_reaches_the_event_and_its_story():
 
         detail = memories.detail(EVENT)
         assert P_GRANDMA in {p["id"] for p in detail["participants"]}, detail["participants"]
-        print("  나중에 지목한 사람이 사건·이야기에 도달 OK")
+        print("  나중에 지목한 사람이 추억·이야기에 도달 OK")
     finally:
         _restore(before)
 
@@ -279,7 +279,7 @@ def test_tagging_after_attach_reaches_the_event_and_its_story():
 def test_untagging_removes_only_the_participant_the_tag_added():
     """뗄 때 사진에서 온 참여자만 뗀다 (사람이 적어 넣은 참여자는 남는다)
 
-    잘못 지목한 사람이 사건에 영구히 남으면 이야기가 그 사람을 계속 부른다.
+    잘못 지목한 사람이 추억에 영구히 남으면 이야기가 그 사람을 계속 부른다.
     반대로 추억을 만들 때 고른 사람까지 지우면, 사진 태그 하나가 사람이 적어
     넣은 것을 덮는다.
     """
@@ -312,7 +312,7 @@ def test_untagging_removes_only_the_participant_the_tag_added():
 def test_new_person_makes_the_written_story_stale():
     """사람이 늘면 이미 쓰인 "함께 기억한 이야기"가 낡은 것으로 표시된다
 
-    그 이야기는 사건 노드에 저장된다. 나중에 지목한 할머니는 이미 쓰인 문장에
+    그 이야기는 추억 노드에 저장된다. 나중에 지목한 할머니는 이미 쓰인 문장에
     들어갈 수 없으므로, 화면이 "다시 만들기"를 권할 수 있어야 한다.
     """
     _require_seeded_graph()

@@ -4,7 +4,7 @@
 설정만 저장하고 실제로 가려 주지 않으면 아무 의미가 없으므로, 기록을 내보내는
 모든 통로가 이 모듈을 지나게 한다.
 
-    미디어 목록 · 사건 요약의 썸네일 · 인물 상세 · 채팅 근거 검색
+    미디어 목록 · 추억 요약의 썸네일 · 인물 상세 · 채팅 근거 검색
 
 두 가지 규칙이 겹친다.
   1. Asset 권한   기록 자체의 공개 범위 (family / partial / private)
@@ -121,7 +121,7 @@ def can_view(
     if node_type == NodeType.MEMORY:
         return _can_view_memory(node, viewer_id, index or ConsentIndex())
 
-    # 사람·사건·장소에는 공개 범위를 두지 않는다. 가려야 하는 것은 원본 기록과
+    # 사람·추억·장소에는 공개 범위를 두지 않는다. 가려야 하는 것은 원본 기록과
     # 그 기록을 말로 옮긴 기억이다.
     if node_type != NodeType.MEDIA:
         return True

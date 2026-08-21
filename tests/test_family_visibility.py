@@ -10,7 +10,7 @@
   - 부분 공개가 지목한 사람에게만 열리는가
   - 인물이 비공개를 요청하면 그 사람이 나온 기록이 다른 가족에게 가려지는가
   - 본인은 자기가 나온 기록을 계속 보는가
-  - 가려진 기록이 사건 요약의 썸네일·개수에서도 빠지는가
+  - 가려진 기록이 추억 요약의 썸네일·개수에서도 빠지는가
 
 그래프를 실제로 바꾸므로 끝에서 원래대로 되돌린다.
 
@@ -301,9 +301,9 @@ def test_person_consent_hides_their_records_from_others():
 
 
 def test_hidden_media_drops_out_of_event_summary():
-    """가려진 기록은 사건 요약의 썸네일·개수에서도 빠진다
+    """가려진 기록은 추억 요약의 썸네일·개수에서도 빠진다
 
-    목록에서만 감추고 사건 요약에 남으면, 썸네일로 그 사진이 그대로 보인다.
+    목록에서만 감추고 추억 요약에 남으면, 썸네일로 그 사진이 그대로 보인다.
     """
     try:
         before = next(e for e in asyncio.run(list_events(viewer_id=OTHER)) if e.id == EVENT)
@@ -319,7 +319,7 @@ def test_hidden_media_drops_out_of_event_summary():
         # 소유자에게는 그대로 남아 있다
         owner_view = next(e for e in asyncio.run(list_events(viewer_id=OWNER)) if e.id == EVENT)
         assert owner_view.media_count == before.media_count, owner_view.media_count
-        print(f"  사건 요약 반영 OK: {before.media_count} -> {after.media_count} (소유자는 그대로)")
+        print(f"  추억 요약 반영 OK: {before.media_count} -> {after.media_count} (소유자는 그대로)")
     finally:
         _restore()
 

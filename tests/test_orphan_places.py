@@ -7,7 +7,7 @@
 채워져 장소 노드가 만들어졌고(routers/media.py의 place_guess ->
 memories._resolve_place_by_name), 그 추억을 지울 때 장소를 남겨 두었다.
 
-장소는 파생 노드다. 스스로 열리는 화면이 없다 — 지도는 사건을 그리고 사진첩은
+장소는 파생 노드다. 스스로 열리는 화면이 없다 — 지도는 추억을 그리고 사진첩은
 원본을 그린다. 그래서 가리키는 것이 없어진 장소는 어디에서도 닿을 수 없다.
 
 여기서 지키는 약속은 셋이다.
@@ -70,7 +70,7 @@ def _make_place(name: str) -> str:
 
 
 def _make_event(title: str, place_id: str = "", with_edge: bool = True) -> str:
-    """장소를 가리키는 사건. with_edge=False면 location_id로만 가리킨다"""
+    """장소를 가리키는 추억. with_edge=False면 location_id로만 가리킨다"""
     event = EventNode(title=title, location_id=place_id or None)
     graph_manager.add_event(event)
     _created.append(event.id)
@@ -82,8 +82,8 @@ def _make_event(title: str, place_id: str = "", with_edge: bool = True) -> str:
 
 
 def test_place_an_event_points_at_is_kept():
-    """사건이 가리키는 장소는 거두지 않는다"""
-    place_id = _make_place("테스트 장소 (사건이 있다)")
+    """추억이 가리키는 장소는 거두지 않는다"""
+    place_id = _make_place("테스트 장소 (추억이 있다)")
     _make_event("테스트 추억 (장소를 가리킨다)", place_id)
 
     try:
@@ -93,7 +93,7 @@ def test_place_an_event_points_at_is_kept():
         )
         assert event_resolver.prune_orphan_places([place_id]) == [], "쓰이는 장소를 지웠다"
         assert graph_manager.get_node(place_id), "쓰이는 장소가 사라졌다"
-        print("  사건이 가리키는 장소 보존 OK")
+        print("  추억이 가리키는 장소 보존 OK")
     finally:
         _cleanup()
 
@@ -101,7 +101,7 @@ def test_place_an_event_points_at_is_kept():
 def test_place_reachable_only_through_location_id_is_kept():
     """엣지가 없고 location_id로만 이어진 장소도 거두지 않는다
 
-    엣지만 보면 이 장소는 "아무도 안 쓴다"로 읽힌다. 그런데 사건 목록은
+    엣지만 보면 이 장소는 "아무도 안 쓴다"로 읽힌다. 그런데 추억 목록은
     location_id로 대표 장소를 찾으므로(routers/graph.py list_events) 화면에는
     그 이름이 그대로 나온다. 지우는 판정이라 넓게 잡는다.
     """
@@ -144,7 +144,7 @@ def test_place_nothing_points_at_is_pruned():
 def test_other_node_types_are_never_pruned():
     """장소가 아닌 노드는 이 판정에 걸리지 않는다
 
-    연결이 없는 노드가 곧 쓰레기인 것은 아니다. 사건에 한 번도 나오지 않은
+    연결이 없는 노드가 곧 쓰레기인 것은 아니다. 추억에 한 번도 나오지 않은
     사람도 가족이고, 추억에 붙지 않은 사진도 사진첩에 있어야 한다.
     """
     lonely_event = _make_event("테스트 추억 (장소가 없다)")

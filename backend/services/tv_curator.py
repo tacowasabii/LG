@@ -18,12 +18,12 @@ from backend.services.graph_manager import graph_manager
 # 생성된 Journey 캐시 (MVP: in-memory)
 _journeys: dict[str, dict] = {}
 
-# 타이틀 화면에서 읽어 줄 Film 이야기를 몇 사건까지 이을까.
+# 타이틀 화면에서 읽어 줄 Film 이야기를 몇 추억까지 이을까.
 #
-# 여정 하나에 사건이 여덟 개 들어오기도 한다 ("부산에서 보낸 날들"). 그 이야기를
+# 여정 하나에 추억이 여덟 개 들어오기도 한다 ("부산에서 보낸 날들"). 그 이야기를
 # 다 이으면 타이틀 한 장에 스무 문장이 얹히고, 낭독이 끝나기를 기다리는 화면
 # (TVViewPage)이 2분을 서 있게 된다. 이야기는 여정의 머리말이고 목록이 아니다 —
-# 나머지 사건은 이어지는 사진과 자막이 말한다.
+# 나머지 추억은 이어지는 사진과 자막이 말한다.
 STORY_EVENTS = 2
 
 
@@ -36,13 +36,13 @@ async def create_journey(
 
     query: "우리 가족의 2015년", "부산 여행", "아빠와의 추억" 등
     style: "timeline" | "story" | "people"
-    event_ids: 화면이 이미 사건을 짚어 보낸 경우. 그때는 말을 다시 해석하지 않고
-        그 사건들의 사진만 쓴다 (TV 메뉴의 타일이 이렇게 부른다).
+    event_ids: 화면이 이미 추억을 짚어 보낸 경우. 그때는 말을 다시 해석하지 않고
+        그 추억들의 사진만 쓴다 (TV 메뉴의 타일이 이렇게 부른다).
     """
     journey_id = str(uuid.uuid4())
 
     if event_ids:
-        # 1·2. 고른 사건이 곧 조건이다
+        # 1·2. 고른 추억이 곧 조건이다
         slides = _slides_for_events(event_ids)
     else:
         # 1. 쿼리에서 조건 추출
@@ -57,7 +57,7 @@ async def create_journey(
     # 4. 배경 음악의 무드. 소리는 화면이 만든다 (frontend/src/lib/filmMusic.ts).
     #
     # 여정 전체에 하나만 정한다 — 슬라이드마다 바꾸면 9초마다 곡이 갈린다.
-    # Film과 같은 함수를 쓴다: 낱말 표가 갈라지면 같은 사건이 거실에서 다르게
+    # Film과 같은 함수를 쓴다: 낱말 표가 갈라지면 같은 추억이 거실에서 다르게
     # 들리고, 무엇을 왜 깔았는지 적어 둔 문구가 두 화면에서 어긋난다.
     events, places = _slide_events(slides)
     music = film_music.pick_journey(events, places)
@@ -68,7 +68,7 @@ async def create_journey(
         "title": query,
         "slides": slides,
         "narration": narration,
-        # 없을 수 있다 (사건에 연결되지 않은 사진만 모인 여정). 그때 화면은 음악
+        # 없을 수 있다 (추억에 연결되지 않은 사진만 모인 여정). 그때 화면은 음악
         # 없이 재생한다 — 근거가 없는데 아무 소리나 얹지 않는다.
         "music": music,
         "total_duration_sec": len(slides) * 5,  # 슬라이드당 5초
@@ -125,11 +125,11 @@ def _parse_query(query: str) -> dict:
 
 
 def _slide_events(slides: list[dict]) -> tuple[list[dict], dict[str, str]]:
-    """슬라이드가 가리키는 사건과 그 장소 이름 (중복 없이, 나온 순서대로)
+    """슬라이드가 가리키는 추억과 그 장소 이름 (중복 없이, 나온 순서대로)
 
-    배경 음악의 무드를 사건에서 고르므로 여정에 실제로 담긴 사건만 본다. 슬라이드가
-    스무 장이어도 사건은 몇 개뿐이고, 같은 사건을 여러 번 세면 사진이 많은 사건이
-    무드를 혼자 정하게 된다 — 사진 수가 아니라 사건 수로 센다.
+    배경 음악의 무드를 추억에서 고르므로 여정에 실제로 담긴 추억만 본다. 슬라이드가
+    스무 장이어도 추억은 몇 개뿐이고, 같은 추억을 여러 번 세면 사진이 많은 추억이
+    무드를 혼자 정하게 된다 — 사진 수가 아니라 추억 수로 센다.
     """
     events: list[dict] = []
     places: dict[str, str] = {}
@@ -182,11 +182,11 @@ def _context_fields(event: Optional[dict], media_id: str, cache: dict) -> dict:
     있는 것은 한 줄이고, 그 한 줄이 "엄마가 기억하는 부산 바다"다. 원문은 앱에서
     읽는다.
 
-    사건마다 한 번만 읽는다 (cache). 슬라이드 스무 장이 같은 사건을 가리키는
+    추억마다 한 번만 읽는다 (cache). 슬라이드 스무 장이 같은 추억을 가리키는
     경우가 흔해서, 슬라이드마다 기억을 다시 읽으면 목록 하나에 그래프를 수십 번
     훑는다.
 
-    이 사진을 가리키는 맥락이 없으면 사건의 대표 맥락을 올리되, 출처 문구에서
+    이 사진을 가리키는 맥락이 없으면 추억의 대표 맥락을 올리되, 출처 문구에서
     "이 사진의 장면은 아닙니다"라고 밝힌다 — 자막이 사진 설명으로 읽히면
     사진에 없는 장면을 사실처럼 말하는 것이 된다.
     """
@@ -254,9 +254,9 @@ def _title_slide() -> dict:
 
 
 def _slides_for_events(event_ids: list[str]) -> list[dict]:
-    """고른 사건들의 사진만으로 슬라이드를 만든다 (사건 연대순, 그 안에서 촬영순)
+    """고른 추억들의 사진만으로 슬라이드를 만든다 (추억 연대순, 그 안에서 촬영순)
 
-    화면이 사건을 짚어 보냈을 때 쓴다. 그때 제목을 키워드로 다시 훑으면 엉뚱한
+    화면이 추억을 짚어 보냈을 때 쓴다. 그때 제목을 키워드로 다시 훑으면 엉뚱한
     것이 섞인다 — "2003 하늘 초등학교 입학식"은 이름 "하늘"과 다른 해의 사진까지
     끌어와서, 입학식을 눌렀는데 졸업식 사진이 나온다. 무엇을 고른 것인지 알 수
     없어지고, 그건 TV에서 가장 나쁜 실패다.
@@ -291,7 +291,7 @@ def _build_slides(conditions: dict, style: str) -> list[dict]:
     slides = []
     # 목록은 파일 두 개(커밋된 것 + 런타임)라 슬라이드마다 읽지 않고 한 번만 읽는다
     clips = motion_clips.manifest()
-    # 사건별 기억 맥락. 슬라이드를 만드는 동안 한 번씩만 읽는다.
+    # 추억별 기억 맥락. 슬라이드를 만드는 동안 한 번씩만 읽는다.
     contexts_by_event: dict = {}
 
     # 타이틀 슬라이드
@@ -420,10 +420,10 @@ async def _journey_story(slides: list[dict]) -> str:
     목록을 본문에 그대로 베껴 오기도 했다 (memory_context._FACT_LINE이 걷어낸다).
 
     Film은 [기록]으로 사실을 묶어 넘기고 그 안에서만 쓰게 한다
-    (film_composer._narration). 같은 사건을 두 화면이 다르게 이야기할 이유도 없다 —
+    (film_composer._narration). 같은 추억을 두 화면이 다르게 이야기할 이유도 없다 —
     거실에서 듣는 이야기와 앱에서 보는 이야기가 글자까지 같다.
 
-    사건에 닿지 않은 사진만 모인 여정에는 이야기가 없다. 그때는 비워 둔다 —
+    추억에 닿지 않은 사진만 모인 여정에는 이야기가 없다. 그때는 비워 둔다 —
     없는 이야기를 지어 넣는 것이 지금 고치는 문제다.
     """
     events, _places = _slide_events(slides)

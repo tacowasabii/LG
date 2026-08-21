@@ -121,7 +121,7 @@ Base URL: `http://localhost:8000`
 ### Memory Film
 | Method | Path | 설명 |
 |--------|------|------|
-| POST | `/api/film` | 사건 하나를 30~60초 이야기로 구성 |
+| POST | `/api/film` | 추억 하나를 30~60초 이야기로 구성 |
 | GET | `/api/film/anniversaries` | 다가오는 기념일 |
 
 요청: `{"event_id": "E01", "length_sec": 45, "audience": "adult"}`
@@ -284,7 +284,7 @@ Response (초안이므로 확정이 아니다):
 }
 ```
 `source_type`이 `ai_stt`면 서버가 읽기 좋은 문장으로 정리해 `polished`로 돌려주고,
-원문(`content`)은 그대로 보존한다. `differs: true`면 사건을 고치지 않고
+원문(`content`)은 그대로 보존한다. `differs: true`면 추억을 고치지 않고
 "가족들이 조금 다르게 기억하고 있어요" 표시만 붙는다.
 
 ### POST /api/tv/journey

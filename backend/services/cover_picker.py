@@ -1,8 +1,8 @@
-"""사건의 대표 사진 고르기 — 어느 사진을 움직이게 만들지
+"""추억의 대표 사진 고르기 — 어느 사진을 움직이게 만들지
 
 사진이 상한보다 적으면 **전부** 만든다. 미세 모션은 파도가 치거나 머리카락·
 옷자락이 살짝 흔들리는 정도라, 정적으로 보이는 사진도 만들면 살아난다. 세 장뿐인
-사건에서 한 장만 고를 이유가 없다.
+추억에서 한 장만 고를 이유가 없다.
 
 상한을 두는 것은 사진 백 장인 앨범 때문이다 (한 장에 약 $0.2). 그때는 대표를
 골라 그만큼만 만든다. 고르는 데 모델을 쓴다 — 어느 사진이 그날을 대표하는지는
@@ -50,7 +50,7 @@ def _write(event_id: str, media_ids: list[str], by: str, reason: str) -> None:
 
 
 def cached(event_id: str) -> Optional[dict]:
-    """이 사건에 대해 이미 고른 것 (아직 묻지 않았으면 None)"""
+    """이 추억에 대해 이미 고른 것 (아직 묻지 않았으면 None)"""
     entry = _read().get(event_id)
     if isinstance(entry, dict) and isinstance(entry.get("media_ids"), list):
         return entry
@@ -74,7 +74,7 @@ async def _by_model(
         for i, photo in enumerate(photos)
     )
     prompt = (
-        f"사건: {event.get('title', '')}\n"
+        f"추억: {event.get('title', '')}\n"
         f"장소: {place or '미상'}\n\n"
         f"사진 목록 ({len(photos)}장):\n{listing}\n\n"
         f"이 중에서 그날을 가장 잘 대표하는 사진 {limit}장을 고르세요.\n"
@@ -117,7 +117,7 @@ async def pick(
     place: Optional[str] = None,
     limit: int = MOTION_COVERS_PER_EVENT,
 ) -> list[str]:
-    """이 사건에서 움직이게 만들 사진을 고른다
+    """이 추억에서 움직이게 만들 사진을 고른다
 
     photos는 아직 클립이 없는 후보만 넘긴다. limit은 남은 정원이다.
     """

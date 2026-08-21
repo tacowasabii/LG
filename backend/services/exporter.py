@@ -6,7 +6,7 @@
 실제로 만든다. 안에 들어가는 것도 이 서비스 없이 열 수 있는 형식만 쓴다.
 
     originals/      원본 사진·영상·음성 (보정 없이 그대로)
-    graph.json      인물·사건·장소·기억과 그 연결 (표준 JSON)
+    graph.json      인물·추억·장소·기억과 그 연결 (표준 JSON)
     memories.md     기억 문장을 사람이 읽을 수 있게
     chronicle.html  가족 연대기 — 브라우저만 있으면 열린다
     README.txt      무엇이 들어 있고 어떻게 열면 되는지
@@ -106,7 +106,7 @@ def manifest(viewer_id: Optional[str] = None) -> dict:
         {
             "id": ITEM_CHRONICLE,
             "label": "가족 연대기 (HTML)",
-            "detail": f"사건 {len(events)}개 · 기억 {len(memories)}개 · 브라우저로 열립니다",
+            "detail": f"추억 {len(events)}개 · 기억 {len(memories)}개 · 브라우저로 열립니다",
             # 만들면서 정해진다. 지어낸 숫자를 적지 않는다.
             "size_bytes": None,
             "count": 1,
@@ -340,7 +340,7 @@ def _readme(included: list[str], viewer_id: Optional[str]) -> str:
         "",
         "들어 있는 것",
         "  originals/       원본 사진·영상 (보정 없이 그대로)",
-        "  graph.json       인물·사건·장소·기억과 그 연결 (표준 JSON)",
+        "  graph.json       인물·추억·장소·기억과 그 연결 (표준 JSON)",
         "  memories.md      가족이 남긴 문장",
     ]
     if ITEM_VOICES in included:

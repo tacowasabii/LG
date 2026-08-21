@@ -215,8 +215,8 @@ class EventResponse(BaseModel):
 class MemoryDraftRequest(BaseModel):
     """올린 사진·영상으로 초안을 만들어 달라는 요청
 
-    기본은 날짜·장소로 갈라서 묶음마다 초안 하나다. 여러 사건의 사진을 한꺼번에
-    올리는 것이 정상이기 때문이다 — 어떤 사진이 같은 사건인지 사용자에게 묻지
+    기본은 날짜·장소로 갈라서 묶음마다 초안 하나다. 여러 추억의 사진을 한꺼번에
+    올리는 것이 정상이기 때문이다 — 어떤 사진이 같은 추억인지 사용자에게 묻지
     않는다. 갈린 결과가 틀렸으면 merge로 다시 부른다.
     """
     media_ids: list[str] = []
@@ -284,7 +284,7 @@ class AlbumEventRef(BaseModel):
     """이 사진이 속한 추억. 사진첩에서 추억 상세로 되짚어 갈 고리다."""
     id: str
     title: str
-    # 그 추억에 적힌 날짜(date_start). 사건별로 묶어 볼 때 묶음 머리에 적는다 —
+    # 그 추억에 적힌 날짜(date_start). 추억별로 묶어 볼 때 묶음 머리에 적는다 —
     # 없으면 화면이 날짜 없이 제목만 적는다.
     date: Optional[str] = None
 
@@ -298,7 +298,7 @@ class AlbumPlaceRef(BaseModel):
 class AlbumMediaItem(BaseModel):
     """사진첩 한 칸
 
-    MediaListItem과 나눠 둔 이유: 목록 화면은 사건·인물·장소·공개 범위를 함께
+    MediaListItem과 나눠 둔 이유: 목록 화면은 추억·인물·장소·공개 범위를 함께
     그려야 하는데, 그것을 기존 항목에 더하면 그 목록을 쓰는 홈·인물·채팅·TV의
     응답이 함께 무거워진다. 반대로 음성 전용 필드(파형·전사문)는 여기 없다.
     """
@@ -349,9 +349,9 @@ class AlbumResponse(BaseModel):
 
 
 class EventListItem(BaseModel):
-    """타임라인·지도·TV가 함께 쓰는 사건 요약
+    """타임라인·지도·TV가 함께 쓰는 추억 요약
 
-    화면마다 사건 상세를 다시 부르지 않도록 한 번에 내려준다.
+    화면마다 추억 상세를 다시 부르지 않도록 한 번에 내려준다.
     지도는 좌표, TV는 장소명과 확인 상태, 타임라인은 참여자와 썸네일이 필요하다.
     """
     id: str
@@ -435,7 +435,7 @@ class InterviewAnswerRequest(BaseModel):
 
 
 class ExtractedFromAnswer(BaseModel):
-    """답변에서 뽑아 그래프에 이은 것 (기획안 02장 "답변에서 사건·인물·시점 추출")
+    """답변에서 뽑아 그래프에 이은 것 (기획안 02장 "답변에서 추억·인물·시점 추출")
 
     화면이 그대로 보여 준다. 그래프가 조용히 자라면 말한 사람은 자기 말이
     어디로 갔는지 알 수 없다.
@@ -444,7 +444,7 @@ class ExtractedFromAnswer(BaseModel):
     persons: list[dict] = []
     place: Optional[dict] = None
     date: Optional[str] = None
-    # 비어 있어서 이 답변으로 채운 사건 필드 (date_start · location_id)
+    # 비어 있어서 이 답변으로 채운 추억 필드 (date_start · location_id)
     filled: list[str] = []
     # 답변에 나왔지만 그래프에 없어서 잇지 않은 표현. 없는 사람을 만들지 않는다.
     unmatched: list[str] = []
@@ -627,7 +627,7 @@ class FilmResponse(BaseModel):
     total_sec: int = 0
     audience: str = "adult"
     requested_sec: int = 45
-    # 이 사건·대상으로 채울 수 있는 최대 길이. 사진 한 장을 세워 둘 수 있는 시간에
+    # 이 추억·대상으로 채울 수 있는 최대 길이. 사진 한 장을 세워 둘 수 있는 시간에
     # 상한이 있어서 (film_composer.PHOTO_MAX_SEC) 자료가 적으면 긴 길이를 채울 수
     # 없다. 화면은 이 값보다 긴 선택지를 잠근다 — 눌러도 아무것도 바뀌지 않는
     # 자리를 남기지 않기 위해서다.
@@ -662,8 +662,8 @@ class MotionStatusResponse(BaseModel):
     enabled: bool = False
     # 남은 생성 횟수. 상한은 인증 없는 API에서 잔액을 지키는 장치다.
     attempts_left: int = 0
-    # 앞으로 생긴 사건만 만드는가. 켜져 있는데 아무것도 안 만들어지면 이 값이
-    # 먼저 볼 자리다 — 기존 사건은 기준선에 있어서 대상이 아니다.
+    # 앞으로 생긴 추억만 만드는가. 켜져 있는데 아무것도 안 만들어지면 이 값이
+    # 먼저 볼 자리다 — 기존 추억은 기준선에 있어서 대상이 아니다.
     new_events_only: bool = False
 
 
@@ -680,7 +680,7 @@ class AnniversaryItem(BaseModel):
 class TVJourneyRequest(BaseModel):
     query: str  # "우리 가족의 2015년", "부산 여행" 등
     style: str = "timeline"  # "timeline" | "story" | "people"
-    # 화면이 이미 사건을 짚었을 때. 있으면 query를 다시 해석하지 않고 이 사건들의
+    # 화면이 이미 추억을 짚었을 때. 있으면 query를 다시 해석하지 않고 이 추억들의
     # 사진만 쓴다 — TV 메뉴의 타일은 무엇을 고른 것인지가 분명해야 한다.
     event_ids: Optional[list[str]] = None
 
@@ -712,7 +712,7 @@ class TVSlide(BaseModel):
     # 이 자막이 어디서 왔는지. 사진에서 확인된 장면인지 아닌지가 이 문구에서
     # 갈린다 (memory_context.source_note) — 화면이 판단하지 않는다.
     context_source: str = ""
-    # 그 맥락이 가리키는 원본. 비어 있으면 이 사진이 아니라 같은 사건의 기억이다.
+    # 그 맥락이 가리키는 원본. 비어 있으면 이 사진이 아니라 같은 추억의 기억이다.
     context_media_ids: list[str] = []
 
 
@@ -722,6 +722,6 @@ class TVJourneyResponse(BaseModel):
     slides: list[TVSlide]
     narration: str = ""
     # 이 여정에 깔리는 배경 음악. 여정 전체에 하나뿐이다 (film_music.pick_journey).
-    # 사건에 연결된 슬라이드가 없으면 비어 온다 — 그때 화면은 음악 없이 재생한다.
+    # 추억에 연결된 슬라이드가 없으면 비어 온다 — 그때 화면은 음악 없이 재생한다.
     music: Optional[FilmMusic] = None
     total_duration_sec: int = 0

@@ -1,10 +1,10 @@
-"""사건 요약 API · 음성 · 화자 귀속 회귀 테스트
+"""추억 요약 API · 음성 · 화자 귀속 회귀 테스트
 
     python tests/test_events_and_voice.py
 
 화면이 목데이터로 메우던 것들을 서버가 실제로 내려주는지 본다.
-  - 사건 요약에 장소 좌표·참여자·썸네일·확인 상태가 들어오는가
-  - 음성 미디어가 화자·사건과 이어지고 목록에 파형까지 실려 오는가
+  - 추억 요약에 장소 좌표·참여자·썸네일·확인 상태가 들어오는가
+  - 음성 미디어가 화자·추억과 이어지고 목록에 파형까지 실려 오는가
   - 인터뷰 답변이 "화면에서 고른 사람"의 기억으로 저장되는가
 
 그래프를 실제로 변경하므로 만든 노드는 끝에서 지운다. 데모 데이터를 더럽히지 않는다.
@@ -36,7 +36,7 @@ from backend.services import interview_engine  # noqa: E402
 from backend.services.graph_manager import graph_manager  # noqa: E402
 
 EVENT = "E01"  # 1998 부산 가족여행
-SPEAKER = "P02"  # 박서연 (시드에서 이 사건의 기억은 P01만 남겼다)
+SPEAKER = "P02"  # 박서연 (시드에서 이 추억의 기억은 P01만 남겼다)
 
 # 이 테스트가 만든 노드
 _created: list[str] = []
@@ -81,7 +81,7 @@ def _make_voice_node() -> MediaNode:
     return node
 
 
-# --- 사건 요약 ---------------------------------------------------------------
+# --- 추억 요약 ---------------------------------------------------------------
 
 
 def test_event_summary_has_place_and_participants():
@@ -93,7 +93,7 @@ def test_event_summary_has_place_and_participants():
     assert target.place.lat is not None and target.place.lng is not None, "좌표가 없다"
     assert len(target.participants) >= 3, target.participants
     assert all(p.name for p in target.participants), "참여자 이름이 비어 있다"
-    print("  사건 요약 장소·참여자 OK:", target.place.name, len(target.participants), "명")
+    print("  추억 요약 장소·참여자 OK:", target.place.name, len(target.participants), "명")
 
 
 def test_event_summary_has_thumbs_and_state():
@@ -139,8 +139,8 @@ def test_voice_list_carries_playback_fields():
         assert found.transcript, "전사문이 비었다"
         assert found.speaker_name == "박서연", found.speaker_name
         assert found.event_id == EVENT, found.event_id
-        assert found.event_title, "사건 제목이 비었다"
-        print("  음성 목록 화자·사건·파형 OK:", found.speaker_name, found.event_title)
+        assert found.event_title, "추억 제목이 비었다"
+        print("  음성 목록 화자·추억·파형 OK:", found.speaker_name, found.event_title)
     finally:
         _cleanup()
 

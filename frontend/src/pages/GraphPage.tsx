@@ -167,7 +167,7 @@ const GROUP_LIMIT = 12
 const GROUP_LIMIT_MEDIA = 9
 
 export default function GraphPage() {
-  // 추억 노드에 기억이 쌓인 정도를 붙이기 위해 사건 요약을 함께 받는다
+  // 추억 노드에 기억이 쌓인 정도를 붙이기 위해 추억 요약을 함께 받는다
   const { eventById } = useEvents()
   const { current } = useCurrentUser()
   const reduced = usePrefersReducedMotion()
