@@ -10,7 +10,28 @@ from datetime import datetime
 from PIL import Image
 from PIL.ExifTags import TAGS, GPSTAGS
 
+from backend.config import MEDIA_DIR
 from backend.models.graph_models import MediaNode, MediaType, Confidence, SourceType
+
+
+def erase_files(node: dict) -> None:
+    """이 기록의 원본과 썸네일 파일을 지운다
+
+    노드를 먼저 지우고 파일을 나중에 지운다. 반대로 하면, 노드 삭제가 실패했을 때
+    파일 없는 기록이 남아 화면에 깨진 사진으로 뜬다. 이 순서에서 최악은 남는 파일
+    하나이고, 그건 화면에 보이지 않는다.
+
+    두 곳이 함께 쓴다 — 사진첩의 원본 삭제(routers/media.py)와, 목소리로 남긴
+    기억을 지울 때 그 녹음까지 지우는 곳(services/memories.py). 지우는 규칙이 두
+    벌이면 한쪽만 고쳐졌을 때 파일이 남고, 파일이 남으면 주소를 아는 사람에게는
+    지워지지 않은 것이다.
+    """
+    for path in (node.get("file_path"), node.get("thumbnail_path")):
+        if not path:
+            continue
+        actual = MEDIA_DIR / Path(path).name
+        if actual.exists():
+            actual.unlink()
 
 
 def extract_exif(file_path: str) -> dict:

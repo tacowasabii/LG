@@ -4,7 +4,6 @@ from fastapi import APIRouter, Depends, UploadFile, File, Form, HTTPException, Q
 from typing import Optional
 import json
 import shutil
-from pathlib import Path
 
 from backend.config import MEDIA_DIR
 from backend.models.schemas import (
@@ -14,7 +13,7 @@ from backend.models.schemas import (
 from backend.models.graph_models import (
     NodeType, MediaType, RelationType, Edge, Confidence, SourceType,
 )
-from backend.services.media_analyzer import analyze_media, generate_thumbnail
+from backend.services.media_analyzer import analyze_media, erase_files, generate_thumbnail
 from backend.services.event_resolver import autotag_media_persons, set_media_persons
 from backend.services.graph_manager import graph_manager
 from backend.services import album, geocoder, memories, permissions, visibility
@@ -548,21 +547,6 @@ def _authorize_delete(media_id: str, actor: Optional[dict]) -> dict:
     return node
 
 
-def _erase_files(node: dict) -> None:
-    """원본과 썸네일 파일을 지운다
-
-    노드를 먼저 지우고 파일을 나중에 지운다. 반대로 하면, 노드 삭제가 실패했을 때
-    파일 없는 기록이 남아 화면에 깨진 사진으로 뜬다. 이 순서에서 최악은 남는
-    파일 하나이고, 그건 화면에 보이지 않는다.
-    """
-    for path in (node.get("file_path"), node.get("thumbnail_path")):
-        if not path:
-            continue
-        actual = MEDIA_DIR / Path(path).name
-        if actual.exists():
-            actual.unlink()
-
-
 @router.post("/bulk-delete", response_model=MediaBulkDeleteResponse)
 async def bulk_delete_media(
     request: MediaBulkDeleteRequest,
@@ -618,7 +602,7 @@ async def bulk_delete_media(
                 graph_manager.delete_node(node["id"])
 
         for node in deletable:
-            _erase_files(node)
+            erase_files(node)
 
     deleted = [node["id"] for node in deletable]
     if deleted and failed:
@@ -640,6 +624,6 @@ async def delete_media(
     node = _authorize_delete(media_id, actor)
 
     graph_manager.delete_node(media_id)
-    _erase_files(node)
+    erase_files(node)
 
     return {"message": "삭제 완료", "id": media_id}

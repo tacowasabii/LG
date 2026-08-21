@@ -49,7 +49,7 @@ from backend.models.graph_models import (
     RelationType,
     SourceType,
 )
-from backend.services import llm_client, memory_context, visibility
+from backend.services import llm_client, media_analyzer, memory_context, visibility
 from backend.services.graph_manager import graph_manager
 
 
@@ -448,13 +448,68 @@ def _story_may_quote(event: dict, memory: dict) -> bool:
     return written_at >= created_at
 
 
+def _evidence_of(memory_id: str) -> list[dict]:
+    """이 기억이 근거로 매달고 있는 원본 (EVIDENCED_BY)
+
+    노드의 media_ids만 보면 인터뷰로 남긴 목소리를 놓친다. 인터뷰는 엣지만 잇고
+    그 필드는 채우지 않는다 (interview_engine.record_answer). 엣지가 두 경로의
+    공통분모다 — 그래서 기억과 함께 지워야 할 녹음을 찾는 일은 엣지로 한다.
+    """
+    return [
+        node
+        for node in graph_manager.get_connected_nodes(
+            memory_id, relation=RelationType.EVIDENCED_BY
+        )
+        if node.get("node_type") == NodeType.MEDIA
+    ]
+
+
+def _voices_to_erase(memory_id: str, evidence: list[dict]) -> list[dict]:
+    """이 기억과 함께 사라져야 할 목소리
+
+    목소리로 남긴 기억은 문장과 녹음이 한 몸이다. 문장만 지우고 녹음을 남기면
+    지운 것이 아니라 형태만 바꿔 남긴 것이 된다 — 전사문이 그 녹음 노드에 함께
+    있어서 말한 내용이 그대로 읽히고, 사건 상세의 "가족이 남긴 목소리"에서 계속
+    재생된다. visibility.py가 원본과 그 원본을 설명한 문장을 함께 가리는 것과
+    같은 이유다.
+
+    사진·영상은 지우지 않는다. 그것은 가족이 사건에 올린 기록이고, 문장 하나를
+    거두는 일과 무게가 다르다. 원본을 지우는 자리는 사진첩이다.
+
+    다른 기억이 아직 근거로 쓰는 녹음은 남긴다. 인터뷰 녹음 하나에 여러 문장이
+    매달릴 수 있고, 그때 지우면 남의 기억에서 근거가 사라진다.
+
+    사건에만 붙은 녹음(POST /{id}/media로 더한 것)은 근거 엣지가 없으므로 애초에
+    여기 들어오지 않는다.
+    """
+    voices = []
+    for node in evidence:
+        if node.get("media_type") != MediaType.AUDIO:
+            continue
+        others = [
+            other
+            for other in graph_manager.get_connected_nodes(
+                node["id"], relation=RelationType.EVIDENCED_BY
+            )
+            if other.get("node_type") == NodeType.MEMORY and other.get("id") != memory_id
+        ]
+        if others:
+            continue
+        voices.append(node)
+    return voices
+
+
 def delete_memory(event_id: str, memory_id: str) -> Optional[dict]:
     """사건에서 기억 문장 하나를 지운다
 
-    지우는 것은 문장이다. 함께 올린 사진·영상·목소리는 사건에 그대로 남는다 —
-    원본을 지우는 자리는 사진첩이고, 원본을 지울 때 기억 문장이 남는 것과 짝을
-    맞춘 것이다 (routers/media.py: "원본과의 연결만 끊긴다"). 대신 무엇이 남았는지
-    돌려준다. 지운 사람이 "다 지웠다"고 오해하면 그게 가장 나쁜 실패다.
+    목소리로 남긴 기억이면 그 녹음도 함께 지운다 (_voices_to_erase). 문장만 지우고
+    녹음을 남기면 지운 것이 아니다 — 전사문이 녹음에 함께 있고, 사건 상세에서 그
+    목소리가 계속 재생된다.
+
+    사진·영상은 남는다. 그것은 가족이 사건에 올린 기록이고, 원본을 지우는 자리는
+    사진첩이다 (원본을 지울 때 기억 문장이 남는 것과 짝을 맞춘 것이다). 대신 무엇이
+    지워지고 무엇이 남았는지 돌려준다. 지운 사람이 "다 지웠다"고 오해하는 것이 가장
+    나쁜 실패다.
 
     "함께 기억한 이야기"는 이 기억이 생긴 뒤에 쓰였다면 함께 지운다. 그 이야기에는
     지운 문장이 들어 있다 — 모델이 없을 때는 문장을 그대로 나열하기까지 한다
@@ -473,17 +528,16 @@ def delete_memory(event_id: str, memory_id: str) -> Optional[dict]:
 
     event = graph_manager.get_node(event_id) or {}
 
-    # 이 기억이 근거로 매달고 있던 원본. 지우지 않고 세어만 둔다.
-    kept_media = [
-        media_id
-        for media_id in memory.get("media_ids") or []
-        if (graph_manager.get_node(media_id) or {}).get("node_type") == NodeType.MEDIA
-    ]
+    evidence = _evidence_of(memory_id)
+    voices = _voices_to_erase(memory_id, evidence)
+    erased = {node["id"] for node in voices}
+    # 함께 올린 사진·영상. 지우지 않고 세어만 둔다.
+    kept_media = [node["id"] for node in evidence if node["id"] not in erased]
 
     story_cleared = _story_may_quote(event, memory)
 
-    # 이야기를 비우는 것과 기억을 지우는 것은 한 번에 끝나야 한다. 갈라지면
-    # 지운 문장을 담은 이야기만 남는 상태가 생긴다.
+    # 한 묶음으로 지운다. 갈라지면 지운 문장을 담은 이야기만 남거나, 문장 없는
+    # 녹음이 사건에 떠도는 상태가 생긴다.
     with graph_manager.batch():
         if story_cleared:
             graph_manager.update_node(event_id, {
@@ -491,11 +545,18 @@ def delete_memory(event_id: str, memory_id: str) -> Optional[dict]:
                 "together_story_at": None,
                 "together_story_basis": 0,
             })
+        for node in voices:
+            graph_manager.delete_node(node["id"])
         graph_manager.delete_node(memory_id)
+
+    # 노드를 먼저, 파일을 나중에 (media_analyzer.erase_files의 주석과 같은 이유)
+    for node in voices:
+        media_analyzer.erase_files(node)
 
     return {
         "event_id": event_id,
         "memory_id": memory_id,
+        "deleted_voices": [node["id"] for node in voices],
         "kept_media": kept_media,
         "story_cleared": story_cleared,
     }

@@ -10,8 +10,14 @@
  *   조용히      기억을 읽는 화면에서 가장 눈에 띄는 것이 지우기여서는 안 된다.
  *               그래서 밑줄 친 11px 회색 글자 하나이고, 알약도 색도 쓰지 않는다.
  *   한 번 더    누르면 그 자리에서 묻는다. 되돌릴 수 없다.
- *   무엇이 남나  함께 올린 사진·목소리는 추억에 남는다. 묻는 문장에 함께 적는다 —
- *               "지웠습니다"만 보면 목소리까지 사라진 줄 안다.
+ *   무엇이 가나  목소리로 남긴 기억이면 녹음도 함께 사라지고, 함께 올린 사진·영상은
+ *               추억에 남는다. 둘 다 묻는 문장에 적는다 — 어느 쪽이든 모르고
+ *               누르면 지운 사람이 나중에 알게 된다.
+ *
+ * 녹음 개수를 세어 적지 않는다. 인터뷰로 남긴 목소리는 기억 노드의 media_ids가
+ * 아니라 근거 엣지에만 걸려 있어서 화면이 세지 못한다 (interview_engine). 세지
+ * 못하는 것을 0개라고 적으면 거짓이 되므로, 개수 없이 규칙만 적고 실제로 몇 개가
+ * 지워졌는지는 지운 뒤 서버가 밝힌다.
  *
  * 권한은 화면이 판단하지 않는다. 남의 기억이면 서버가 403으로 막고 이유를 함께
  * 보내고("이 기억은 박서연님이 올렸습니다…"), 그 문장을 그대로 적는다. 단추를
@@ -34,6 +40,8 @@ export default function MemoryDeleteButton({
   const [confirming, setConfirming] = useState(false)
   const [busy, setBusy] = useState(false)
   const [failed, setFailed] = useState<string | null>(null)
+  /* 추억에 남는 것 — 목소리는 함께 지워지므로 사진·영상만 센다 */
+  const visuals = memory.media.filter((m) => m.media_type !== 'audio').length
 
   const remove = async () => {
     setBusy(true)
@@ -69,9 +77,10 @@ export default function MemoryDeleteButton({
             이 기억을 지웁니다. 되돌릴 수 없습니다.
           </p>
           <p className="t-caption m-0 mt-1" style={{ color: 'var(--critical-ink)' }}>
-            {memory.media.length > 0
-              ? `함께 올린 기록 ${memory.media.length}개는 이 추억에 남습니다 — 원본은 사진첩에서 지웁니다.`
-              : '문장만 지워집니다. 이 추억의 다른 기억은 그대로 있습니다.'}
+            목소리로 남긴 기억이면 그 녹음도 함께 지워집니다.
+            {visuals > 0
+              ? ` 함께 올린 사진·영상 ${visuals}개는 이 추억에 남습니다 — 원본은 사진첩에서 지웁니다.`
+              : ' 이 추억의 다른 기억은 그대로 있습니다.'}
           </p>
           <div className="mt-3 flex items-center gap-3">
             <button

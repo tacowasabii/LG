@@ -9,7 +9,7 @@
     2. 더한 기억은 원본을 덮어쓰지 않는다
     3. 다르게 기억해도 한쪽을 정답으로 정하지 않는다
     4. 나도 기억나요는 눌렀다 뗄 수 있고, 아무도 안 눌러도 추억은 그대로다
-    5. 남긴 기억은 거둘 수 있다. 문장만 지워지고 원본은 추억에 남는다
+    5. 남긴 기억은 거둘 수 있다. 목소리는 함께 지워지고 사진은 추억에 남는다
     6. 추억도 거둘 수 있다. 그 안의 기억까지 지워지고 원본은 사진첩에 남는다
 
 그래프를 실제로 바꾸므로 만든 것은 끝에서 지운다. 데모 데이터를 더럽히지 않는다.
@@ -25,7 +25,11 @@ from pathlib import Path
 ROOT_DIR = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT_DIR))
 
+from backend.config import MEDIA_DIR  # noqa: E402
 from backend.models.graph_models import (  # noqa: E402
+    Edge,
+    MediaNode,
+    MediaType,
     MemoryKind,
     MemoryState,
     NodeType,
@@ -39,6 +43,7 @@ AUTHOR = "P01"  # 김민수
 OTHER = "P02"  # 박서연
 
 _created: list[str] = []
+_temp_files: list = []
 
 
 def _require_seeded_graph():
@@ -53,7 +58,42 @@ def _cleanup():
     for node_id in _created:
         graph_manager.delete_node(node_id)
     _created.clear()
+    for path in _temp_files:
+        if path.exists():
+            path.unlink()
+    _temp_files.clear()
     graph_manager.update_node(EVENT, {"echoes": []})
+
+
+def _make_temp_audio() -> MediaNode:
+    """지워도 되는 임시 녹음 (시드 음성을 건드리지 않기 위해)
+
+    기억과 함께 지워지는지 보려면 실제 파일이 있어야 한다 — 노드만 만들면 파일이
+    지워졌는지 확인할 수 없다.
+    """
+    index = len(_temp_files) + 1
+    file_name = f"test-memory-voice-{index}.webm"
+    path = MEDIA_DIR / file_name
+    path.write_bytes(b"not-a-real-recording")
+    _temp_files.append(path)
+
+    node = MediaNode(
+        media_type=MediaType.AUDIO,
+        file_path=f"/media-files/{file_name}",
+        original_filename=file_name,
+        duration_sec=3.0,
+        transcript="테스트로 남긴 목소리입니다.",
+    )
+    graph_manager.add_media(node)
+    _created.append(node.id)
+
+    # 실제 흐름과 같게 사건에 잇는다. 화면은 녹음을 올릴 때 사건을 함께 보내고
+    # (MemoryComposer -> uploadVoice(eventId)), media 라우터가 이 엣지를 만든다.
+    # 이 엣지 때문에 기억을 지워도 사건의 "가족이 남긴 목소리"에 계속 남아 있었다.
+    graph_manager.add_edge(Edge(
+        source=node.id, target=EVENT, relation=RelationType.CAPTURED_DURING,
+    ))
+    return node
 
 
 def test_new_memory_is_published_immediately():
@@ -440,6 +480,100 @@ def test_delete_event_only_touches_events():
     print("  사건만 지운다 OK")
 
 
+def test_voice_goes_with_the_memory_it_belongs_to():
+    """목소리로 남긴 기억을 지우면 그 녹음도 사라진다
+
+    문장만 지우고 녹음을 남기면 지운 것이 아니다 — 전사문이 녹음에 함께 있고,
+    사건 상세의 "가족이 남긴 목소리"에서 계속 재생된다.
+    """
+    audio = _make_temp_audio()
+    path = MEDIA_DIR / audio.original_filename
+
+    memory = memories.add_contribution(
+        EVENT, OTHER, "목소리로 남긴 기억입니다.", audio_media_id=audio.id
+    )
+    assert memory, "기억을 더하지 못했다"
+    _created.append(memory["id"])
+
+    try:
+        # 지우기 전에는 사건에 붙어 있다
+        assert any(
+            m["id"] == audio.id for m in memories.detail(EVENT, OTHER)["media"]
+        ), "녹음이 사건에 붙지 않았다"
+
+        result = memories.delete_memory(EVENT, memory["id"])
+        assert result, "지우지 못했다"
+        assert result["deleted_voices"] == [audio.id], result["deleted_voices"]
+
+        assert graph_manager.get_node(audio.id) is None, "녹음 노드가 남았다"
+        assert not path.exists(), "녹음 파일이 남았다"
+        assert all(
+            m["id"] != audio.id for m in memories.detail(EVENT, OTHER)["media"]
+        ), "사건 상세에 녹음이 남아 있다"
+        print("  목소리 함께 삭제 OK")
+    finally:
+        _cleanup()
+
+
+def test_voice_stays_when_another_memory_still_leans_on_it():
+    """다른 기억이 아직 근거로 쓰는 녹음은 남긴다
+
+    인터뷰 녹음 하나에 여러 문장이 매달릴 수 있다. 그때 지우면 남의 기억에서
+    근거가 사라진다.
+    """
+    audio = _make_temp_audio()
+    path = MEDIA_DIR / audio.original_filename
+
+    first = memories.add_contribution(
+        EVENT, OTHER, "같은 녹음을 근거로 삼은 첫 문장입니다.", audio_media_id=audio.id
+    )
+    second = memories.add_contribution(
+        EVENT, AUTHOR, "같은 녹음을 근거로 삼은 둘째 문장입니다.", audio_media_id=audio.id
+    )
+    assert first and second, "기억을 더하지 못했다"
+    _created.extend([first["id"], second["id"]])
+
+    try:
+        kept = memories.delete_memory(EVENT, first["id"])
+        assert kept and kept["deleted_voices"] == [], kept
+        assert graph_manager.get_node(audio.id), "아직 쓰는 녹음이 지워졌다"
+        assert path.exists(), "아직 쓰는 녹음 파일이 지워졌다"
+
+        # 마지막으로 그 녹음에 매달린 문장을 지우면 함께 사라진다
+        last = memories.delete_memory(EVENT, second["id"])
+        assert last and last["deleted_voices"] == [audio.id], last
+        assert graph_manager.get_node(audio.id) is None, "녹음이 남았다"
+        assert not path.exists(), "녹음 파일이 남았다"
+        print("  근거가 남은 녹음 보존 OK")
+    finally:
+        _cleanup()
+
+
+def test_photos_are_not_erased_with_the_memory():
+    """사진은 기억과 함께 지워지지 않는다 (원본을 지우는 자리는 사진첩이다)"""
+    photos = [
+        m for m in graph_manager.get_media_for_event(EVENT)
+        if m.get("media_type") == "photo"
+    ]
+    assert photos, "시드 사건에 사진이 없다"
+    photo = photos[0]
+
+    memory = memories.add_contribution(
+        EVENT, OTHER, "사진과 함께 남긴 기억입니다.", media_ids=[photo["id"]]
+    )
+    assert memory, "기억을 더하지 못했다"
+    _created.append(memory["id"])
+
+    try:
+        result = memories.delete_memory(EVENT, memory["id"])
+        assert result and result["deleted_voices"] == [], result
+        assert result["kept_media"] == [photo["id"]], result["kept_media"]
+        assert graph_manager.get_node(photo["id"]), "사진이 함께 지워졌다"
+        print("  사진 보존 OK")
+    finally:
+        _cleanup()
+
+
 TESTS = [
     test_new_memory_is_published_immediately,
     test_contribution_does_not_overwrite_original,
@@ -453,6 +587,9 @@ TESTS = [
     test_memory_of_another_event_is_not_deletable_here,
     test_event_can_be_deleted_with_its_memories,
     test_delete_event_only_touches_events,
+    test_voice_goes_with_the_memory_it_belongs_to,
+    test_voice_stays_when_another_memory_still_leans_on_it,
+    test_photos_are_not_erased_with_the_memory,
 ]
 
 
