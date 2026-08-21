@@ -20,7 +20,7 @@ import { mediaUrl } from '../lib/api'
 import { useCurrentUser } from '../lib/currentUser'
 
 /**
- * 사이드바를 가치 흐름(모으기 → 이해 → 이어가기 → 경험)대로 묶었다.
+ * 사이드바를 가치 흐름(모으기 → 이해 → 경험)대로 묶었다.
  * 화면이 여럿이라 평면 목록으로는 무엇을 하는 앱인지 읽히지 않는다.
  *
  * 묶음 제목은 대문자 라벨로 작게 눌러 두고 항목만 읽히게 한다. 지금 있는
@@ -37,6 +37,10 @@ import { useCurrentUser } from '../lib/currentUser'
  * "함께한 추억"처럼 적고, 수가 많은 사진·기억은 접고 시작한다 (GraphPage.tsx).
  * 자리는 "기억" 묶음의 끝이다. 사진첩·타임라인·인물로 찾는 길이 먼저고, 이
  * 화면은 "이것과 이어진 게 또 뭐가 있지"에 답한다.
+ *
+ * "이어가기" 묶음은 없앴다. 항목이 기억 이어가기 하나뿐이어서 제목이 그 항목을
+ * 한 번 더 읽는 것에 그쳤다. 기억 이어가기는 모아 둔 것을 다시 채우는 일이라
+ * "모으기" 묶음의 끝에 둔다.
  */
 const navGroups = [
   {
@@ -54,11 +58,8 @@ const navGroups = [
     items: [
       { to: '/collect', icon: Upload, label: '모으기' },
       { to: '/interview', icon: Mic, label: 'AI 인터뷰' },
+      { to: '/continue', icon: Heart, label: '기억 이어가기' },
     ],
-  },
-  {
-    title: '이어가기',
-    items: [{ to: '/continue', icon: Heart, label: '기억 이어가기' }],
   },
   {
     title: '경험',
