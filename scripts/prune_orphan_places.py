@@ -57,10 +57,27 @@ def main() -> int:
     parser.add_argument(
         "--quiet",
         action="store_true",
-        help="치울 것이 없으면 아무것도 찍지 않는다 (부팅 로그를 늘리지 않기 위해)",
+        help=(
+            "부팅에서 부를 때. 치울 것이 없으면 아무것도 찍지 않고, 실패해도 0으로 "
+            "끝난다 (청소가 컨테이너 시작을 막지 않게)"
+        ),
     )
     args = parser.parse_args()
 
+    try:
+        return _prune(args)
+    except Exception as e:  # noqa: BLE001
+        # 부팅에서는 여기서 멈추지 않는다. boot.py의 _run은 0이 아닌 종료를 다시
+        # 올리고, docker_start.sh가 그걸 받아 컨테이너를 세우지 못한다 — 장소
+        # 하나를 못 치운 것으로 앱 전체가 뜨지 않는 것은 바꿔치기가 나쁘다.
+        # 대신 이유를 로그에 그대로 남긴다.
+        print(f"[prune] 실패: {type(e).__name__}: {e}")
+        if args.quiet:
+            return 0
+        raise
+
+
+def _prune(args) -> int:
     orphans = event_resolver.orphan_places()
 
     if not orphans:
@@ -93,7 +110,7 @@ def main() -> int:
     left = event_resolver.orphan_places()
     if left:
         print(f"아직 {len(left)}개가 남아 있습니다: {[p['id'] for p in left]}")
-        return 1
+        return 0 if args.quiet else 1
     return 0
 
 
