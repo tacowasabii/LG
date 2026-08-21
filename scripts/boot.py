@@ -82,6 +82,12 @@ def main() -> int:
     # 치울 것이 없으면 아무것도 하지 않는다.
     _run("prune_orphan_places.py", ["--delete", "--quiet"])
 
+    # 그래프 밖에 남은 것도 같은 이유로 여기서 훑는다 — 지운 사진의 모션 클립이
+    # 볼륨에 남아 주소로 열리고 있었다 (그 poster.jpg가 지운 사진이다). 지우는
+    # 자리에는 이 파생물을 거두는 코드가 없다. 자세한 사정은 그 스크립트의
+    # docstring에 있다.
+    _run("prune_deleted_remnants.py", ["--delete", "--quiet"])
+
     if _profiles_ready():
         print("[boot] 프로필이 이미 있습니다. 생성을 건너뜁니다.")
     else:
