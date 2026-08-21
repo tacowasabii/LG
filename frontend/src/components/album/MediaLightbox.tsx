@@ -24,7 +24,6 @@ import {
   ExternalLink,
   Link2,
   Lock,
-  MoreHorizontal,
   Trash2,
   Users,
   X,
@@ -305,7 +304,7 @@ export default function MediaLightbox({
       setDetecting(false)
     }
   }
-  const [pane, setPane] = useState<'none' | 'people' | 'event' | 'more' | 'delete'>('none')
+  const [pane, setPane] = useState<'none' | 'people' | 'event' | 'delete'>('none')
   const [cascade, setCascade] = useState<CascadePreview | null>(null)
   const [saving, setSaving] = useState(false)
   const [notice, setNotice] = useState<string | null>(null)
@@ -724,36 +723,24 @@ export default function MediaLightbox({
               원본 보기
             </a>
             {/*
-              삭제는 사진첩 전면에 두지 않는다. 훑어보는 화면에서 한 번의 실수로
-              원본이 사라지면 안 된다 — 더보기 안에 둔다.
+              삭제를 더보기 안에 숨기지 않는다 — 찾느라 두 번 누르게 만드는 것이
+              실수를 막아 주지도 않았다. 한 번의 실수를 막는 것은 아래 확인
+              화면이다: 무엇이 함께 사라지는지 보여 준 뒤에야 지운다.
             */}
             <button
-              onClick={() => setPane(pane === 'more' || pane === 'delete' ? 'none' : 'more')}
-              className="flex cursor-pointer items-center gap-1 rounded border border-white/20
-                         bg-transparent px-2.5 py-[7px] text-[12px] text-white/75
-                         transition-colors duration-150 ease-out hover:bg-white/10"
-              aria-label="더보기"
-              aria-expanded={pane === 'more' || pane === 'delete'}
+              onClick={openDelete}
+              className="flex cursor-pointer items-center gap-1 rounded border
+                         bg-transparent px-3.5 py-[7px] text-[12px]
+                         transition-colors duration-150 ease-out"
+              style={{ borderColor: 'rgba(224,122,95,0.5)', color: 'var(--critical-ink)' }}
+              aria-expanded={pane === 'delete'}
             >
-              <MoreHorizontal size={14} strokeWidth={2} />
+              <Trash2 size={13} strokeWidth={2} />
+              이 사진 삭제
             </button>
           </div>
 
           {notice && <p className="m-0 mt-3 text-[12px] text-white/70">{notice}</p>}
-
-          {pane === 'more' && (
-            <div className="mt-3 flex flex-col items-start">
-              <button
-                onClick={openDelete}
-                className="flex cursor-pointer items-center gap-1.5 border-0 bg-transparent
-                           px-0 py-1 text-[12px]"
-                style={{ color: 'var(--critical)' }}
-              >
-                <Trash2 size={13} strokeWidth={2} />
-                이 사진 삭제
-              </button>
-            </div>
-          )}
 
           {pane === 'delete' && (
             /*
