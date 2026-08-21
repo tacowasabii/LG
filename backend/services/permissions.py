@@ -155,3 +155,22 @@ def require_owner_of(node: dict, actor: Optional[dict], what: str = "기록") ->
         status_code=403,
         detail=f"이 {what}은 {owner_name}님이 올렸습니다. 올린 사람이나 가족 관리자만 지울 수 있습니다.",
     )
+
+
+def blocked_reason(node: dict, actor: Optional[dict], what: str = "기록") -> Optional[str]:
+    """이 사람이 이것을 지울 수 없는 이유 (지울 수 있으면 None)
+
+    require_owner_of와 같은 판정을 막지 않고 돌려주기만 한다. 여러 개를 한 번에
+    지우는 자리가 이것을 쓴다 — 추억을 지우면 거기 딸린 사진·영상도 함께
+    지워지는데(memories.delete_event), 그중 하나가 남의 것이라고 전부 되돌리면
+    사용자는 "왜 아무것도 안 지워졌지"만 남는다. 그 하나를 남기고 왜 남았는지
+    밝히는 편이 낫다 (media.py의 bulk_delete와 같은 방식이다).
+
+    판정을 여기서 다시 쓰지 않는다. 규칙이 두 벌이면 한쪽만 고쳐졌을 때 남의
+    사진이 지워진다.
+    """
+    try:
+        require_owner_of(node, actor, what=what)
+    except HTTPException as blocked:
+        return str(blocked.detail)
+    return None

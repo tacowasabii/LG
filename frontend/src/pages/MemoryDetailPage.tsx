@@ -18,7 +18,7 @@ import MemoryComposer from '../components/MemoryComposer'
 import MemoryContextNote from '../components/MemoryContextNote'
 import { STATE_CONFIG } from '../components/StatusPill'
 import { Page, PageHeader } from '../components/Page'
-import { invalidateEvents } from '../lib/useGraphData'
+import { invalidateEvents, invalidateVoiceClips } from '../lib/useGraphData'
 
 /**
  * 추억 상세 (기획안 09)
@@ -207,15 +207,15 @@ export default function MemoryDetailPage() {
   }
 
   /**
-   * 추억 자체를 지운다.
+   * 추억 자체를 지운다 — 거기 딸린 것까지 함께.
    *
-   * 사진첩에서 사진을 다 지워도 추억은 남는다 — 원본을 지울 때 끊기는 것은
-   * 연결뿐이다. 그래서 자료가 없는 추억이 Film의 사건 목록에 옅은 칩으로
-   * 남았고, 그것을 치우는 자리가 여기다.
+   * 기억 문장과 사진·영상·목소리, 그 원본 파일까지 사라진다. 예전에는 원본을
+   * 남기고 "지우는 자리는 사진첩입니다"라고 안내했는데, 지우려는 사람은 사진첩
+   * 에서 같은 일을 한 번 더 해야 했다.
    *
-   * 지운 뒤 목록으로 튕기지 않는다. 서버가 밝힌 것(기억 몇 개가 함께 지워졌고
-   * 사진 몇 개가 사진첩에 남았는지)을 읽을 자리가 없어지기 때문이다. 여기서
-   * 그것을 보여주고, 돌아가는 길은 링크로 둔다.
+   * 지운 뒤 목록으로 튕기지 않는다. 서버가 밝힌 것(무엇이 함께 지워졌고 무엇이
+   * 왜 남았는지)을 읽을 자리가 없어지기 때문이다. 여기서 그것을 보여주고,
+   * 돌아가는 길은 링크로 둔다.
    */
   const removeEvent = async () => {
     if (!eventId) return
@@ -225,6 +225,9 @@ export default function MemoryDetailPage() {
       const result = await deleteMemoryEvent(eventId)
       // 홈·지도·TV·Film이 세는 사건 목록에서도 즉시 빠져야 한다
       invalidateEvents()
+      // 목소리도 함께 지워졌다. 캐시를 두면 사진첩과 인물 화면이 없는 녹음을
+      // 계속 재생 목록에 올린다 (사진첩의 원본 삭제와 같은 처리다)
+      if (result.deleted_counts.audio > 0) invalidateVoiceClips()
       setGone(result.message)
     } catch (e) {
       // 남이 만든 추억이면 서버가 이유를 밝히며 막는다 (403). 그 문장을 그대로.
@@ -301,6 +304,17 @@ export default function MemoryDetailPage() {
   const audios = detail.media.filter((m) => m.media_type === 'audio')
   // 지금 이 사람에게 보이는 기억 문장 수 (지우기 확인문에 적는다)
   const memoryCount = detail.contributions.length + (detail.author_memory ? 1 : 0)
+  // 함께 지워질 원본을 종류별로 세어 적는다. "자료 3개"보다 "사진 2장, 목소리
+  // 1개"가 지우기 전에 읽는 문장으로 쓸모 있다 — 무엇이 사라지는지가 다르다.
+  const photoCount = visuals.filter((m) => m.media_type === 'photo').length
+  const videoCount = visuals.length - photoCount
+  const erasedLabel = [
+    photoCount > 0 && `사진 ${photoCount}장`,
+    videoCount > 0 && `영상 ${videoCount}개`,
+    audios.length > 0 && `목소리 ${audios.length}개`,
+  ]
+    .filter(Boolean)
+    .join(', ')
 
   return (
     <Page width={880}>
@@ -544,9 +558,10 @@ export default function MemoryDetailPage() {
         추억 지우기는 화면 맨 끝, 조용한 자리에 둔다 — 기억을 읽는 화면에서 가장
         눈에 띄는 것이 지우기여서는 안 된다 (기억 한 줄의 지우기와 같은 자리).
 
-        사진첩에서 사진을 다 지워도 이 추억은 남기 때문에 필요한 단추다. 원본을
-        지울 때 끊기는 것은 연결뿐이고, 자료 없는 추억은 Film의 사건 목록에
-        옅은 칩으로 남는다.
+        이 단추 하나로 추억이 데리고 있는 것 전부가 사라진다 — 기억 문장,
+        사진·영상·목소리와 그 원본 파일까지. 예전에는 원본을 남기고 "지우는
+        자리는 사진첩입니다"라고 안내했는데, 지우려는 사람은 사진첩에서 같은
+        일을 한 번 더 해야 했고 그 전까지 그 장면은 지워지지 않았다.
       */}
       <div className="mt-10 flex items-center justify-between gap-4">
         <Link to="/continue" className="btn-link">
@@ -581,11 +596,21 @@ export default function MemoryDetailPage() {
               : '이 추억에 붙은 기억 문장이 함께 지워집니다 — 지금 보이는 것은 없습니다.'}
             {detail.echo_count > 0 && ` 기억나요 ${detail.echo_count}개도 사라집니다.`}
           </p>
+          {/*
+            원본이 함께 사라진다는 것을 지우기 전에 밝힌다. 이 화면에서 가장
+            무거운 문장이고, 사용자가 이것을 읽고 취소할 수 있어야 한다.
+          */}
           <p className="t-caption m-0 mt-1" style={{ color: 'var(--critical-ink)' }}>
-            {detail.media.length > 0
-              ? `사진·영상·목소리 ${detail.media.length}개는 사진첩에 그대로 남습니다 — 원본을 지우는 자리는 사진첩입니다.`
+            {erasedLabel
+              ? `${erasedLabel}도 사진첩에서 함께 지워집니다 — 원본 파일까지 사라집니다.`
               : '이 추억에는 연결된 사진·영상이 없습니다.'}
           </p>
+          {erasedLabel && (
+            <p className="t-caption m-0 mt-1" style={{ color: 'var(--critical-ink)' }}>
+              다른 추억에도 붙어 있는 사진과, 다른 가족이 올린 원본은 남습니다 —
+              지운 뒤에 무엇이 남았는지 알려드립니다.
+            </p>
+          )}
           <div className="mt-3 flex items-center gap-3">
             <button
               onClick={removeEvent}

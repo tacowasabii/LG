@@ -267,15 +267,24 @@ async def delete_event(
     event_id: str,
     actor: Optional[dict] = Depends(current_actor),
 ):
-    """추억 하나 지우기 (만든 사람이나 가족 관리자만)
+    """추억 하나 지우기 — 거기 딸린 것까지 함께 (만든 사람이나 가족 관리자만)
 
     사진첩에서 사진을 다 지워도 추억은 남는다 — 원본을 지울 때 끊기는 것은
-    연결뿐이다. 자료도 기억도 없는 추억을 치우는 자리가 여기다.
+    연결뿐이다. 그 반대도 필요하다: 추억을 지우면 그 추억의 사진·영상·목소리와
+    기억 문장·전사문·이야기가 함께 사라진다. 예전에는 원본을 남기고 "지우는
+    자리는 사진첩입니다"라고 안내했는데, 추억을 지운 사람에게 사진첩에 그대로
+    있는 그 장면은 지운 것이 아니었다.
 
-    함께 지워지는 것은 이 추억에 붙은 기억 문장이고, 사진·영상·목소리는 사진첩에
-    그대로 있다. 그래서 응답에 몇 개가 지워지고 몇 개가 남았는지 밝힌다 —
-    "지웠습니다" 한 마디로 끝내면 사진까지 사라진 줄 안다 (기억 하나 지우기와
-    같은 방식이다).
+    남기는 것이 둘 있고, 응답이 그것을 밝힌다(kept_media).
+
+      - 다른 추억에도 붙어 있는 원본. 사진 한 장은 추억 둘에 붙을 수 있고,
+        그것까지 지우면 남은 추억에 구멍이 난다
+      - 남이 올린 원본. 여기서 판정한다(permissions.blocked_reason) — 추억은
+        내가 만들었어도 그 안의 사진은 다른 가족이 올린 것일 수 있다. 하나가
+        막혔다고 전부 되돌리지 않는다 (사진첩의 여러 장 삭제와 같은 방식이다).
+
+    사람과 장소는 지우지 않는다. 다만 이 추억이 마지막이었던 장소는 함께 거둔다
+    (services/memories.py의 delete_event 주석).
 
     남이 만든 추억을 지우려 하면 서버가 그 이유를 밝히며 막는다(403). 화면은
     단추를 미리 감추지 않는다.
@@ -286,17 +295,50 @@ async def delete_event(
 
     permissions.require_owner_of(event, actor, what="추억")
 
-    result = memories.delete_event(event_id)
+    plan = memories.delete_event_plan(event_id)
+    if not plan:
+        raise HTTPException(status_code=404, detail="그 추억을 찾을 수 없습니다.")
+
+    # 원본은 한 장씩 판정한다. 사진첩의 한 장 삭제와 같은 규칙을 지나야 한다
+    # (permissions.blocked_reason). 남기는 것에는 누구의 것인지 적어 준다 —
+    # "원본 1개가 남았습니다"만 적으면 사진첩에서 찾아 지울 수도 없다.
+    blocked: dict[str, str] = {}
+    for node in plan["media"]:
+        if not permissions.blocked_reason(node, actor, what="기록"):
+            continue
+        owner = graph_manager.get_node(node.get("owner_id") or "") or {}
+        blocked[node["id"]] = (
+            f"{owner['name']}님이 올린 기록입니다"
+            if owner.get("name")
+            else "올린 사람만 지울 수 있습니다"
+        )
+
+    result = memories.delete_event(event_id, keep_media=blocked)
     if not result:
         raise HTTPException(status_code=404, detail="그 추억을 찾을 수 없습니다.")
 
     title = result["title"] or "제목 없는 추억"
     message = f"'{title}' 추억을 지웠습니다."
     if result["deleted_memories"]:
-        message += f" 이 추억에 남아 있던 기억 {len(result['deleted_memories'])}개도 함께 지웠습니다."
+        message += f" 기억 {len(result['deleted_memories'])}개도 함께 지웠습니다."
+
+    counts = result["deleted_counts"]
+    erased = [
+        f"사진 {counts['photo']}장" if counts["photo"] else "",
+        f"영상 {counts['video']}개" if counts["video"] else "",
+        f"목소리 {counts['audio']}개" if counts["audio"] else "",
+    ]
+    erased = [part for part in erased if part]
+    if erased:
+        message += f" {', '.join(erased)}도 사진첩에서 지웠습니다."
+
     if result["kept_media"]:
+        # 무엇이 남았는지를 이유와 함께 밝힌다. 개수만 적으면 사용자는 어느
+        # 사진이 왜 남았는지 알 수 없고, 사진첩에서 찾아 지울 수도 없다.
+        reasons = sorted({kept["reason"] for kept in result["kept_media"]})
         message += (
-            f" 사진·영상·목소리 {len(result['kept_media'])}개는 사진첩에 그대로 있습니다."
+            f" 원본 {len(result['kept_media'])}개는 남겨 두었습니다"
+            f" ({' · '.join(reasons)})."
         )
 
     return {**result, "message": message}

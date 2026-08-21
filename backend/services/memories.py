@@ -24,14 +24,16 @@
 사진첩이다. 남긴 사람과 가족 관리자만 지운다. 판정하지 않는 것과 지우지 못하는
 것은 다르다: 내가 한 말을 거둘 수 없으면 그건 보존이 아니라 구속이다.
 
-추억 자체도 지울 수 있다 (delete_event). 사진을 다 지운 뒤에도 사건은 남기
-때문이다 — 사진첩에서 지우면 연결만 끊긴다. 자료도 기억도 없는 추억이 화면
-목록에 계속 뜨는 것을 치우는 자리다. 사진이 0장이 된 것을 신호로 자동으로
-지우지는 않는다: 가족이 남긴 문장이 남의 사진 정리에 딸려 사라지면 안 된다.
+추억 자체도 지울 수 있다 (delete_event). 이때는 그 추억에 딸린 사진·영상·목소리와
+기억 문장·전사문·이야기까지 함께 지운다 — 추억을 지운 사람에게 사진첩에 남은 그
+장면은 지운 것이 아니고, 지우려면 사진첩에서 같은 일을 한 번 더 해야 했다. 대신
+사진이 0장이 된 것을 신호로 자동으로 지우지는 않는다: 가족이 남긴 문장이 남의
+사진 정리에 딸려 사라지면 안 된다.
 """
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from datetime import datetime
 from typing import Optional
 
@@ -49,7 +51,13 @@ from backend.models.graph_models import (
     RelationType,
     SourceType,
 )
-from backend.services import llm_client, media_analyzer, memory_context, visibility
+from backend.services import (
+    event_resolver,
+    llm_client,
+    media_analyzer,
+    memory_context,
+    visibility,
+)
 from backend.services.graph_manager import graph_manager
 
 
@@ -562,59 +570,189 @@ def delete_memory(event_id: str, memory_id: str) -> Optional[dict]:
     }
 
 
-def delete_event(event_id: str) -> Optional[dict]:
-    """추억 하나를 지운다 — 사건과 거기에 붙은 기억 문장까지
+def _event_media(event_id: str, memory_ids: Optional[list[str]] = None) -> list[dict]:
+    """이 추억이 데리고 있는 사진·영상·목소리
 
-    사진첩에서 사진을 다 지워도 사건은 남는다. 원본을 지울 때 끊기는 것은 연결뿐
-    이기 때문이다 (routers/media.py). 그래서 자료가 하나도 없는 추억이 Film의 사건
-    목록에 옅은 칩으로 계속 남았다. 그것을 치우는 자리가 여기다.
+    두 길로 붙는다. 사건에 직접 붙은 것(CAPTURED_DURING)과, 이 사건의 기억이
+    근거로 매단 것(EVIDENCED_BY)이다. 목소리로 남긴 기억의 녹음은 뒤쪽만 있다 —
+    add_contribution이 그 녹음을 기억의 근거로만 잇는다. 앞쪽만 세면 추억을 지운
+    뒤에 주인 없는 녹음이 남는다.
+
+    추억 상세가 보여주는 목록(detail의 media)과 같은 것을 세되, 공개 범위로
+    걸러내지 않는다. 내게 가려진 원본도 이 추억의 것이면 함께 지워져야 한다.
+    """
+    if memory_ids is None:
+        memory_ids = [
+            node["id"]
+            for node in graph_manager.get_connected_nodes(event_id)
+            if node.get("node_type") == NodeType.MEMORY
+        ]
+
+    found: dict[str, dict] = {}
+    for node in graph_manager.get_connected_nodes(event_id):
+        if node.get("node_type") == NodeType.MEDIA:
+            found[node["id"]] = node
+    for memory_id in memory_ids:
+        for node in _evidence_of(memory_id):
+            found.setdefault(node["id"], node)
+    return list(found.values())
+
+
+def _media_still_used(media_id: str, event_id: str, doomed_memories: set[str]) -> bool:
+    """이 원본을 다른 추억이 아직 쓰고 있는가
+
+    사진 한 장은 추억 둘에 붙을 수 있다 (attach_media는 예전 연결을 끊지 않는다).
+    그때 한 추억을 지우면서 원본까지 지우면, 남은 추억의 사진첩에 구멍이 난다 —
+    사용자가 고른 것은 이 추억을 지우는 일이었다. 다른 기억이 아직 근거로 쓰는
+    녹음을 남기는 것과 같은 판단이다 (_voices_to_erase).
+    """
+    for node in graph_manager.get_connected_nodes(media_id):
+        node_type = node.get("node_type")
+        if node_type == NodeType.EVENT and node["id"] != event_id:
+            return True
+        if node_type == NodeType.MEMORY and node["id"] not in doomed_memories:
+            return True
+    return False
+
+
+def delete_event_plan(event_id: str) -> Optional[dict]:
+    """이 추억을 지우면 무엇이 함께 사라지는지 (지우기 전에 보는 것)
+
+    라우터가 원본마다 권한을 보려면 지우기 전의 목록이 필요하다 — 남이 올린
+    사진은 그 사람이나 가족 관리자만 지운다 (permissions.require_owner_of).
+    그래서 "무엇이 딸려 오는가"를 지우는 일에서 떼어 두었다. delete_event가
+    같은 함수를 다시 불러 판정하므로 규칙이 두 벌이 되지 않는다.
+
+    Returns:
+        지울 것들. 그 id의 사건이 없으면 None.
+    """
+    event = graph_manager.get_node(event_id)
+    if not event or event.get("node_type") != NodeType.EVENT:
+        return None
+
+    connected = graph_manager.get_connected_nodes(event_id)
+    memory_ids = [
+        node["id"] for node in connected if node.get("node_type") == NodeType.MEMORY
+    ]
+    doomed = set(memory_ids)
+
+    media, shared = [], []
+    for node in _event_media(event_id, memory_ids):
+        if _media_still_used(node["id"], event_id, doomed):
+            shared.append(node)
+        else:
+            media.append(node)
+
+    return {
+        "event_id": event_id,
+        "title": event.get("title") or "",
+        "memory_ids": memory_ids,
+        # 이 추억과 함께 지워질 원본
+        "media": media,
+        # 다른 추억에도 붙어 있어 남는 원본
+        "shared_media": shared,
+        # 이 사건이 걸려 있던 장소. 사건을 지운 뒤에 아직 쓰이는지 다시 본다
+        "place_ids": [
+            node["id"] for node in connected if node.get("node_type") == NodeType.PLACE
+        ],
+        "echo_count": len(event.get("echoes") or []),
+    }
+
+
+def delete_event(event_id: str, keep_media: Optional[Mapping[str, str]] = None) -> Optional[dict]:
+    """추억 하나를 지운다 — 사건과 거기에 딸린 것 전부
 
     사진이 0장이 된 것을 신호로 삼아 자동으로 지우지 않는다. 그 추억에는 다른
     가족이 남긴 기억 문장과 "나도 기억나요"가 붙어 있을 수 있고, 사진 한 장
     지우기에 딸려 그것이 사라지면 정리가 아니라 사고다. 지우는 것은 사람이
     고른 결과로만 일어난다.
 
-    함께 지우는 것: 이 사건에 붙은 기억 문장(MemoryNode)과 그 관계들. 사건이
-    없어지면 그 문장은 어디에도 걸리지 않고, 상세로 들어갈 길조차 없다.
+    함께 지우는 것:
 
-    남기는 것: 사진·영상·목소리와 사람·장소. 원본을 지우는 자리는 사진첩이고
-    (기억 문장 하나를 지울 때 원본이 남는 것과 짝을 맞춘 것이다), 사람과 장소는
-    이 추억만의 것이 아니다.
+      - 기억 문장(MemoryNode)과 그 관계. 사건이 없어지면 그 문장은 어디에도
+        걸리지 않고, 상세로 들어갈 길조차 없다
+      - 사진·영상·목소리의 노드와 원본 파일(media_analyzer.erase_files).
+        예전에는 이것을 남겨 두고 "원본을 지우는 자리는 사진첩"이라고 안내했다.
+        추억을 지운 사람에게 그것은 지운 것이 아니다 — 사진첩에 그 장면이
+        그대로 있고, 지우려면 사진첩에서 같은 일을 한 번 더 해야 했다
+      - 전사문·맥락·"함께 기억한 이야기". 별도 저장소가 없다. 기억 노드와
+        미디어 노드에 얹혀 있어 그 노드와 함께 사라진다
+      - 아무것도 걸리지 않게 된 장소 (event_resolver.prune_orphan_places)
 
-    공개 범위로 걸러 세지 않는다. 내가 볼 수 없는 기억도 이 사건에 붙어 있으면
-    함께 지워진다 — 남겨 두면 사건 없는 문장이 저장소에 떠돌고, 어느 화면에서도
-    거둘 수 없다. 대신 무엇이 지워지고 무엇이 남았는지 세어 돌려준다.
+    남기는 것:
+
+      - 사람. 이 추억만의 것이 아니다 — 다른 추억과 사진첩에 계속 나온다
+      - 다른 추억에도 붙어 있는 원본(shared). 사진 한 장은 추억 둘에 붙을 수
+        있고, 그것까지 지우면 남은 추억에 구멍이 난다
+      - 지울 권한이 없는 원본(keep_media). 남이 올린 사진은 그 사람이나
+        가족 관리자만 지운다 — 라우터가 판정해 이유와 함께 여기로 넘긴다
+
+    공개 범위로 걸러 세지 않는다. 내가 볼 수 없는 기억·원본도 이 사건에 붙어
+    있으면 함께 지워진다 — 남겨 두면 사건 없는 문장이 저장소에 떠돌고, 어느
+    화면에서도 거둘 수 없다. 대신 무엇이 지워지고 무엇이 남았는지 세어 돌려준다.
+    "지웠습니다" 한 마디로 끝내면 사용자는 무엇이 사라졌는지 모른다.
 
     권한은 라우터가 본다 (permissions.require_owner_of). 여기는 무엇이 지워지고
     무엇이 남는지만 정한다 — delete_memory와 같은 분업이다.
 
+    Args:
+        keep_media: 지우지 말 원본 id -> 남기는 이유. 라우터가 권한으로 막은 것이
+            들어온다. 이유를 서버 안에서 다시 쓰지 않고 받아 적는 이유는 그것이
+            판정한 자리에만 있기 때문이다 — 누가 올린 사진인지는 라우터가 안다.
+
     Returns:
         지운 것과 남은 것. 그 id의 사건이 없으면 None.
     """
-    event = graph_manager.get_node(event_id)
-    if not event or event.get("node_type") != NodeType.EVENT:
+    plan = delete_event_plan(event_id)
+    if not plan:
         return None
 
-    doomed = [
-        node["id"]
-        for node in graph_manager.get_connected_nodes(event_id)
-        if node.get("node_type") == NodeType.MEMORY
-    ]
-    kept_media = [media["id"] for media in graph_manager.get_media_for_event(event_id)]
+    blocked = dict(keep_media or {})
+    doomed_media = [node for node in plan["media"] if node["id"] not in blocked]
 
     # 한 묶음으로 지운다. 갈라지면 사건은 없는데 그 사건의 기억 문장만 남는
     # 상태가 생기고, 그 문장은 어느 화면에서도 지울 수 없다.
     with graph_manager.batch():
-        for memory_id in doomed:
+        for memory_id in plan["memory_ids"]:
             graph_manager.delete_node(memory_id)
+        for node in doomed_media:
+            graph_manager.delete_node(node["id"])
         graph_manager.delete_node(event_id)
+        # 사건이 없어진 뒤에 판정한다 — 먼저 보면 이 사건의 엣지가 아직 남아
+        # 있어 모든 장소가 "쓰이는 중"으로 읽힌다
+        deleted_places = event_resolver.prune_orphan_places(plan["place_ids"])
+
+    # 노드를 먼저, 파일을 나중에 (media_analyzer.erase_files의 주석과 같은 이유)
+    for node in doomed_media:
+        media_analyzer.erase_files(node)
+
+    counts = {"photo": 0, "video": 0, "audio": 0}
+    for node in doomed_media:
+        media_type = node.get("media_type") or MediaType.PHOTO.value
+        if media_type in counts:
+            counts[media_type] += 1
 
     return {
         "event_id": event_id,
-        "title": event.get("title") or "",
-        "deleted_memories": doomed,
-        "kept_media": kept_media,
-        "echo_count": len(event.get("echoes") or []),
+        "title": plan["title"],
+        "deleted_memories": plan["memory_ids"],
+        "deleted_media": [node["id"] for node in doomed_media],
+        # 사진 몇 장, 영상 몇 개, 목소리 몇 개인지. 화면이 그대로 적는다
+        "deleted_counts": counts,
+        "deleted_places": deleted_places,
+        # 지우지 않고 남긴 원본과 그 이유. 다른 추억에도 붙어 있거나, 남이 올린 것이다
+        "kept_media": (
+            [
+                {"id": node["id"], "reason": "다른 추억에도 붙어 있습니다"}
+                for node in plan["shared_media"]
+            ]
+            + [
+                {"id": node["id"], "reason": blocked[node["id"]]}
+                for node in plan["media"]
+                if node["id"] in blocked
+            ]
+        ),
+        "echo_count": plan["echo_count"],
     }
 
 

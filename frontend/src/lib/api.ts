@@ -1604,14 +1604,17 @@ export async function deleteMemoryEntry(
 }
 
 /**
- * 추억 하나 지우기.
+ * 추억 하나 지우기 — 거기 딸린 것까지 함께.
  *
- * 사진첩에서 사진을 다 지워도 추억은 남는다 — 원본을 지울 때 끊기는 것은 연결
- * 뿐이다. 자료도 기억도 없는 추억을 치우는 길이 이것이다.
+ * 이 추억의 기억 문장(deleted_memories)과 사진·영상·목소리(deleted_media),
+ * 그 원본 파일까지 사라진다. 전사문과 "함께 기억한 이야기"는 그 노드에 얹혀
+ * 있어 함께 없어진다. 예전에는 원본을 남기고 "지우는 자리는 사진첩입니다"라고
+ * 안내했는데, 추억을 지운 사람에게 사진첩에 그대로 있는 그 장면은 지운 것이
+ * 아니었다.
  *
- * 함께 지워지는 것은 이 추억에 붙은 기억 문장(deleted_memories)이고, 사진·영상·
- * 목소리는 사진첩에 남는다(kept_media). 화면은 지우기 전에 그것을 밝히고, 지운
- * 뒤에는 서버가 준 message를 그대로 적는다.
+ * 남는 것은 kept_media에 이유와 함께 온다 — 다른 추억에도 붙어 있는 원본이거나,
+ * 다른 가족이 올려서 이 사람이 지울 수 없는 원본이다. 화면은 지운 뒤 서버가 준
+ * message를 그대로 적는다.
  *
  * 남이 만든 추억이면 403이 온다 (readDetail로 그 이유를 읽는다).
  */
@@ -1620,8 +1623,14 @@ export async function deleteMemoryEvent(eventId: string): Promise<{
   title: string;
   /** 함께 지운 기억 문장. 사건이 없어지면 걸릴 자리가 없다 */
   deleted_memories: string[];
-  /** 지워지지 않고 사진첩에 남는 원본 */
-  kept_media: string[];
+  /** 함께 지운 원본. 노드와 파일이 모두 사라진다 */
+  deleted_media: string[];
+  /** 지운 원본을 종류별로 (화면이 "사진 3장, 목소리 1개"로 적는다) */
+  deleted_counts: { photo: number; video: number; audio: number };
+  /** 아무것도 걸리지 않게 되어 함께 거둔 장소 */
+  deleted_places: string[];
+  /** 지우지 않고 남긴 원본과 그 이유 */
+  kept_media: { id: string; reason: string }[];
   echo_count: number;
   message: string;
 }> {
