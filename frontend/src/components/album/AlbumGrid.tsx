@@ -1,5 +1,5 @@
 /**
- * 사진첩 그리드 — 촬영 연월로 나눈 정사각형 격자
+ * 사진첩 그리드 — 촬영 연월 또는 사건으로 나눈 정사각형 격자
  *
  * Masonry를 쓰지 않는다. 가족 사진은 세로·가로·정사각형이 뒤섞여 있어서 높이가
  * 제각각인 격자에서는 훑는 눈이 자꾸 걸린다. 훑는 것이 이 화면의 유일한 목적이다.
@@ -9,18 +9,26 @@
  * 어느 추억에도 안 붙었는지(미분류). 촬영일·추억·인물은 마우스를 올리거나
  * 키보드로 짚었을 때 나온다. 파일명은 그리드에 내지 않는다 (상세에 있다).
  *
+ * 묶음은 두 가지다. 촬영 연월과 사건 — 어느 쪽이든 서버가 준 순서를 그대로 두고
+ * 나누기만 한다 (AlbumPage가 group을 주소에 담아 서버에 넘긴다).
+ *
  * 원본은 여기서 부르지 않는다. 썸네일이 없는 사진만 원본 경로를 쓰고, 그것도
  * loading="lazy"로 화면에 들어올 때 받는다. 영상은 예외 없이 부르지 않는다 —
  * mp4는 <img>에 넣어도 그림이 되지 않으므로 받아 오는 만큼 그냥 버려진다.
  */
 
 import { useMemo, useState } from 'react'
+import { Link } from 'react-router-dom'
 import { Check, Film, ImageOff, Lock, Play, RefreshCw } from 'lucide-react'
-import { AlbumMediaItem, mediaUrl } from '../../lib/api'
+import { AlbumGroupBy, AlbumMediaItem, mediaUrl } from '../../lib/api'
 
 /** 촬영일을 모르는 사진들이 모이는 칸 */
 const UNDATED_KEY = '__undated__'
 export const UNDATED_LABEL = '날짜를 알 수 없는 사진'
+
+/** 어느 추억에도 붙지 않은 사진들이 모이는 칸 (사건별로 묶어 볼 때) */
+const UNLINKED_KEY = '__unlinked__'
+export const UNLINKED_LABEL = '아직 어느 추억에도 없는 사진'
 
 export interface AlbumSection {
   key: string
@@ -28,6 +36,8 @@ export interface AlbumSection {
   items: AlbumMediaItem[]
   /** 그 사진들이 전체 목록에서 몇 번째인지 (Lightbox가 이어서 넘길 수 있게) */
   offsets: number[]
+  /** 사건 묶음일 때만. 묶음 머리에서 추억 상세로 넘어갈 고리다 */
+  event?: AlbumMediaItem['event']
 }
 
 /**
@@ -56,6 +66,47 @@ export function groupByMonth(items: AlbumMediaItem[]): AlbumSection[] {
   return [...ordered.filter((s) => s.key !== UNDATED_KEY), ...undated]
 }
 
+/**
+ * 사건별로 나눈다. 여기서도 서버가 준 순서를 그대로 둔다 — 사건 묶음의 순서와
+ * 묶음 안 사진의 순서는 서버가 이미 세워 두었다 (backend/services/album.py).
+ *
+ * 어느 추억에도 붙지 않은 사진은 맨 뒤의 한 칸으로 모은다. 사건이 아니므로
+ * 사건들 사이에 끼우지 않는다.
+ */
+export function groupByEvent(items: AlbumMediaItem[]): AlbumSection[] {
+  const sections = new Map<string, AlbumSection>()
+
+  items.forEach((item, index) => {
+    const key = item.event ? item.event.id : UNLINKED_KEY
+    let section = sections.get(key)
+    if (!section) {
+      section = {
+        key,
+        label: item.event ? item.event.title || '제목 없는 추억' : UNLINKED_LABEL,
+        event: item.event ?? null,
+        items: [],
+        offsets: [],
+      }
+      sections.set(key, section)
+    }
+    section.items.push(item)
+    section.offsets.push(index)
+  })
+
+  const ordered = [...sections.values()]
+  const unlinked = ordered.filter((s) => s.key === UNLINKED_KEY)
+  return [...ordered.filter((s) => s.key !== UNLINKED_KEY), ...unlinked]
+}
+
+/** 1998-08-13 → 1998년 8월 13일. 사건 묶음 머리에 적는다 */
+function eventDateLabel(date: string | null | undefined): string {
+  if (!date) return ''
+  const [year, month, day] = date.slice(0, 10).split('-')
+  if (!year) return ''
+  if (!month) return `${year}년`
+  return day ? `${year}년 ${Number(month)}월 ${Number(day)}일` : `${year}년 ${Number(month)}월`
+}
+
 function monthLabel(key: string): string {
   if (key === UNDATED_KEY) return UNDATED_LABEL
   const [year, month] = key.split('-')
@@ -73,6 +124,13 @@ interface AlbumGridProps {
   items: AlbumMediaItem[]
   /** 전체 목록에서의 순번으로 상세를 연다 */
   onOpen: (index: number) => void
+  /** 무엇으로 묶어 그릴까 (서버가 그 순서로 보내 준다) */
+  groupBy?: AlbumGroupBy
+  /**
+   * 사건 묶음 머리의 "이 추억만" — 이미 그 추억만 보고 있으면 주지 않는다
+   * (AlbumPage가 정한다). 없으면 단추를 그리지 않는다.
+   */
+  onPickEvent?: (eventId: string) => void
   /**
    * 고르는 중인가.
    *
@@ -88,11 +146,16 @@ interface AlbumGridProps {
 export default function AlbumGrid({
   items,
   onOpen,
+  groupBy = 'month',
+  onPickEvent,
   selecting = false,
   selectedIds,
   onToggleSelect,
 }: AlbumGridProps) {
-  const sections = useMemo(() => groupByMonth(items), [items])
+  const sections = useMemo(
+    () => (groupBy === 'event' ? groupByEvent(items) : groupByMonth(items)),
+    [items, groupBy],
+  )
 
   return (
     <div className="mt-10 flex flex-col gap-10">
@@ -102,7 +165,33 @@ export default function AlbumGrid({
             className="flex items-baseline justify-between gap-4 pb-3"
             style={{ borderBottom: '1px solid var(--border)' }}
           >
-            <h3 className="t-h3 m-0">{section.label}</h3>
+            <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1">
+              <h3 className="t-h3 m-0">{section.label}</h3>
+              {/*
+                사건 묶음에서는 그 추억으로 넘어갈 길을 함께 둔다. 사진을 보다가
+                "이게 무슨 일이었지"가 되는 자리가 여기다.
+              */}
+              {section.event && (
+                <>
+                  {section.event.date && (
+                    <span className="t-mono text-[11px] text-ink-300">
+                      {eventDateLabel(section.event.date)}
+                    </span>
+                  )}
+                  <Link to={`/memory/${section.event.id}`} className="btn-link">
+                    추억 보기
+                  </Link>
+                  {onPickEvent && (
+                    <button
+                      onClick={() => onPickEvent(section.event!.id)}
+                      className="btn-link"
+                    >
+                      이 추억만
+                    </button>
+                  )}
+                </>
+              )}
+            </div>
             <span className="t-mono text-[11px] text-ink-300">{section.items.length}개</span>
           </div>
 

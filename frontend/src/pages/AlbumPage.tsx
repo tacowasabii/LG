@@ -13,13 +13,19 @@
  *
  * 목록·정렬·필터는 서버가 한다 (backend/services/album.py). AI를 끼우지 않는다 —
  * 같은 조건에 다른 결과가 나오면 사진첩이 아니다.
+ *
+ * 묶어 보는 방식도 서버가 정한 순서를 따른다. 연월별과 사건별 두 가지고, 사건별은
+ * 화면에서 나눌 수 없다 — 한 페이지 60장 안에서만 묶으면 같은 사건이 페이지마다
+ * 토막난다. 그래서 group을 주소에 담아 서버에 넘긴다.
  */
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Link, useSearchParams } from 'react-router-dom'
 import { CheckSquare, Images, Trash2, Upload, X } from 'lucide-react'
 import {
+  AlbumEventFacet,
   AlbumEventStatus,
+  AlbumGroupBy,
   AlbumMediaItem,
   AlbumSort,
   bulkDeleteMedia,
@@ -35,6 +41,7 @@ import MediaLightbox from '../components/album/MediaLightbox'
 
 const SORTS: AlbumSort[] = ['captured_desc', 'captured_asc', 'uploaded_desc']
 const STATUSES: AlbumEventStatus[] = ['all', 'linked', 'unlinked']
+const GROUPS: AlbumGroupBy[] = ['month', 'event']
 const PAGE_SIZE = 60
 
 /** 주소에 적힌 조건을 읽는다. 모르는 값은 기본값으로 되돌린다 */
@@ -42,14 +49,17 @@ function readFilters(params: URLSearchParams): AlbumFilterValue {
   const year = Number(params.get('year'))
   const sort = params.get('sort') as AlbumSort | null
   const status = params.get('event_status') as AlbumEventStatus | null
+  const group = params.get('group') as AlbumGroupBy | null
   const type = params.get('type')
 
   return {
     type: type === 'photo' || type === 'video' ? type : 'all',
     year: Number.isFinite(year) && year > 0 ? year : null,
     personId: params.get('person_id') || null,
+    eventId: params.get('event_id') || null,
     eventStatus: status && STATUSES.includes(status) ? status : 'all',
     sort: sort && SORTS.includes(sort) ? sort : 'captured_desc',
+    groupBy: group && GROUPS.includes(group) ? group : 'month',
     q: params.get('q') || '',
   }
 }
@@ -65,6 +75,8 @@ export default function AlbumPage() {
   const [cursor, setCursor] = useState<string | null>(null)
   const [total, setTotal] = useState(0)
   const [years, setYears] = useState<number[]>([])
+  /* 고를 수 있는 사건과 개수. 서버가 준 것을 그대로 쓴다 (available_events) */
+  const [eventFacets, setEventFacets] = useState<AlbumEventFacet[]>([])
   const [loading, setLoading] = useState(true)
   const [loadingMore, setLoadingMore] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -107,8 +119,10 @@ export default function AlbumPage() {
         types: filters.type === 'all' ? null : filters.type,
         year: filters.year,
         personId: filters.personId,
+        eventId: filters.eventId,
         eventStatus: filters.eventStatus,
         sort: filters.sort,
+        groupBy: filters.groupBy,
         q: filters.q,
       }),
     [filters],
@@ -135,6 +149,7 @@ export default function AlbumPage() {
         setCursor(page.next_cursor ?? null)
         setTotal(page.total)
         setYears(page.available_years)
+        setEventFacets(page.available_events ?? [])
       })
       .catch((e) => {
         if (id !== requestId.current) return
@@ -206,8 +221,10 @@ export default function AlbumPage() {
         if (next.type !== 'all') params.set('type', next.type)
         if (next.year != null) params.set('year', String(next.year))
         if (next.personId) params.set('person_id', next.personId)
+        if (next.eventId) params.set('event_id', next.eventId)
         if (next.eventStatus !== 'all') params.set('event_status', next.eventStatus)
         if (next.sort !== 'captured_desc') params.set('sort', next.sort)
+        if (next.groupBy !== 'month') params.set('group', next.groupBy)
         if (next.q.trim()) params.set('q', next.q.trim())
         return params
       })
@@ -232,15 +249,25 @@ export default function AlbumPage() {
     setDraftQuery((prev) => (prev.trim() === filters.q ? prev : filters.q))
   }, [filters.q])
 
+  /*
+    조건만 지운다. 묶어 보는 방식은 필터가 아니라 보는 방식이므로 남긴다 —
+    사건별로 훑던 사람이 조건을 지웠다고 연월별로 튕겨 나가지 않는다.
+  */
   const resetFilters = () => {
     setDraftQuery('')
-    setSearchParams(new URLSearchParams())
+    setSearchParams((prev) => {
+      const params = new URLSearchParams()
+      const group = readFilters(prev).groupBy
+      if (group !== 'month') params.set('group', group)
+      return params
+    })
   }
 
   const filtersActive =
     filters.type !== 'all' ||
     filters.year != null ||
     Boolean(filters.personId) ||
+    Boolean(filters.eventId) ||
     filters.eventStatus !== 'all' ||
     Boolean(filters.q)
 
@@ -385,6 +412,7 @@ export default function AlbumPage() {
       <AlbumFilters
         value={filters}
         years={years}
+        events={eventFacets}
         members={members}
         draftQuery={draftQuery}
         onDraftQuery={setDraftQuery}
@@ -447,6 +475,14 @@ export default function AlbumPage() {
           <AlbumGrid
             items={items}
             onOpen={setOpenIndex}
+            groupBy={filters.groupBy}
+            /*
+              사건 묶음 머리의 "이 추억만". 이미 그 추억만 보고 있으면 주지
+              않는다 — 눌러도 화면이 그대로여서 눌린 것인지 알 수 없다.
+            */
+            onPickEvent={
+              filters.eventId ? undefined : (eventId) => patchFilters({ eventId })
+            }
             selecting={selecting}
             selectedIds={selectedSet}
             onToggleSelect={toggleSelect}

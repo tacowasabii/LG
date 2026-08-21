@@ -284,6 +284,9 @@ class AlbumEventRef(BaseModel):
     """이 사진이 속한 추억. 사진첩에서 추억 상세로 되짚어 갈 고리다."""
     id: str
     title: str
+    # 그 추억에 적힌 날짜(date_start). 사건별로 묶어 볼 때 묶음 머리에 적는다 —
+    # 없으면 화면이 날짜 없이 제목만 적는다.
+    date: Optional[str] = None
 
 
 class AlbumPlaceRef(BaseModel):
@@ -320,6 +323,18 @@ class AlbumMediaItem(BaseModel):
     has_exif: bool = False
 
 
+class AlbumEventFacet(BaseModel):
+    """사진첩에서 고를 수 있는 추억 하나
+
+    count는 지금 걸린 다른 조건(종류·연도·인물·검색)까지 지난 개수다. 고르기
+    전에 몇 장이 나올지 보여야 빈 화면을 누르지 않는다.
+    """
+    id: str
+    title: str
+    date: Optional[str] = None
+    count: int = 0
+
+
 class AlbumResponse(BaseModel):
     items: list[AlbumMediaItem] = []
     # 다음 페이지를 부를 때 그대로 되돌려 보낸다. 없으면 마지막 페이지다.
@@ -329,6 +344,8 @@ class AlbumResponse(BaseModel):
     # 연도 필터만 뺀 조건에서 고를 수 있는 연도들 (최신순).
     # 고른 연도 때문에 나머지가 사라지면 되돌아갈 수 없다.
     available_years: list[int] = []
+    # 추억 필터만 뺀 조건에서 고를 수 있는 추억들 (최근 것부터). 같은 이유다.
+    available_events: list[AlbumEventFacet] = []
 
 
 class EventListItem(BaseModel):

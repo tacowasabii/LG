@@ -236,7 +236,8 @@ export interface AlbumMediaItem {
   captured_at?: string | null;
   uploaded_at: string;
   duration_sec?: number | null;
-  event?: { id: string; title: string } | null;
+  /** date는 추억에 적힌 날짜다 (사건별로 묶어 볼 때 묶음 머리에 적는다) */
+  event?: { id: string; title: string; date?: string | null } | null;
   /** 사람이 직접 지목한 사람들만 (얼굴 인식이 없다) */
   people: Array<{
     id: string;
@@ -250,6 +251,19 @@ export interface AlbumMediaItem {
   has_exif: boolean;
 }
 
+/**
+ * 사진첩에서 고를 수 있는 추억 하나.
+ *
+ * count는 지금 걸린 다른 조건(종류·연도·인물·검색)까지 지난 개수다 — 고르기
+ * 전에 몇 장이 나올지 보여야 빈 화면을 누르지 않는다.
+ */
+export interface AlbumEventFacet {
+  id: string;
+  title: string;
+  date?: string | null;
+  count: number;
+}
+
 export interface AlbumResponse {
   items: AlbumMediaItem[];
   /** 다음 페이지를 부를 때 그대로 되돌려 보낸다. 없으면 마지막 페이지다 */
@@ -258,6 +272,14 @@ export interface AlbumResponse {
   total: number;
   /** 고를 수 있는 촬영 연도 (최신순) */
   available_years: number[];
+  /**
+   * 고를 수 있는 추억 (최근 것부터). 고른 추억은 0장이어도 남아 있다.
+   *
+   * 없을 수도 있다 — 이 필드를 모르는 서버(배포 전, 또는 아직 다시 뜨지 않은
+   * 개발 서버)가 응답을 주는 동안에도 사진첩은 그려져야 한다. 화면·프론트가
+   * 서로 다른 때에 배포되는 구조여서 이 시차는 정상이다.
+   */
+  available_events?: AlbumEventFacet[];
 }
 
 /**
@@ -320,6 +342,13 @@ export async function getMediaDetail(mediaId: string): Promise<MediaDetail> {
 
 export type AlbumSort = 'captured_desc' | 'captured_asc' | 'uploaded_desc';
 export type AlbumEventStatus = 'all' | 'linked' | 'unlinked';
+/**
+ * 무엇으로 묶어 볼까. 연월은 사진을 훑는 순서고, 사건은 "그때 무슨 일이었나"다.
+ *
+ * 묶음의 순서는 서버가 정한다 — 화면이 페이지마다 다시 묶으면 같은 사건이
+ * 60장 경계에서 토막난다 (backend/services/album.py).
+ */
+export type AlbumGroupBy = 'month' | 'event';
 
 export interface AlbumQuery {
   cursor?: string | null;
@@ -328,8 +357,11 @@ export interface AlbumQuery {
   types?: string | null;
   year?: number | null;
   personId?: string | null;
+  /** 이 추억에 붙은 사진만 */
+  eventId?: string | null;
   eventStatus?: AlbumEventStatus;
   sort?: AlbumSort;
+  groupBy?: AlbumGroupBy;
   q?: string | null;
 }
 
@@ -365,8 +397,10 @@ export async function getAlbum(query: AlbumQuery = {}): Promise<AlbumResponse> {
   if (query.types) params.set('types', query.types);
   if (query.year != null) params.set('year', String(query.year));
   if (query.personId) params.set('person_id', query.personId);
+  if (query.eventId) params.set('event_id', query.eventId);
   if (query.eventStatus && query.eventStatus !== 'all') params.set('event_status', query.eventStatus);
   if (query.sort) params.set('sort', query.sort);
+  if (query.groupBy && query.groupBy !== 'month') params.set('group_by', query.groupBy);
   if (query.q) params.set('q', query.q);
 
   return fetchJSON(withViewer(`${BASE_URL}/media/album?${params.toString()}`));
