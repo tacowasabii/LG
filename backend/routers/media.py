@@ -14,7 +14,12 @@ from backend.models.graph_models import (
     NodeType, MediaType, RelationType, Edge, Confidence, SourceType,
 )
 from backend.services.media_analyzer import analyze_media, erase_files, generate_thumbnail
-from backend.services.event_resolver import autotag_media_persons, set_media_persons
+from backend.services.event_resolver import (
+    autotag_media_persons,
+    events_of_media,
+    set_media_persons,
+    sync_participants_of_event,
+)
 from backend.services.graph_manager import graph_manager
 from backend.services import album, geocoder, memories, permissions, visibility
 from backend.services.permissions import current_actor
@@ -331,8 +336,10 @@ async def get_album(
     types: Optional[str] = Query(None, description="photo,video — 비우면 둘 다"),
     year: Optional[int] = Query(None, description="촬영 연도 (EXIF 기준)"),
     person_id: Optional[str] = Query(None, description="이 사람이 지목된 사진만"),
+    event_id: Optional[str] = Query(None, description="이 추억에 붙은 사진만"),
     event_status: str = Query("all", description="all|linked|unlinked"),
     sort: str = Query("captured_desc", description="captured_desc|captured_asc|uploaded_desc"),
+    group_by: str = Query("month", description="month|event — 무엇으로 묶어 볼까"),
     q: Optional[str] = Query(None, description="파일명·추억 제목·인물·장소명"),
     viewer_id: Optional[str] = Query(None, description="지금 보는 사람 (공개 범위 적용)"),
 ):
@@ -349,8 +356,10 @@ async def get_album(
         types=types,
         year=year,
         person_id=person_id,
+        event_id=event_id,
         event_status=event_status,
         sort=sort,
+        group_by=group_by,
         q=q,
         cursor=cursor,
         limit=limit,
@@ -595,11 +604,18 @@ async def bulk_delete_media(
             failed.append({"id": media_id, "reason": str(e.detail)})
 
     if deletable:
+        # 지우기 전에 읽어 둔다 (한 장 삭제와 같은 이유)
+        events = {
+            event_id for node in deletable for event_id in events_of_media(node["id"])
+        }
+
         # 저장을 한 번으로 모은다. 여기서 예외가 나면 Postgres는 전부 되돌리므로,
         # 파일은 이 묶음이 끝난 뒤에 지운다.
         with graph_manager.batch():
             for node in deletable:
                 graph_manager.delete_node(node["id"])
+            for event_id in events:
+                sync_participants_of_event(event_id)
 
         for node in deletable:
             erase_files(node)
@@ -623,7 +639,15 @@ async def delete_media(
     """미디어 삭제 — 올린 사람이나 가족 관리자만"""
     node = _authorize_delete(media_id, actor)
 
+    # 지우기 전에 읽어 둔다. 지운 뒤에는 어느 사건에 붙어 있었는지 알 수 없다.
+    events = events_of_media(media_id)
+
     graph_manager.delete_node(media_id)
     erase_files(node)
+
+    # 사진에서 온 참여자는 그 사진이 있는 동안만이다. 마지막 사진이 사라졌는데
+    # 사건에 남으면, 이야기가 근거 없이 그 사람을 계속 부른다.
+    for event_id in events:
+        sync_participants_of_event(event_id)
 
     return {"message": "삭제 완료", "id": media_id}

@@ -157,6 +157,9 @@ class EventNode:
     # 그 이야기를 쓸 때 근거로 삼은 기억 개수. 지금 개수보다 작으면 이야기가
     # 낡은 것이다 (새로 더해진 기억이 아직 들어가지 않았다).
     together_story_basis: int = 0
+    # 그 이야기를 쓸 때 함께한 사람이 몇 명이었는지. 사진에서 나중에 지목한
+    # 사람이 늘면 이 값보다 많아지고, 그때도 이야기는 낡은 것이다.
+    together_story_persons: int = 0
     created_at: str = field(default_factory=lambda: datetime.now().isoformat())
 
 

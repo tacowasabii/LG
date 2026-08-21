@@ -556,12 +556,15 @@ async def _narration(
         f"사건: {event.get('title', '')}",
         f"날짜: {event.get('date_start') or '미상'}",
         f"장소: {place or '미상'}",
-        f"참여: {', '.join(p.get('name', '') for p in persons) or '미상'}",
+        # 이름과 호칭을 함께 넘긴다 (memory_context.person_label). 이름만 주면
+        # "김영희가 함께했습니다"가 나오는데, 가족이 그 사람을 찾는 말은
+        # "할머니"다. 반대로 호칭만 주면 이야기에 누구인지 이름이 남지 않는다.
+        f"참여: {', '.join(memory_context.person_labels(persons)) or '미상'}",
     ]
     for memory in memories[:3]:
         speaker = graph_manager.get_node(memory.get("contributor_id") or "")
-        name = speaker.get("name") if speaker else "가족"
-        facts.append(f"{name}의 기억: {memory.get('content', '')}")
+        label = memory_context.person_label(speaker) if speaker else ""
+        facts.append(f"{label or '가족'}의 기억: {memory.get('content', '')}")
 
     context_lines = "\n".join(memory_context.prompt_line(c) for c in contexts or [])
 
@@ -581,6 +584,10 @@ async def _narration(
             "content": (
                 "가족 기억 영상의 내레이션을 쓴다. 아래 [기록]에 있는 사실만 쓴다.\n"
                 "기록에 없는 감정·장면·대화를 만들어내지 마라. 2~3문장.\n"
+                "[기록]의 참여자는 한 명도 빼지 말고 모두 불러라. 그 사람이 무엇을"
+                " 했는지는 기록에 있는 것만 쓴다.\n"
+                "사람은 '김민수(아빠)'처럼 이름과 호칭을 함께 적는다. [기록]에 적힌"
+                " 모양 그대로 쓰면 된다 — 이름만 쓰거나 호칭만 쓰지 마라.\n"
                 "가족의 기억은 그 사람의 관점이다. 사진에 그 장면이 있다고 쓰지 말고,"
                 " '엄마는 하늘이가 물장구치던 순간을 기억합니다'처럼 기억의 주인을"
                 " 밝혀라.\n"
@@ -603,7 +610,14 @@ async def _narration(
         return _plain_narration(event, memories, persons, place, contexts)
     # 프롬프트 제목과 넘긴 사실 목록을 베껴 오면 떼어낸다. 프롬프트에 "옮기지
     # 마라"를 적어도 막히지 않는다 (interview_engine._clean_question과 같은 판단).
-    _stories[key] = memory_context.strip_prompt_marks(narration)
+    narration = memory_context.strip_prompt_marks(narration)
+    # 모델이 "아빠 김민수"라고 쓴 것을 "김민수(아빠)"로 맞춘다. 모델이 쓴 산문에만
+    # 쓴다 — 아래 폴백은 가족의 원문을 그대로 인용하므로 지나지 않는다.
+    narration = memory_context.label_person_mentions(narration, persons)
+    # 프롬프트에 "참여자를 빼지 마라"를 적어도 모델은 기억 문장에 나온 사람만
+    # 부른다. 빠진 사람은 여기서 한 줄로 잇는다 — 사진에서 직접 지목한 사람이
+    # 이야기에 나오지 않으면, 지목이 저장되지 않은 것으로 보인다.
+    _stories[key] = memory_context.ensure_persons_named(narration, persons)
     return _stories[key]
 
 
@@ -628,7 +642,10 @@ def _plain_narration(
         parts.append(place)
 
     head = ", ".join(parts)
-    names = ", ".join(p.get("name", "") for p in persons if p.get("name"))
+    # 이름과 호칭을 함께 적는다 ("김민수(아빠)"). 모델이 없을 때도 이야기에
+    # 나오는 사람의 모양이 같아야 한다 — 같은 사건을 두 경로가 다르게 부르면
+    # 어느 쪽이 그 가족의 말인지 알 수 없다.
+    names = ", ".join(memory_context.person_labels(persons))
 
     sentences = []
     if head:
@@ -637,8 +654,9 @@ def _plain_narration(
         sentences.append(f"{names}이(가) 함께했습니다.")
     if memories:
         speaker = graph_manager.get_node(memories[0].get("contributor_id") or "")
-        name = speaker.get("name") if speaker else "가족"
-        sentences.append(f"{name}은 이렇게 기억합니다. “{memories[0].get('content', '')}”")
+        label = (memory_context.person_label(speaker) if speaker else "") or "가족"
+        # 괄호로 끝나는 이름에는 은/는이 어색하다. 조사를 피해 적는다.
+        sentences.append(f"{label}의 기억입니다. “{memories[0].get('content', '')}”")
 
     for context in (contexts or [])[:2]:
         line = memory_context.narration_line(context)

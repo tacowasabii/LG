@@ -432,6 +432,129 @@ def _person(person_id: Optional[str]) -> Optional[dict]:
     }
 
 
+def person_label(person: dict) -> str:
+    """프롬프트에 넘기는 사람 한 명의 모양 — 이름과 호칭을 함께
+
+    이야기를 쓰는 프롬프트가 두 곳이다 (film_composer._narration의 "참여",
+    memories.compose_together_story의 "함께한 사람"). 이름만 넘기면 모델은
+    "김영희가 함께했습니다"라고 쓰는데, 가족이 그 사람을 부르는 말은 "할머니"다.
+    사진에서 직접 지목해 넣은 사람일수록 그렇다 — 지목한 사람은 목록에서
+    "할머니"를 고르고, 이야기에서 찾는 말도 "할머니"다.
+    """
+    name = (person.get("name") or "").strip()
+    relation = (person.get("relation") or "").strip()
+    if name and relation:
+        return f"{name}({relation})"
+    return name or relation
+
+
+def person_labels(persons: list[dict]) -> list[str]:
+    """여럿을 한 줄로 넘길 때. 이름도 호칭도 없는 사람은 뺀다"""
+    return [label for label in (person_label(p) for p in persons or []) if label]
+
+
+def person_terms(person: dict) -> list[str]:
+    """이 사람을 부르는 말들 — 이름, 성을 뗀 이름, 호칭
+
+    가족은 "김하늘"을 "하늘이"라고 부르고 이야기에도 그렇게 나온다. 성을 뗀
+    이름까지 맞춰 보지 않으면, 이미 이야기 안에 있는 사람을 없다고 세게 된다.
+    """
+    terms: list[str] = []
+    name = (person.get("name") or "").strip()
+    relation = (person.get("relation") or "").strip()
+    if name:
+        terms.append(name)
+        if len(name) >= 3:
+            # 성을 뗀 이름 ("김하늘" -> "하늘"). 두 글자까지만 — 더 짧게 자르면
+            # 남의 이름에 얹힌다 (_variants와 같은 이유).
+            terms.append(name[1:])
+    if relation:
+        terms.append(relation)
+    return terms
+
+
+def names_person(text: Optional[str], person: dict) -> bool:
+    """이 글이 이 사람을 부르고 있는가 (이름으로든 호칭으로든)"""
+    text = text or ""
+    return any(term in text for term in person_terms(person))
+
+
+def label_person_mentions(text: str, persons: list[dict]) -> str:
+    """모델이 쓴 "아빠 김민수"를 "김민수(아빠)"로 맞춘다
+
+    프롬프트에 "김민수(아빠)처럼 적어라"를 넣어도 모델은 "아빠 김민수"라고 쓴다.
+    담긴 사실은 같지만 이야기마다 사람을 부르는 모양이 달라진다 — 한 화면에
+    "김민수(아빠)"와 "아빠 김민수"가 같이 나오면 읽는 사람은 다른 표기를 다른
+    뜻으로 읽는다.
+
+    호칭이 이름 앞에 붙은 모양 하나만 고친다. "김민수 아빠"는 건드리지 않는다 —
+    그건 "김민수의 아버지"라는 뜻일 수 있고, 뜻이 갈리는 것을 표기 규칙으로
+    바꿀 수는 없다.
+
+    모델이 쓴 산문에만 쓴다. 가족이 남긴 원문을 그대로 인용한 문장에는 쓰지
+    않는다 (film_composer._plain_narration, memories._story_fallback) — 사람이
+    한 말을 표기 규칙으로 고치는 것은 원문을 고치는 것이다.
+    """
+    text = text or ""
+    for person in persons or []:
+        name = (person.get("name") or "").strip()
+        relation = (person.get("relation") or "").strip()
+        if not name or not relation:
+            continue
+        label = f"{name}({relation})"
+        # 이름 뒤에 붙은 친근 호칭 "이"는 함께 떼어낸다. 두면 "딸 김하늘이가"가
+        # "김하늘(딸)이가"로 남는다 — 조사가 두 번 붙은 모양이 된다.
+        text = re.sub(
+            rf"{re.escape(relation)} {re.escape(name)}이(?=[가는를도])", label, text
+        )
+        text = text.replace(f"{relation} {name}", label)
+        text = _fix_particle_after_label(text, label)
+    return text
+
+
+# 괄호로 끝난 이름 뒤에 오는 조사. 받침이 없는 것으로 본다 (_has_final과 같은
+# 규칙) — "박서연(엄마)은"이 아니라 "박서연(엄마)는"이다.
+_PARTICLE_AFTER_PAREN = {"은": "는", "이": "가", "을": "를", "과": "와"}
+
+
+def _fix_particle_after_label(text: str, label: str) -> str:
+    """"김하늘(딸)을"처럼 어긋난 조사를 고친다
+
+    이름 뒤에 호칭을 괄호로 붙이면 조사의 근거가 되는 마지막 글자가 ")"로
+    바뀐다. 모델이 이름만 보고 고른 조사가 그대로 남으면 소리내어 읽을 때
+    걸린다 — 이 이야기는 거실에서 낭독된다.
+
+    조사 뒤가 낱말의 끝일 때만 고친다. "…(엄마)이라는"의 "이"는 조사가 아니다.
+    """
+    pattern = re.escape(label) + r"([은이을과])(?=\s|$|[,.·…”\"'’!?)])"
+    return re.sub(pattern, lambda m: label + _PARTICLE_AFTER_PAREN[m.group(1)], text)
+
+
+def ensure_persons_named(text: str, persons: list[dict]) -> str:
+    """이야기에서 빠진 사람을 마지막에 한 줄로 채운다
+
+    이야기를 쓰는 두 곳이 함께 쓴다 (film_composer._narration,
+    memories.compose_together_story). 프롬프트에 "참여자를 한 명도 빼지 마라"를
+    적어도 모델은 기억 문장에 나온 사람만 부르고 나머지를 지운다 — 작은 모델일수록
+    그렇다. 그러면 얼굴 인식이 놓쳐 사람이 직접 지목한 할머니는 지목한 뒤에도
+    이야기에 없고, 지목한 사람에게는 저장이 안 된 것으로 보인다.
+
+    함께 있었다는 것만 적는다. 무엇을 했는지는 쓰지 않는다 — 그것은 기록에 없고,
+    없는 것을 채우는 자리가 아니다 (strip_prompt_marks와 같은 자리의 판단).
+    """
+    text = (text or "").strip()
+    if not text:
+        return text
+
+    missing = person_labels(
+        [person for person in persons or [] if not names_person(text, person)]
+    )
+    if not missing:
+        return text
+
+    return f"{text} {', '.join(missing)}도 이 자리에 함께 있었습니다."
+
+
 def _who(context: dict) -> str:
     """말한 사람을 부르는 말. 호칭이 있으면 호칭이다 ("엄마")"""
     speaker = _person(context.get("speaker_id"))

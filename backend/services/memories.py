@@ -291,15 +291,12 @@ def attach_media(event_id: str, media_ids: list[str]) -> list[str]:
         ))
         attached.append(media_id)
 
-        # 사진에 지목된 사람은 그 사건에 함께 있던 사람이기도 하다
-        for person_id in media.get("detected_faces") or []:
-            if graph_manager.get_node(person_id):
-                graph_manager.add_edge(Edge(
-                    source=person_id,
-                    target=event_id,
-                    relation=RelationType.PARTICIPATED_IN,
-                    properties={"role": "참여자"},
-                ))
+    # 사진에 지목된 사람은 그 사건에 함께 있던 사람이기도 하다. 붙일 때만 하지
+    # 않고 한 자리에서 다시 센다 (event_resolver.sync_participants_of_event) —
+    # 나중에 지목한 사람도 같은 규칙으로 사건에 닿아야 한다. 규칙이 두 벌이면
+    # 한쪽만 고쳐졌을 때 이야기에 들어가는 사람이 경로마다 달라진다.
+    if attached:
+        event_resolver.sync_participants_of_event(event_id)
 
     return attached
 
@@ -552,6 +549,7 @@ def delete_memory(event_id: str, memory_id: str) -> Optional[dict]:
                 "together_story": None,
                 "together_story_at": None,
                 "together_story_basis": 0,
+                "together_story_persons": 0,
             })
         for node in voices:
             graph_manager.delete_node(node["id"])
@@ -895,10 +893,19 @@ def detail(event_id: str, viewer_id: Optional[str] = None) -> Optional[dict]:
         ),
         "together_story": event.get("together_story"),
         "together_story_at": event.get("together_story_at"),
-        # 이야기를 쓴 뒤에 기억이 더 쌓였는가 (화면이 "다시 만들기"를 권한다)
+        # 이야기를 쓴 뒤에 기억이 더 쌓였거나 함께한 사람이 늘었는가
+        # (화면이 "다시 만들기"를 권한다). 사람이 늘어나는 자리는 사진에서
+        # 직접 지목하는 길이다 — 얼굴 인식이 놓친 할머니를 나중에 지목하면
+        # 이미 쓰인 이야기에는 아직 할머니가 없다.
+        #
+        # 사람 수는 0일 때 세지 않는다. 이 값을 남기기 전에 쓰인 이야기가 0으로
+        # 남아 있어, 그것까지 낡았다고 하면 예전 추억 전부에 "다시 만들기"가 뜬다.
         "together_story_stale": bool(
             event.get("together_story")
-            and (event.get("together_story_basis") or 0) < len(items)
+            and (
+                (event.get("together_story_basis") or 0) < len(items)
+                or 0 < (event.get("together_story_persons") or 0) < len(participants)
+            )
         ),
     }
 
@@ -1072,21 +1079,30 @@ async def extract_context(event_id: str, memory_id: str) -> Optional[dict]:
     return context
 
 
-def _story_fallback(title: str, entries: list[dict]) -> str:
+def _story_fallback(title: str, entries: list[dict], persons: Optional[list[dict]] = None) -> str:
     """모델 없이 여러 기억을 잇는다
 
     문장을 새로 쓰지 않고 누가 무엇을 기억하는지 나열한다. AI가 없을 때 이야기를
     지어내면 그게 가장 나쁜 실패다 — 가족사가 근거 없이 불어난다.
+
+    함께한 사람은 한 줄로 적는다. 기억을 남긴 사람만 나열하면, 사진에 있는데
+    아직 아무 말도 남기지 않은 사람은 — 나중에 직접 지목한 할머니가 그렇다 —
+    모델이 없는 동안 이야기에서 통째로 빠진다.
     """
     lines = []
     for entry in entries:
-        name = entry.get("name") or "가족"
+        # 이름과 호칭을 함께 적는다 ("김민수(아빠)"). 이름만 적으면 가족이 서로를
+        # 부르는 말이 이야기에서 사라진다 (memory_context.person_label).
+        name = memory_context.person_label(entry) or "가족"
         text = entry.get("text") or ""
         if text:
             lines.append(f"{name}: {text}")
     if not lines:
         return ""
     head = f"'{title}'에 대해 가족이 남긴 기억입니다."
+    labels = memory_context.person_labels(persons or [])
+    if labels:
+        head += f" 함께한 사람은 {', '.join(labels)}입니다."
     tail = "누가 맞는지는 정하지 않았습니다. 서로 다른 기억도 그대로 함께 남아 있습니다."
     return "\n".join([head] + lines + [tail])
 
@@ -1121,16 +1137,25 @@ async def compose_together_story(event_id: str, viewer_id: Optional[str] = None)
 
     title = event.get("title", "")
     place = graph_manager.get_node(event.get("location_id") or "") or {}
+    connected = graph_manager.get_connected_nodes(event_id)
+    participants = [n for n in connected if n.get("node_type") == NodeType.PERSON]
+
     facts = [f"제목: {title}"]
     if event.get("date_start"):
         facts.append(f"날짜: {event['date_start']}")
     if place.get("name"):
         facts.append(f"장소: {place['name']}")
+    if participants:
+        # 함께한 사람도 사실이다. 넘기지 않으면 이야기는 기억을 남긴 사람만
+        # 부르고, 사진에 있는데 아직 아무 말도 남기지 않은 사람은 — 얼굴 인식이
+        # 놓쳐 나중에 직접 지목한 할머니가 대표적이다 — 이야기에서 빠진다.
+        facts.append(
+            "함께한 사람: " + ", ".join(memory_context.person_labels(participants))
+        )
 
     # 원문을 맥락으로 바꿔치우지 않는다. 원문(위 entries)에 맥락과 사진 설명을
     # 더해 함께 넘긴다 — 맥락만 주면 모델은 사람이 실제로 쓴 말투와 세부를 잃고,
     # 원문만 주면 여러 기억이 같은 장면을 말하고 있다는 것을 읽지 못한다.
-    connected = graph_manager.get_connected_nodes(event_id)
     visible_media = visibility.filter_media(
         [n for n in connected if n.get("node_type") == NodeType.MEDIA], viewer_id
     )
@@ -1149,7 +1174,7 @@ async def compose_together_story(event_id: str, viewer_id: Optional[str] = None)
         # 대괄호로 표시하지 않는다. 모델이 그것을 본문에 그대로 옮겨 적는다
         # (기억 맥락에서 "[사진에서 확인되지 않음]"이 실제로 이야기에 나왔다).
         lines = "\n".join(
-            f"- {e['name']}({e['relation']}): {e['text']}"
+            f"- {memory_context.person_label(e) or '가족'}: {e['text']}"
             + (" — 다르게 기억한다고 밝혔다" if e["differs"] else "")
             for e in entries
         )
@@ -1168,7 +1193,12 @@ async def compose_together_story(event_id: str, viewer_id: Optional[str] = None)
                         "5. 가족이 기억하는 것은 그 사람의 관점이다. 사진에 그 장면이"
                         " 있다고 쓰지 말고 '누구는 ~를 기억한다'로 써.\n"
                         "6. 대괄호로 묶은 제목은 자료를 나누는 표시다. 본문에 옮겨 적지 마.\n"
-                        "7. 3~5문장, 담담한 한국어 서술로. 제목이나 머리말 없이 본문만."
+                        "7. '함께한 사람'은 한 명도 빼지 말고 이야기 안에서 불러라."
+                        " 아직 아무 기억도 남기지 않은 사람도 그 자리에 있었다."
+                        " 다만 그 사람이 무엇을 했는지는 주어진 기억에 있는 것만 써.\n"
+                        "8. 사람은 '김민수(아빠)'처럼 이름과 호칭을 함께 적어. 주어진"
+                        " 모양 그대로 쓰면 된다 — 이름만 쓰거나 호칭만 쓰지 마.\n"
+                        "9. 3~5문장, 담담한 한국어 서술로. 제목이나 머리말 없이 본문만."
                     ),
                 },
                 {
@@ -1189,7 +1219,7 @@ async def compose_together_story(event_id: str, viewer_id: Optional[str] = None)
         ai_used = bool(story)
 
     if not story:
-        story = _story_fallback(title, entries)
+        story = _story_fallback(title, entries, participants)
 
     # 프롬프트 제목을 베껴 오면 떼어낸다. "[사진에서 확인되지 않음]"이 이야기
     # 본문에 나온 적이 있다 — 프롬프트에 "옮기지 마라"를 적어도 막히지 않는다
@@ -1197,12 +1227,23 @@ async def compose_together_story(event_id: str, viewer_id: Optional[str] = None)
     story = memory_context.strip_prompt_marks(story)
     if not story:
         return None
+    if ai_used:
+        # 규칙 8을 적어도 모델은 "아빠 김민수"라고 쓴다. 모델이 쓴 산문에만
+        # 적용한다 — 폴백은 가족의 원문을 그대로 나열하므로 손대지 않는다.
+        story = memory_context.label_person_mentions(story, participants)
+    # 규칙 7을 적어도 모델은 기억을 남긴 사람만 부르고 나머지를 지운다. 빠진
+    # 사람은 한 줄로 잇는다 — 사진에서 지목한 사람이 이야기에 없으면, 지목한
+    # 사람에게는 지목이 저장되지 않은 것으로 보인다.
+    story = memory_context.ensure_persons_named(story, participants)
 
     now = datetime.now().isoformat()
     graph_manager.update_node(event_id, {
         "together_story": story,
         "together_story_at": now,
         "together_story_basis": len(items),
+        # 이 이야기가 몇 사람을 담고 썼는지. 나중에 지목한 사람이 늘면 화면이
+        # "다시 만들기"를 권한다 (detail의 together_story_stale).
+        "together_story_persons": len(participants),
     })
 
     return {

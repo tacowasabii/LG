@@ -27,6 +27,11 @@ from backend.services.graph_manager import graph_manager
 # 같은 장소로 인식할 거리 (km)
 PLACE_DISTANCE_THRESHOLD_KM = 5.0
 
+# 사진 지목에서 따라온 참여자라는 표시 (PARTICIPATED_IN.properties.via).
+# 사람이 직접 적어 넣은 참여자와 구분해야, 사진 태그를 뗄 때 그쪽까지 지우지
+# 않는다 (sync_participants_of_event).
+PARTICIPANT_VIA_MEDIA = "media"
+
 
 def resolve_place(lat: float, lng: float, event_id: Optional[str] = None) -> Optional[str]:
     """GPS 좌표로 기존 장소를 찾거나 새로 만든다
@@ -219,7 +224,109 @@ def set_media_persons(media_id: str, person_ids: list[str]) -> list[str]:
             "faces_source": SourceType.USER_INPUT.value,
         })
 
+    # 지목이 바뀌면 이 기록이 붙은 사건의 "함께한 사람"도 바뀐다
+    sync_event_participants(media_id)
+
     return wanted
+
+
+def sync_event_participants(media_id: str) -> list[str]:
+    """이 기록이 붙은 사건의 참여자를 사진에 지목된 사람과 맞춘다
+
+    사진에 지목된 사람은 그 사건에 함께 있던 사람이다. 붙이는 순간에만 그것을
+    옮기면(memories.attach_media), 나중에 지목한 사람은 사건에 닿지 않는다 —
+    얼굴 인식이 할머니를 놓쳐서 화면에서 직접 지목했는데도 추억 상세의 "함께한
+    사람"과 Film·TV 이야기에는 할머니가 없다. 이야기는 사건에 이어진 인물을
+    읽어 쓰기 때문이다 (film_composer._narration의 "참여").
+
+    Returns: 이번에 새로 이어진 person_id 목록
+    """
+    media = graph_manager.get_node(media_id)
+    if not media or media.get("node_type") != NodeType.MEDIA:
+        return []
+
+    linked: list[str] = []
+    for event_id in events_of_media(media_id):
+        linked.extend(sync_participants_of_event(event_id))
+    return linked
+
+
+def events_of_media(media_id: str) -> list[str]:
+    """이 기록이 붙은 사건 id
+
+    기록을 지우기 전에 미리 읽어 두는 자리이기도 하다 — 지운 뒤에는 어느 사건의
+    참여자를 다시 세야 하는지 알 수 없다 (routers/media.py의 삭제 경로).
+    """
+    return [
+        node["id"]
+        for node in graph_manager.get_connected_nodes(
+            media_id, relation=RelationType.CAPTURED_DURING
+        )
+        if node.get("node_type") == NodeType.EVENT
+    ]
+
+
+def sync_participants_of_event(event_id: str) -> list[str]:
+    """사건 하나의 참여자를 그 사건에 붙은 사진·영상의 지목에서 다시 센다
+
+    한 장만 보고 더하지 않는다. 사진 하나에서 뗀 사람이 같은 사건의 다른 사진에
+    아직 남아 있으면 그 사람은 여전히 그 자리에 있던 사람이다.
+
+    뗄 때는 이 경로로 붙은 참여자만 뗀다 (properties.via == "media"). 추억을
+    만들 때 고른 사람과 기억을 남긴 사람은 사진과 무관하게 참여자다 — 사진 태그
+    하나를 지웠다고 그것까지 지우면, 사람이 적어 넣은 것을 자동 정리가 덮는다
+    (autotag_media_persons와 같은 판단).
+
+    Returns: 이번에 새로 이어진 person_id 목록
+    """
+    edges = graph_manager.get_all_edges()
+
+    media_ids = {
+        node["id"]
+        for node in graph_manager.get_connected_nodes(
+            event_id, relation=RelationType.CAPTURED_DURING
+        )
+        if node.get("node_type") == NodeType.MEDIA
+    }
+
+    depicted: set[str] = set()
+    for media_id in media_ids:
+        node = graph_manager.get_node(media_id) or {}
+        depicted.update(node.get("detected_faces") or [])
+    # 엣지도 함께 읽는다. 둘은 함께 맞춰지지만(set_media_persons) 시드·이전
+    # 데이터에는 한쪽만 있는 경우가 있다 (album.person_ids_of와 같은 이유).
+    for edge in edges:
+        if edge["source"] in media_ids and edge["relation"] == RelationType.DEPICTS:
+            depicted.add(edge["target"])
+    depicted = {
+        person_id
+        for person_id in depicted
+        if (graph_manager.get_node(person_id) or {}).get("node_type") == NodeType.PERSON
+    }
+
+    current = {
+        edge["source"]: (edge.get("properties") or {})
+        for edge in edges
+        if edge["target"] == event_id and edge["relation"] == RelationType.PARTICIPATED_IN
+    }
+
+    linked: list[str] = []
+    for person_id in depicted:
+        if person_id in current:
+            continue  # 이미 참여자다. properties를 덮어쓰지 않는다
+        graph_manager.add_edge(Edge(
+            source=person_id,
+            target=event_id,
+            relation=RelationType.PARTICIPATED_IN,
+            properties={"role": "참여자", "via": PARTICIPANT_VIA_MEDIA},
+        ))
+        linked.append(person_id)
+
+    for person_id, properties in current.items():
+        if person_id not in depicted and properties.get("via") == PARTICIPANT_VIA_MEDIA:
+            _unlink(person_id, event_id, RelationType.PARTICIPATED_IN)
+
+    return linked
 
 
 def autotag_media_persons(media_id: str) -> list[str]:
@@ -259,7 +366,12 @@ def autotag_media_persons(media_id: str) -> list[str]:
 
 
 def _unlink_media_from_person(media_id: str, person_id: str) -> None:
-    """DEPICTS 하나만 떼어낸다
+    """DEPICTS 하나만 떼어낸다"""
+    _unlink(media_id, person_id, RelationType.DEPICTS)
+
+
+def _unlink(source: str, target: str, relation: str) -> None:
+    """두 노드 사이에서 관계 하나만 떼어낸다
 
     remove_edge는 두 노드 사이의 관계를 모두 지운다 (JSON·Postgres 양쪽 다).
     영상에 찍힌 사람이 동시에 말하는 사람이기도 하면(NARRATED_BY) 태그를 떼는
@@ -269,12 +381,12 @@ def _unlink_media_from_person(media_id: str, person_id: str) -> None:
     survivors = [
         edge
         for edge in graph_manager.get_all_edges()
-        if edge["source"] == media_id
-        and edge["target"] == person_id
-        and edge["relation"] != RelationType.DEPICTS
+        if edge["source"] == source
+        and edge["target"] == target
+        and edge["relation"] != relation
     ]
 
-    graph_manager.remove_edge(media_id, person_id)
+    graph_manager.remove_edge(source, target)
 
     for edge in survivors:
         graph_manager.add_edge(Edge(

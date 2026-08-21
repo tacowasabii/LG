@@ -464,6 +464,65 @@ def test_context_disappears_with_the_memory():
     print("  기억과 함께 사라짐 OK")
 
 
+def test_story_names_everyone_who_was_there():
+    """이야기가 부르지 않은 참여자는 한 줄로 채워진다
+
+    프롬프트에 "참여자를 한 명도 빼지 마라"를 적어도 모델은 기억 문장에 나온
+    사람만 부른다. 사진에서 직접 지목한 할머니가 이야기에 없으면, 지목한 사람
+    눈에는 지목이 저장되지 않은 것으로 보인다.
+    """
+    persons = [graph_manager.get_node(pid) for pid in (SPEAKER, SUBJECT, "P05")]
+    story = "김민수는 캠코더로 하늘이를 찍었습니다."
+
+    filled = memory_context.ensure_persons_named(story, persons)
+
+    assert filled.startswith(story), filled
+    # "하늘이"로 불린 김하늘은 다시 적지 않는다 (성을 뗀 이름까지 맞춰 본다)
+    assert filled.count("하늘") == 1, filled
+    assert "할머니" in filled, filled
+    assert "엄마" in filled, filled
+    print("  빠진 참여자 채우기 OK:", filled)
+
+
+def test_story_is_left_alone_when_everyone_is_named():
+    """모두 불린 이야기에는 아무것도 덧붙이지 않는다"""
+    persons = [graph_manager.get_node(pid) for pid in (SPEAKER, SUBJECT)]
+    story = "엄마 박서연은 하늘이가 물장구치던 순간을 기억합니다."
+
+    assert memory_context.ensure_persons_named(story, persons) == story
+    print("  덧붙이지 않음 OK")
+
+
+def test_person_mentions_become_name_with_relation():
+    """모델이 쓴 "아빠 김민수"는 "김민수(아빠)"로 맞춰진다
+
+    이야기에 사람이 이름만으로 나오면 가족이 서로를 부르는 말이 사라지고,
+    호칭만으로 나오면 누구인지 이름이 남지 않는다. 표기를 한 모양으로 모은다.
+    """
+    persons = [graph_manager.get_node(pid) for pid in (SPEAKER, SUBJECT)]
+
+    fixed = memory_context.label_person_mentions(
+        "엄마 박서연은 딸 김하늘이가 노는 모습을 지켜봤다.", persons
+    )
+    assert "박서연(엄마)" in fixed, fixed
+    assert "김하늘(딸)" in fixed, fixed
+    # 조사가 두 번 붙지 않는다 ("김하늘(딸)이가"가 아니다)
+    assert ")이가" not in fixed, fixed
+    # 괄호로 끝난 이름 뒤의 조사도 맞춰진다 ("(엄마)은"이 아니라 "(엄마)는")
+    assert "박서연(엄마)는" in fixed, fixed
+
+    # 조사가 아닌 "이"는 건드리지 않는다
+    copula = "엄마 박서연이라는 사람이 있었다."
+    assert memory_context.label_person_mentions(copula, persons) == (
+        "박서연(엄마)이라는 사람이 있었다."
+    )
+
+    # 이름이 앞에 오는 말은 건드리지 않는다 — "김하늘 딸"은 "김하늘의 딸"일 수 있다
+    kept = "김하늘 딸에 대한 이야기다."
+    assert memory_context.label_person_mentions(kept, persons) == kept
+    print("  인물 표기 맞추기 OK:", fixed)
+
+
 TESTS = [
     test_answer_yields_speaker_subject_scene_action,
     test_details_that_are_not_in_the_answer_are_dropped,
@@ -480,6 +539,9 @@ TESTS = [
     test_story_drops_marks_the_model_copied,
     test_scene_only_context_reads_as_a_sentence,
     test_context_disappears_with_the_memory,
+    test_story_names_everyone_who_was_there,
+    test_story_is_left_alone_when_everyone_is_named,
+    test_person_mentions_become_name_with_relation,
 ]
 
 
