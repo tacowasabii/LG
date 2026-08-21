@@ -52,8 +52,8 @@ async def main(limit: int | None) -> int:
         print("\n통과하지 못한 문항")
         for row in failed:
             print(f"  [{row['verdict']}] {row['query']}")
-            print(f"         기대: {row['expected']}")
-            print(f"         실제: {row['actual']}  ({row['note']})")
+            print(f"         나와야 할 근거: {row['expected']}")
+            print(f"         읽은 기록:     {row['actual']}  ({row['note']})")
             if row["unsupported_persons"]:
                 print(f"         근거 없이 언급한 인물: {', '.join(row['unsupported_persons'])}")
 

@@ -9,6 +9,11 @@
  * 미리 돌려 저장한 리포트를 읽고, 아직 없으면 실행 방법을 알려 준다 —
  * 발표 중에 눌러서 기다리는 화면이 되지 않게.
  *
+ * 칼럼 이름을 "실제 근거"에서 "답변이 읽은 기록"으로 바꿨다. 없는 것을 물은 문항
+ * (no_record)에서도 검색은 가장 가까운 노드를 돌려주므로 이 칼럼이 늘 찬다 — "실제
+ * 근거"라고 부르면 그 기록이 있다는 뜻으로 읽힌다. 판정은 이 목록이 아니라 신뢰도
+ * 라벨(confidence)로 한다 (chat_engine._finish).
+ *
  * 표를 <table>에서 grid로 옮겼다. 판정 칸에 알약과 사유 문장이 함께 들어가면서
  * 행 높이가 제각각이 되는데, grid는 열 너비를 고정하면서도 각 칸이 위로 정렬되어
  * 여러 줄을 훑을 때 눈이 열을 따라간다.
@@ -196,7 +201,9 @@ export default function TrustPage() {
             <p className="t-eyebrow m-0">Gold Set 채점</p>
             <p className="t-caption m-0 mt-1">
               질문마다 어떤 근거가 나와야 하는지 미리 정해두고 대조합니다. 기록이 없어야 하는
-              질문은 “없다”고 답하는지를 봅니다.
+              질문은 “없다”고 답하는지를 봅니다. “답변이 읽은 기록”은 그 답을 쓸 때 모델이 읽은
+              자료이며, 질문이 사실이라는 증거가 아닙니다 — 없는 것을 물으면 가장 가까운 기록이
+              대신 잡힙니다.
             </p>
           </div>
           <div className="flex gap-1.5">
@@ -218,8 +225,8 @@ export default function TrustPage() {
             style={{ gridTemplateColumns: GOLD_COLS, borderBottom: '1px solid var(--border)' }}
           >
             <span className="t-eyebrow text-ink-300">질문</span>
-            <span className="t-eyebrow text-ink-300">기대 근거</span>
-            <span className="t-eyebrow text-ink-300">실제 근거</span>
+            <span className="t-eyebrow text-ink-300">나와야 할 근거</span>
+            <span className="t-eyebrow text-ink-300">답변이 읽은 기록</span>
             <span className="t-eyebrow text-ink-300">판정</span>
           </div>
           {(report.questions || []).map((row) => (

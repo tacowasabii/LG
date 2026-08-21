@@ -295,17 +295,28 @@ export default function ChatPage() {
                   </p>
                 </div>
 
-                {/* 근거 — 사진으로 보여준다 */}
+                {/*
+                  근거 — 사진으로 보여준다.
+
+                  라벨을 붙이는 이유: 이 목록은 "질문이 사실이라는 증거"가 아니라 "이 답을
+                  쓸 때 읽은 자료"다. 기록에 없는 것을 물어도 검색은 가장 가까운 노드를
+                  돌려주므로 목록이 늘 찬다 — '런던 여행'을 물으면 부산·제주 기록이 붙는다.
+                  라벨이 없으면 그 기록이 있다는 뜻으로 읽힌다. 있는지 없는지는 아래
+                  신뢰도 문장이 말한다 (CONFIDENCE_LABEL).
+                */}
                 {msg.sources && msg.sources.length > 0 && (
-                  <div className="mt-2.5 flex flex-wrap gap-2">
-                    {msg.sources.map((source, j) => (
-                      <EvidenceCard
-                        key={j}
-                        source={source}
-                        active={openSource?.id === source.id}
-                        onSelect={setOpenSource}
-                      />
-                    ))}
+                  <div className="mt-2.5">
+                    <p className="t-caption m-0 mb-1.5 ml-0.5 text-ink-300">이 답변이 읽은 기록</p>
+                    <div className="flex flex-wrap gap-2">
+                      {msg.sources.map((source, j) => (
+                        <EvidenceCard
+                          key={j}
+                          source={source}
+                          active={openSource?.id === source.id}
+                          onSelect={setOpenSource}
+                        />
+                      ))}
+                    </div>
                   </div>
                 )}
 

@@ -108,6 +108,10 @@ async def score_questions(limit: Optional[int] = None) -> dict:
             "id": question.get("id", ""),
             "query": question["query"],
             "expected": "기록 없음" if no_record else ", ".join(expected),
+            # 화면 칼럼 "답변이 읽은 기록". 질문이 사실이라는 증거가 아니라 그 답을 쓸
+            # 때 문맥으로 들어간 노드다. 없는 것을 물어도 검색은 가장 가까운 것을
+            # 돌려주므로 이 목록은 비지 않는다 — no_record 판정을 여기서 하지 않는
+            # 이유다 (confidence로 본다).
             "actual": ", ".join(source_ids) or "근거 없음",
             "confidence": confidence,
             "verdict": verdict,
