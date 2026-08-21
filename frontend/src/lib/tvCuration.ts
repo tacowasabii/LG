@@ -3,7 +3,8 @@
  *
  * 기획안의 문장: "TV가 꺼진 시간이 아니라 가족 이야기가 자연스럽게 노출되는 시간".
  * 그래서 대기화면은 사용자가 찾아오기를 기다리지 않고 먼저 말을 건다.
- * TV에는 키보드가 없으므로 검색창이 아니라 고른 몇 개의 프리셋으로만 들어간다.
+ * TV에는 키보드가 없으므로 검색창이 아니라 고른 몇 개의 프리셋(tvPresets)과
+ * 모든 사건을 연대순으로 깐 줄(eventTiles)로 들어간다.
  *
  * 사건 목록(GET /api/graph/events)만 받아서 계산한다. 사건 id를 코드에 박지
  * 않으므로 그래프가 바뀌어도 프리셋이 따라 움직인다.
@@ -74,6 +75,7 @@ export function ambientSlides(
   }))
 }
 
+/** TV 메뉴에서 고를 수 있는 타일 하나 (묶음이든 사건 하나든 모양이 같다) */
 export interface TVPreset {
   id: string
   label: string
@@ -93,7 +95,10 @@ function placeKey(event: EventListItem): string {
 
 /**
  * 프리셋. TV에서 고를 수 있는 갈래는 시기 / 장소 / 사람 / 목소리 / 한 사람의 기억이면
- * 충분하다. 더 늘리면 리모컨으로 훑는 시간이 재생 시간을 넘는다.
+ * 충분하다. 여기서 더 늘리면 리모컨으로 훑는 시간이 재생 시간을 넘는다.
+ *
+ * 이 묶음은 고른 것이라 어느 묶음에도 들지 못하는 사건이 남는다. 그 기억에
+ * 닿을 길은 eventTiles()가 따로 깐다 — 묶음을 늘려서 메우지 않는다.
  *
  * 사건 id를 박지 않고 데이터에서 뽑는다 — 사진을 더 올리면 프리셋도 바뀐다.
  */
@@ -207,6 +212,33 @@ export function tvPresets(events: EventListItem[], clips: VoiceClip[] = []): TVP
   }
 
   return presets
+}
+
+/**
+ * 사건 하나하나. 프리셋은 고른 묶음이라 거기 들지 못한 사건은 TV에서 아예
+ * 닿을 수 없었다 — 리모컨으로 여섯 개만 눌리고 나머지 기억은 웹에만 있었다.
+ * 그래서 모든 사건을 연대순으로 한 줄 더 깐다 (개수 제한을 두지 않는다).
+ *
+ * 프리셋과 같은 모양(TVPreset)으로 돌려주므로 메뉴 화면은 둘을 구분하지 않는다.
+ */
+export function eventTiles(events: EventListItem[]): TVPreset[] {
+  return [...events]
+    .sort((a, b) => (a.date_start || '').localeCompare(b.date_start || ''))
+    .map((event) => ({
+      id: 'event-' + event.id,
+      // 연도는 아래 날짜 줄에 이미 있다. 제목에서 떼어내 같은 말을 두 번 쓰지 않는다
+      label: event.title.replace(/^\d{4}\s*/, ''),
+      sublabel: [
+        (event.date_start || '').replace(/-/g, '. '),
+        event.place?.name || event.location_name,
+        event.media_count > 0 ? '사진 ' + event.media_count + '장' : null,
+      ]
+        .filter(Boolean)
+        .join(' · '),
+      query: event.title,
+      thumb: event.media_thumbs[0] || '',
+      event_ids: [event.id],
+    }))
 }
 
 /**

@@ -841,10 +841,25 @@ export interface TVJourney {
   total_duration_sec: number;
 }
 
-export async function createTVJourney(query: string, style?: string): Promise<TVJourney> {
+/**
+ * 여정 만들기.
+ *
+ * eventIds를 주면 서버가 말을 다시 해석하지 않고 그 사건들의 사진만 쓴다.
+ * TV 메뉴처럼 이미 사건을 고른 화면에서는 이쪽이 맞다 — 제목을 키워드로 다시
+ * 훑으면 "입학식"을 눌렀는데 같은 사람이 찍힌 다른 해의 사진이 섞인다.
+ */
+export async function createTVJourney(
+  query: string,
+  style?: string,
+  eventIds?: string[],
+): Promise<TVJourney> {
   return fetchJSON(`${BASE_URL}/tv/journey`, {
     method: 'POST',
-    body: JSON.stringify({ query, style: style || 'timeline' }),
+    body: JSON.stringify({
+      query,
+      style: style || 'timeline',
+      ...(eventIds && eventIds.length > 0 ? { event_ids: eventIds } : {}),
+    }),
   });
 }
 

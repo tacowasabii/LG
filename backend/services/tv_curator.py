@@ -8,34 +8,51 @@ from typing import Optional
 from backend.services import (
     film_composer,
     film_music,
-    llm_client,
     memory_context,
     motion_clips,
 )
-from backend.models.graph_models import NodeType
+from backend.models.graph_models import MediaType, NodeType
 from backend.services.graph_manager import graph_manager
 
 
 # 생성된 Journey 캐시 (MVP: in-memory)
 _journeys: dict[str, dict] = {}
 
+# 타이틀 화면에서 읽어 줄 Film 이야기를 몇 사건까지 이을까.
+#
+# 여정 하나에 사건이 여덟 개 들어오기도 한다 ("부산에서 보낸 날들"). 그 이야기를
+# 다 이으면 타이틀 한 장에 스무 문장이 얹히고, 낭독이 끝나기를 기다리는 화면
+# (TVViewPage)이 2분을 서 있게 된다. 이야기는 여정의 머리말이고 목록이 아니다 —
+# 나머지 사건은 이어지는 사진과 자막이 말한다.
+STORY_EVENTS = 2
 
-async def create_journey(query: str, style: str = "timeline") -> dict:
+
+async def create_journey(
+    query: str,
+    style: str = "timeline",
+    event_ids: Optional[list[str]] = None,
+) -> dict:
     """TV Journey 생성
 
     query: "우리 가족의 2015년", "부산 여행", "아빠와의 추억" 등
     style: "timeline" | "story" | "people"
+    event_ids: 화면이 이미 사건을 짚어 보낸 경우. 그때는 말을 다시 해석하지 않고
+        그 사건들의 사진만 쓴다 (TV 메뉴의 타일이 이렇게 부른다).
     """
     journey_id = str(uuid.uuid4())
 
-    # 1. 쿼리에서 조건 추출
-    conditions = _parse_query(query)
+    if event_ids:
+        # 1·2. 고른 사건이 곧 조건이다
+        slides = _slides_for_events(event_ids)
+    else:
+        # 1. 쿼리에서 조건 추출
+        conditions = _parse_query(query)
 
-    # 2. 조건에 맞는 미디어/이벤트 검색
-    slides = _build_slides(conditions, style)
+        # 2. 조건에 맞는 미디어/이벤트 검색
+        slides = _build_slides(conditions, style)
 
-    # 3. 내레이션 생성
-    narration = await _generate_narration(query, slides)
+    # 3. 이야기 — Film이 쓴 문장을 그대로 쓴다 (여기서 새로 쓰지 않는다)
+    narration = await _journey_story(slides)
 
     # 4. 배경 음악의 무드. 소리는 화면이 만든다 (frontend/src/lib/filmMusic.ts).
     #
@@ -200,6 +217,75 @@ def _context_fields(event: Optional[dict], media_id: str, cache: dict) -> dict:
     }
 
 
+def _media_slide(
+    media: dict,
+    event: Optional[dict],
+    clips: dict,
+    contexts_by_event: dict,
+) -> dict:
+    """미디어 한 개를 슬라이드 한 장으로
+
+    같은 dict를 세 곳에서 만들고 있었다. 필드를 늘릴 때 한 곳을 빼먹으면 거실
+    화면이 조용히 다르게 동작한다 — 라우터의 _slide에 적어 둔 것과 같은 사고다.
+    """
+    return {
+        "type": media.get("media_type", "photo"),
+        "media_id": media["id"],
+        "file_path": media.get("file_path", ""),
+        "caption": _generate_caption(media, event),
+        "event_id": event.get("id") if event else None,
+        "event_title": event.get("title") if event else None,
+        "date": media.get("exif_date", media.get("created_at", "")),
+        **_motion_fields(media["id"], clips),
+        **_context_fields(event, media["id"], contexts_by_event),
+    }
+
+
+def _title_slide() -> dict:
+    return {
+        "type": "title",
+        "media_id": None,
+        "file_path": None,
+        "caption": "",
+        "event_id": None,
+        "event_title": None,
+        "date": None,
+    }
+
+
+def _slides_for_events(event_ids: list[str]) -> list[dict]:
+    """고른 사건들의 사진만으로 슬라이드를 만든다 (사건 연대순, 그 안에서 촬영순)
+
+    화면이 사건을 짚어 보냈을 때 쓴다. 그때 제목을 키워드로 다시 훑으면 엉뚱한
+    것이 섞인다 — "2003 하늘 초등학교 입학식"은 이름 "하늘"과 다른 해의 사진까지
+    끌어와서, 입학식을 눌렀는데 졸업식 사진이 나온다. 무엇을 고른 것인지 알 수
+    없어지고, 그건 TV에서 가장 나쁜 실패다.
+
+    사진만 쓴다. 거실 화면은 슬라이드를 <img>로 그리므로(TVViewPage) 음성·영상
+    파일을 그 자리에 넣으면 깨진 그림이 된다. 음성은 근거 화면에서 재생한다.
+    """
+    clips = motion_clips.manifest()
+    contexts_by_event: dict = {}
+    slides = [_title_slide()]
+
+    events = [graph_manager.get_node(event_id) for event_id in event_ids]
+    events = [e for e in events if e and e.get("node_type") == NodeType.EVENT]
+    events.sort(key=lambda e: e.get("date_start") or "")
+
+    for event in events:
+        photos = [
+            n
+            for n in graph_manager.get_connected_nodes(event["id"])
+            if n.get("node_type") == NodeType.MEDIA
+            and n.get("media_type", "photo") == MediaType.PHOTO
+        ]
+        photos.sort(key=lambda m: m.get("exif_date") or m.get("created_at") or "")
+        for media in photos:
+            slides.append(_media_slide(media, event, clips, contexts_by_event))
+
+    return slides
+
+
 def _build_slides(conditions: dict, style: str) -> list[dict]:
     """조건에 맞는 슬라이드 목록 생성"""
     slides = []
@@ -209,15 +295,7 @@ def _build_slides(conditions: dict, style: str) -> list[dict]:
     contexts_by_event: dict = {}
 
     # 타이틀 슬라이드
-    slides.append({
-        "type": "title",
-        "media_id": None,
-        "file_path": None,
-        "caption": "",
-        "event_id": None,
-        "event_title": None,
-        "date": None,
-    })
+    slides.append(_title_slide())
 
     # 미디어 검색
     all_media = graph_manager.get_media_nodes()
@@ -262,19 +340,7 @@ def _build_slides(conditions: dict, style: str) -> list[dict]:
             None,
         )
 
-        caption = _generate_caption(media, event)
-
-        slides.append({
-            "type": media.get("media_type", "photo"),
-            "media_id": media["id"],
-            "file_path": media.get("file_path", ""),
-            "caption": caption,
-            "event_id": event.get("id") if event else None,
-            "event_title": event.get("title") if event else None,
-            "date": media.get("exif_date", media.get("created_at", "")),
-            **_motion_fields(media["id"], clips),
-            **_context_fields(event, media["id"], contexts_by_event),
-        })
+        slides.append(_media_slide(media, event, clips, contexts_by_event))
 
     # 매칭된 미디어가 없으면 전체에서 최신 순으로
     if len(slides) <= 1:
@@ -288,17 +354,7 @@ def _build_slides(conditions: dict, style: str) -> list[dict]:
                 (n for n in connected if n.get("node_type") == NodeType.EVENT),
                 None,
             )
-            slides.append({
-                "type": media.get("media_type", "photo"),
-                "media_id": media["id"],
-                "file_path": media.get("file_path", ""),
-                "caption": _generate_caption(media, event),
-                "event_id": event.get("id") if event else None,
-                "event_title": event.get("title") if event else None,
-                "date": media.get("exif_date", media.get("created_at", "")),
-                **_motion_fields(media["id"], clips),
-                **_context_fields(event, media["id"], contexts_by_event),
-            })
+            slides.append(_media_slide(media, event, clips, contexts_by_event))
 
     return slides
 
@@ -355,100 +411,29 @@ def _generate_caption(media: dict, event: Optional[dict]) -> str:
     return " - ".join(parts) if parts else media.get("original_filename", "")
 
 
-def _journey_contexts(slides: list[dict], limit: int = 3) -> list[dict]:
-    """이 여정에 담긴 사건들의 기억 맥락 (중복 없이, 나온 순서대로)
+async def _journey_story(slides: list[dict]) -> str:
+    """이 여정의 이야기 — Film이 쓴 문장을 그대로 쓴다
 
-    내레이션이 쓸 재료다. 슬라이드에 실은 자막(context_caption)만으로는 무엇을
-    기억한다는 것인지 모델에게 전해지지 않는다 — 자막은 한 줄로 줄인 것이고,
-    여기서는 장면·대상·행동과 "사진에서 확인됐는지"까지 넘긴다.
+    예전에는 여기서 따로 썼다. 모델에게 넘긴 것이 캡션 목록("1998-08-13 - 1998
+    부산 가족여행")뿐이라 이야기가 될 재료가 없었고, 모델은 빈 곳을 스스로 메웠다 —
+    기록에 없는 장면과 감정이 거실 화면에서 사실처럼 읽혔다. 프롬프트에 넘긴 사실
+    목록을 본문에 그대로 베껴 오기도 했다 (memory_context._FACT_LINE이 걷어낸다).
+
+    Film은 [기록]으로 사실을 묶어 넘기고 그 안에서만 쓰게 한다
+    (film_composer._narration). 같은 사건을 두 화면이 다르게 이야기할 이유도 없다 —
+    거실에서 듣는 이야기와 앱에서 보는 이야기가 글자까지 같다.
+
+    사건에 닿지 않은 사진만 모인 여정에는 이야기가 없다. 그때는 비워 둔다 —
+    없는 이야기를 지어 넣는 것이 지금 고치는 문제다.
     """
-    picked: list[dict] = []
-    seen: set[str] = set()
-    events: set[str] = set()
-
-    for slide in slides:
-        event_id = slide.get("event_id")
-        if not event_id or event_id in events:
-            continue
-        events.add(event_id)
-        for context in memory_context.contexts_of(event_id):
-            key = context.get("memory_id") or ""
-            if key in seen:
-                continue
-            seen.add(key)
-            picked.append(context)
-            if len(picked) >= limit:
-                return picked
-    return picked
-
-
-async def _generate_narration(query: str, slides: list[dict]) -> str:
-    """EXAONE으로 내레이션 텍스트 생성"""
-    if not slides or len(slides) <= 1:
+    events, _places = _slide_events(slides)
+    if not events:
         return ""
 
-    slide_summary = []
-    for s in slides[1:6]:  # 타이틀 제외, 최대 5개
-        if s.get("caption"):
-            slide_summary.append(s["caption"])
+    stories = []
+    for event in events[:STORY_EVENTS]:
+        text = await film_composer.story(event["id"])
+        if text:
+            stories.append(text)
 
-    # 가족이 더한 기억에서 뽑은 맥락. Film과 같은 값을 쓴다 (memory_context) —
-    # 거실에서 듣는 이야기와 앱에서 보는 이야기가 갈라지지 않게.
-    contexts = _journey_contexts(slides)
-
-    if not llm_client.is_enabled():
-        return _simulate_narration(query, slide_summary, contexts)
-
-    context_lines = "\n".join(memory_context.prompt_line(c) for c in contexts)
-    messages = [
-        {
-            "role": "system",
-            "content": (
-                "추억 사진 슬라이드쇼의 따뜻한 내레이션을 작성해. 2~3문장으로 짧게.\n"
-                "가족의 기억은 그 사람의 관점이다. 사진에 그 장면이 있다고 쓰지 말고,"
-                " '하늘이가 물장구치던 순간을 엄마는 가장 좋아했어요'처럼 기억의"
-                " 주인을 밝혀서 써.\n"
-                "대괄호로 묶은 제목은 자료를 나누는 표시다. 본문에 옮겨 적지 마.\n"
-                "주어진 것에 없는 사실을 만들지 마."
-            ),
-        },
-        {
-            "role": "user",
-            "content": f"주제: {query}\n사진들: {', '.join(slide_summary)}"
-            + (f"\n\n[가족이 기억하는 것]\n{context_lines}" if context_lines else ""),
-        },
-    ]
-
-    narration = await llm_client.complete(messages, max_tokens=256)
-    if narration is None:
-        return _simulate_narration(query, slide_summary, contexts)
-    # 프롬프트 제목을 베껴 오면 떼어낸다 (Film과 같은 함수를 쓴다 — 두 화면에서
-    # 다르게 걸러지면 거실에만 새어 나온다)
-    return memory_context.strip_prompt_marks(narration)
-
-
-def _simulate_narration(
-    query: str,
-    slide_summary: list[str],
-    contexts: Optional[list[dict]] = None,
-) -> str:
-    """내레이션 시뮬레이션
-
-    맥락이 있으면 그 한 줄을 붙인다. 모델이 없어도 가족이 남긴 관점이 거실
-    화면에서 사라지지 않아야 하고, 문장의 주어는 기억한 사람이다
-    (memory_context.narration_line).
-    """
-    lines = [
-        memory_context.narration_line(context) for context in (contexts or [])[:2]
-    ]
-    tail = " ".join(line for line in lines if line)
-
-    if slide_summary:
-        head = (
-            f"'{query}'에 대한 우리 가족의 소중한 기억들입니다."
-            " 함께한 순간들을 되돌아보며, 그때의 따뜻함을 다시 느껴보세요."
-        )
-    else:
-        head = "우리 가족의 소중한 순간들을 모아봤어요."
-
-    return f"{head} {tail}".strip() if tail else head
+    return "\n\n".join(stories)

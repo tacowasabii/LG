@@ -443,6 +443,7 @@ python tests/test_album.py              # 사진첩 목록·필터·커서·공�
 python tests/test_transcript_source.py  # 전사문 출처·녹음 분류 7개
 python tests/test_video_upload.py       # 영상 길이·첫 장면 썸네일 4개
 python tests/test_tv_motion.py          # TV가 미세 모션 클립을 쓰는지 5개
+python tests/test_tv_menu.py            # TV 메뉴에서 고른 사건·이야기가 그대로 나오는지 8개
 python tests/test_faces.py              # 얼굴 인식 가드 9개
 python tests/test_geocoder.py           # 좌표 -> 대략적인 지명 7개
 

@@ -61,33 +61,43 @@ export function useRemote(handler: (key: RemoteKey) => void) {
 }
 
 /**
- * 격자 위의 포커스 이동. TV에서 포커스는 "지금 어디에 있는가"를 알려주는
- * 유일한 신호이므로 경계에서 튀지 않게 한다 (끝에서 반대편으로 감기지 않음).
+ * 줄(rail)로 나뉜 목록 위의 포커스 이동.
+ *
+ * 격자는 항목이 늘어나면 타일을 잘게 쪼갠다 — 3m 거리에서 읽을 수 없는 크기가
+ * 된다. 줄로 깔면 타일 크기를 지키면서 개수를 늘릴 수 있고, TV에는 잡을 수 있는
+ * 스크롤바가 없으니 포커스가 곧 스크롤이 된다 (화면 밖 타일은 ▶로 끌어온다).
+ *
+ * ▲▼로 줄을 옮길 때는 있던 열을 그대로 들고 간다. 매번 왼쪽 끝으로 튀면 방금
+ * 어디를 보고 있었는지 잃는다.
+ *
+ * 자리는 저장할 때가 아니라 읽을 때 범위 안으로 접는다. 목록이 늦게 도착하는
+ * 화면이라(사건을 API로 받는다) 그 사이에 담긴 자리가 빈 칸을 가리킬 수 있다.
  */
-export function useGridFocus(count: number, cols: number) {
-  const [index, setIndex] = useState(0)
+export function useRailFocus(counts: number[]) {
+  const [pos, setPos] = useState({ rail: 0, index: 0 })
+  /** move()를 누른 횟수 — 리모컨으로 움직였을 때만 줄을 밀기 위해 센다 */
+  const [moves, setMoves] = useState(0)
 
-  // 목록이 짧아지면 포커스가 빈 칸에 남지 않게 당겨 온다
-  useEffect(() => {
-    setIndex((i) => Math.max(0, Math.min(i, count - 1)))
-  }, [count])
+  const rail = Math.max(0, Math.min(pos.rail, counts.length - 1))
+  const index = Math.max(0, Math.min(pos.index, (counts[rail] ?? 0) - 1))
 
-  const move = useCallback(
-    (key: RemoteKey) => {
-      setIndex((i) => {
-        const col = i % cols
-        const lastRow = Math.floor((count - 1) / cols)
-        const row = Math.floor(i / cols)
+  // 접힌 자리와 지금 개수를 ref로 들고 있어서 move()가 렌더마다 새로 생기지 않는다
+  const now = useRef({ rail, index, counts })
+  now.current = { rail, index, counts }
 
-        if (key === 'left') return col > 0 ? i - 1 : i
-        if (key === 'right') return col < cols - 1 && i + 1 < count ? i + 1 : i
-        if (key === 'up') return row > 0 ? i - cols : i
-        if (key === 'down') return row < lastRow ? Math.min(i + cols, count - 1) : i
-        return i
-      })
-    },
-    [count, cols],
-  )
+  const move = useCallback((key: RemoteKey) => {
+    setMoves((n) => n + 1)
+    const { rail: r, index: i, counts: sizes } = now.current
+    if (key === 'left') setPos({ rail: r, index: Math.max(0, i - 1) })
+    else if (key === 'right') setPos({ rail: r, index: Math.min((sizes[r] ?? 0) - 1, i + 1) })
+    else if (key === 'up' && r > 0) setPos({ rail: r - 1, index: i })
+    else if (key === 'down' && r < sizes.length - 1) setPos({ rail: r + 1, index: i })
+  }, [])
 
-  return { index, setIndex, move }
+  /** 마우스로 짚었을 때 — 줄을 밀지 않는다 (커서 아래에서 타일이 도망간다) */
+  const focus = useCallback((toRail: number, toIndex: number) => {
+    setPos({ rail: toRail, index: toIndex })
+  }, [])
+
+  return { rail, index, moves, move, focus }
 }

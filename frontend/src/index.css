@@ -520,6 +520,17 @@
     transform: scale(1.045);
     z-index: 1;
   }
+
+  /*
+   * 메뉴의 줄은 포커스에 따라 옆으로 밀린다. 리모컨에는 스크롤바를 잡을
+   * 포인터가 없으니, 보이는 스크롤바는 조작할 수 없는 위젯일 뿐이다.
+   */
+  .tv-rail {
+    scrollbar-width: none;
+  }
+  .tv-rail::-webkit-scrollbar {
+    display: none;
+  }
 }
 
 @keyframes tv-fade-in {

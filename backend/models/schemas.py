@@ -663,6 +663,9 @@ class AnniversaryItem(BaseModel):
 class TVJourneyRequest(BaseModel):
     query: str  # "우리 가족의 2015년", "부산 여행" 등
     style: str = "timeline"  # "timeline" | "story" | "people"
+    # 화면이 이미 사건을 짚었을 때. 있으면 query를 다시 해석하지 않고 이 사건들의
+    # 사진만 쓴다 — TV 메뉴의 타일은 무엇을 고른 것인지가 분명해야 한다.
+    event_ids: Optional[list[str]] = None
 
 
 class TVSlide(BaseModel):

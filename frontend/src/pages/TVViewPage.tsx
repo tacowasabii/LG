@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { createTVJourney, TVJourney, mediaUrl } from '../lib/api'
-import { useGridFocus, useRemote, RemoteKey } from '../lib/remote'
+import { useRailFocus, useRemote, RemoteKey } from '../lib/remote'
 import RichText from '../components/RichText'
 import AudioClip from '../components/AudioClip'
 import RemoteHint from '../components/RemoteHint'
@@ -10,7 +10,7 @@ import { useEvents, useVoiceClips } from '../lib/useGraphData'
 import { usePrefersReducedMotion } from '../lib/reducedMotion'
 import { useNarrator } from '../lib/narrator'
 import { useFilmMusic } from '../lib/filmMusic'
-import { ambientSlides, buildLocalJourney, tvPresets } from '../lib/tvCuration'
+import { ambientSlides, buildLocalJourney, eventTiles, tvPresets } from '../lib/tvCuration'
 
 /**
  * LG TV — Memory Live / Journey (기획안 06장 LG PRODUCT LINKAGE)
@@ -19,7 +19,8 @@ import { ambientSlides, buildLocalJourney, tvPresets } from '../lib/tvCuration'
  * 웹 화면과 설계 규칙이 다르다.
  *
  *  - 검색창이 없다. TV에는 키보드가 없어서 텍스트 입력은 조작이 아니라 벌이다.
- *    대신 대기화면이 먼저 오늘의 기억을 띄우고, 나머지는 프리셋 6개로만 들어간다.
+ *    대신 대기화면이 먼저 오늘의 기억을 띄우고, 메뉴는 묶음 프리셋 한 줄과
+ *    모든 사건을 연대순으로 깐 한 줄로 들어간다. 어느 기억도 메뉴 밖에 남지 않는다.
  *  - 화면은 3개뿐이다: 대기화면 → 재생 → 근거. 그래프·업로드·공개설정은
  *    TV에 올리지 않는다 (그건 모바일·웹의 몫이다).
  *  - 재생 화면에는 누를 수 있는 위젯을 두지 않는다. 포커스가 갈 곳이 없으면
@@ -56,8 +57,23 @@ const MOTIONS = ['motion-zoom-in', 'motion-pan-left', 'motion-zoom-out', 'motion
 
 /** index.css의 kenburns 애니메이션 길이와 맞춰 둔다 */
 const SLIDE_MS = 9000
+
+/**
+ * 낭독이 끝나고 다음 장면으로 넘어가기까지의 숨.
+ *
+ * 마지막 문장이 끝나는 순간에 화면이 바뀌면 말을 끊은 것처럼 들린다.
+ */
+const AFTER_NARRATION_MS = 1600
+
+/**
+ * 소리 없이 글로만 읽을 때 한 글자에 주는 시간.
+ *
+ * 낭독을 못 하는 기기(speechSynthesis가 없거나 한국어 목소리가 없는 브라우저)에서는
+ * 타이틀에서 기다릴 근거가 글자 수뿐이다. 한국어를 소리 내어 읽는 속도(분당 약
+ * 350자)에 눈으로 읽는 여유를 더해 잡았다. SLIDE_MS보다 짧아지지는 않는다.
+ */
+const READ_MS_PER_CHAR = 110
 const AMBIENT_ROTATE_MS = 12000
-const PRESET_COLS = 3
 
 /** 사진 위에 자막을 얹으려면 아래가 어두워야 한다 */
 const SCRIM_STRONG =
@@ -161,8 +177,23 @@ export default function TVViewPage() {
   const evidenceRef = useRef<HTMLDivElement>(null)
 
   const ambient = useMemo(() => ambientSlides(events, allClips), [events, allClips])
-  const presets = useMemo(() => tvPresets(events, allClips), [events, allClips])
-  const preset = useGridFocus(presets.length, PRESET_COLS)
+  /*
+    메뉴에 깔 두 줄. 위는 골라 묶은 프리셋, 아래는 모든 사건이다.
+
+    예전에는 프리셋 여섯 개가 메뉴의 전부여서, 그 묶음에 들지 못한 사건은 TV에서
+    누를 방법이 아예 없었다. 묶음을 늘려 메우지 않고 줄을 하나 더 깐다 — 묶음은
+    "무엇부터 볼까"에 답하는 것이고, 모든 사건은 목록이라 성질이 다르다.
+  */
+  const rails = useMemo(() => {
+    const groups = [
+      { id: 'presets', title: '묶어서 보기', items: tvPresets(events, allClips) },
+      { id: 'events', title: '사건 하나하나', items: eventTiles(events) },
+    ]
+    return groups.filter((g) => g.items.length > 0)
+  }, [events, allClips])
+  const railCounts = useMemo(() => rails.map((r) => r.items.length), [rails])
+  const menu = useRailFocus(railCounts)
+  const focusedTile = useRef<HTMLButtonElement | null>(null)
 
   const ambientSlide = ambient[ambientIndex % ambient.length]
 
@@ -182,6 +213,18 @@ export default function TVViewPage() {
     return () => window.clearInterval(timer)
   }, [screen, ambient.length])
 
+  /*
+    메뉴에서 포커스가 화면 밖으로 나가면 그 줄을 옆으로 민다. TV에는 스크롤바를
+    잡을 포인터가 없으므로 포커스가 스크롤을 대신한다.
+
+    리모컨으로 움직였을 때(menu.moves)만 민다. 마우스로 훑을 때도 밀면 커서 아래에
+    있던 타일이 옆으로 도망가고, 그 자리에 온 다음 타일이 다시 포커스를 받는다.
+  */
+  useEffect(() => {
+    if (screen !== 'menu') return
+    focusedTile.current?.scrollIntoView({ behavior: 'smooth', block: 'nearest', inline: 'center' })
+  }, [screen, menu.moves, menu.rail, menu.index])
+
   /**
    * 재생 시작. 서버 큐레이션을 먼저 쓰고, 응답이 없거나 비면 로컬로 조립한다.
    * 대기화면에서 OK를 눌렀는데 아무 일도 안 일어나는 것이 이 화면에서 가장
@@ -196,7 +239,9 @@ export default function TVViewPage() {
 
     let result: TVJourney | null = null
     try {
-      const fromServer = await createTVJourney(query)
+      // 고른 사건을 함께 보낸다. 그러면 서버가 제목을 키워드로 다시 훑지 않는다 —
+      // 훑으면 "입학식"을 눌렀는데 같은 사람이 찍힌 다른 해의 사진이 섞인다.
+      const fromServer = await createTVJourney(query, undefined, eventIds)
       // 타이틀 한 장만 오는 경우가 있어 실제 사진이 붙었는지까지 본다
       if (fromServer?.slides?.some((s) => s.file_path)) result = fromServer
     } catch (e) {
@@ -210,7 +255,9 @@ export default function TVViewPage() {
     // 같은 프리셋을 다시 보면 id가 같다. 초기화하지 않으면 두 번째부터 낭독이
     // 안 나온다 — 처음 볼 때만 읽어 주는 화면이 되어 버린다.
     narrated.current = null
-  }, [music.prime])
+    // events가 빠져 있으면 첫 렌더의 빈 목록을 계속 들고 있는다 — 서버가 죽었을 때
+    // 폴백이 사진 0장짜리 여정을 만든다. 폴백이 있으나 마나가 되는 자리다.
+  }, [music.prime, events])
 
   /**
    * 타이틀 장면에서 내레이션을 읽어 준다.
@@ -221,6 +268,9 @@ export default function TVViewPage() {
    *
    * 사진 장면에서는 읽지 않는다. 거기서는 실제 가족 음성이 재생되고, 기계 낭독이
    * 겹치면 어느 쪽이 가족 목소리인지 알 수 없다.
+   *
+   * 읽는 동안 화면은 서 있는다 (아래 자동재생 훅). 9초로 잘라 넘기면 이야기가
+   * 문장 중간에서 끊긴다.
    */
   useEffect(() => {
     const current = journey?.slides[slideIndex]
@@ -257,15 +307,58 @@ export default function TVViewPage() {
     setSlideIndex((i) => Math.max(i - 1, 0))
   }, [])
 
-  // 자동재생 — 마지막 장에서는 대기화면으로 돌아간다 (TV는 계속 켜져 있다)
+  /*
+    낭독이 실제로 나고 끝난 여정.
+
+    "읽기 시작했다"(narrated)와 나눠 둔다. speechSynthesis가 있어도 한국어 목소리가
+    없거나 발화가 바로 실패하는 기기가 있어서, 시작한 것만 보면 소리가 한 마디도
+    나지 않았는데 "다 읽었다"고 판단한다 — 그러면 글을 읽을 시간도 주지 않고 넘어간다.
+    소리가 났다가 멈춘 것(speaking: true -> false)만 끝난 것으로 센다.
+
+    아래 자동재생 훅보다 먼저 선언한다. 훅은 선언 순서대로 도므로, 같은 렌더에서
+    이 값이 먼저 정해져야 한다.
+  */
+  const spokenEnd = useRef<string | null>(null)
+  const wasSpeaking = useRef(false)
+
+  useEffect(() => {
+    if (speaking) wasSpeaking.current = true
+    else if (wasSpeaking.current) {
+      wasSpeaking.current = false
+      spokenEnd.current = journey?.id ?? null
+    }
+  }, [speaking, journey])
+
+  /*
+    자동재생 — 마지막 장에서는 대기화면으로 돌아간다 (TV는 계속 켜져 있다).
+
+    타이틀 장면은 이야기가 끝나기를 기다린다. 예전에는 9초를 세고 넘어가서, 낭독이
+    문장 중간에서 끊기고 그 여정이 하려던 말을 아무도 끝까지 듣지 못했다. 이야기를
+    들려주는 것이 이 화면의 일이므로, 여기서는 시간이 이야기를 기다린다.
+
+      - 읽는 중이면 타이머를 걸지 않는다 (speaking이 false로 바뀌면 훅이 다시 돈다)
+      - 다 읽었으면 숨 한 번 뒤에 넘어간다
+      - 소리가 나지 않는 기기에서는 글자 수로 읽을 시간을 잰다
+  */
   useEffect(() => {
     if (screen !== 'play' || !autoPlay || showEvidence || !journey) return
+
+    const onTitle = journey.slides[slideIndex]?.type === 'title'
+    if (onTitle && speaking) return
+
+    const narration = journey.narration || ''
+    const wait = !onTitle
+      ? SLIDE_MS
+      : spokenEnd.current === journey.id
+        ? AFTER_NARRATION_MS
+        : Math.max(SLIDE_MS, narration.length * READ_MS_PER_CHAR)
+
     const timer = window.setTimeout(() => {
       if (slideIndex >= journey.slides.length - 1) exitToAmbient()
       else setSlideIndex((i) => i + 1)
-    }, SLIDE_MS)
+    }, wait)
     return () => window.clearTimeout(timer)
-  }, [screen, autoPlay, showEvidence, journey, slideIndex, exitToAmbient])
+  }, [screen, autoPlay, showEvidence, journey, slideIndex, speaking, exitToAmbient])
 
   /*
     배경 음악 — 재생 화면에서 자동재생이 돌 때만 난다.
@@ -322,9 +415,10 @@ export default function TVViewPage() {
         if (screen === 'menu') {
           if (key === 'back') setScreen('ambient')
           else if (key === 'ok') {
-            const chosen = presets[preset.index]
-            start(chosen.label, chosen.query, chosen.event_ids)
-          } else preset.move(key)
+            // 사건을 아직 못 받았으면 고를 것이 없다 (rails가 비어 있다)
+            const chosen = rails[menu.rail]?.items[menu.index]
+            if (chosen) start(chosen.label, chosen.query, chosen.event_ids)
+          } else menu.move(key)
           return
         }
 
@@ -357,8 +451,10 @@ export default function TVViewPage() {
         screen,
         ambientSlide,
         ambient.length,
-        presets,
-        preset,
+        rails,
+        menu.rail,
+        menu.index,
+        menu.move,
         showEvidence,
         start,
         goNext,
@@ -456,63 +552,89 @@ export default function TVViewPage() {
     )
   }
 
-  // ── 메뉴 (프리셋 6개) ───────────────────────────────────────────────────
+  // ── 메뉴 (묶음 한 줄 + 모든 사건 한 줄) ────────────────────────────────
   if (screen === 'menu') {
     return (
       <div className="tv-safe relative flex h-full w-full flex-col">
         <TopBar onExit={exitToApp} />
+        {/* 부제를 두지 않는다. 줄 제목이 이미 무엇을 묶었는지 말하고, 그만큼의
+            높이는 사진에 주는 편이 낫다 (두 줄이 한 화면에 들어가야 한다) */}
         <h1 className="tv-title text-paper">무엇을 볼까요?</h1>
-        <p className="tv-body mt-[1vh] text-paper/50">
-          가족의 기억을 사건 · 사람 · 시기로 묶어 두었습니다
-        </p>
 
         {/*
-          TV는 스크롤이 없다. 타일 높이를 사진 비율(16:9)로 고정하면 두 번째 줄과
-          하단 안내가 화면 밖으로 밀려 영원히 보이지 않는다. 그래서 남은 높이를
-          줄 수로 나눠 갖고, 사진이 그 안에서 잘리도록 한다.
+          TV는 스크롤이 없다. 그래서 줄 수는 화면에 들어가는 만큼(두 줄)으로 고정하고,
+          늘어나는 쪽은 옆으로 민다. 남은 높이를 줄 수로 나눠 갖고 사진은 그 안에서
+          잘리게 한다 — 타일 높이를 사진 비율로 고정하면 아래 줄과 리모컨 안내가
+          화면 밖으로 밀려 영원히 보이지 않는다.
         */}
-        <div
-          className="mt-[3vh] grid min-h-0 flex-1 gap-[1.6vw]"
-          style={{
-            gridTemplateColumns: 'repeat(' + PRESET_COLS + ', minmax(0, 1fr))',
-            gridTemplateRows:
-              'repeat(' + Math.ceil(presets.length / PRESET_COLS) + ', minmax(0, 1fr))',
-          }}
-        >
-          {presets.map((item, i) => {
-            const focused = i === preset.index
-            return (
-              <button
-                key={item.id}
-                onClick={() => start(item.label, item.query, item.event_ids)}
-                onMouseEnter={() => preset.setIndex(i)}
-                className={`tv-focusable flex min-h-0 flex-col overflow-hidden rounded-lg
-                            border border-paper/[0.12] bg-paper/[0.08] text-left
-                            ${focused ? 'tv-focused bg-paper/[0.14]' : ''}`}
+        <div className="mt-[2vh] flex min-h-0 flex-1 flex-col gap-[1.2vh]">
+          {/* 사건을 아직 못 받았을 때. 빈 화면으로 두면 리모컨이 고장 난 것처럼 보인다 */}
+          {rails.length === 0 && (
+            <p className="tv-heading animate-pulse self-center text-paper/50">
+              기억을 불러오고 있어요…
+            </p>
+          )}
+          {rails.map((rail, r) => (
+            <section key={rail.id} className="flex min-h-0 flex-1 flex-col">
+              <h2 className="tv-heading shrink-0 text-paper/70">
+                {rail.title}
+                <span className="tv-caption ml-[0.8vw] font-normal text-paper/40">
+                  {rail.items.length}개
+                </span>
+              </h2>
+
+              {/* 옆으로 미는 줄은 넘치는 쪽을 잘라낸다. 포커스는 크기와 테두리로
+                  드러나므로(index.css의 tv-focused) 그만큼 안쪽 여백을 준다.
+                  좌우는 음수 마진으로 되돌려, 첫 타일이 제목과 같은 선에서 시작한다 */}
+              <div
+                className="tv-rail -mx-[0.9vw] mt-[0.8vh] flex min-h-0 flex-1 gap-[1.4vw]
+                           overflow-x-auto px-[0.9vw] py-[1.2vh]"
               >
-                <div className="min-h-0 flex-1 overflow-hidden bg-paper/5">
-                  {item.thumb && (
-                    <img
-                      src={mediaUrl(item.thumb)}
-                      alt=""
-                      className="h-full w-full object-cover transition-[filter] duration-200"
-                      style={{ filter: `brightness(${focused ? 1 : 0.62})` }}
-                    />
-                  )}
-                </div>
-                <div className="shrink-0 px-[1.2vw] py-[1.4vh]">
-                  <p className="tv-heading text-paper">{item.label}</p>
-                  <p className="tv-caption mt-[0.4vh] text-paper/55">{item.sublabel}</p>
-                </div>
-              </button>
-            )
-          })}
+                {rail.items.map((item, i) => {
+                  const focused = r === menu.rail && i === menu.index
+                  return (
+                    <button
+                      key={item.id}
+                      ref={focused ? focusedTile : undefined}
+                      onClick={() => start(item.label, item.query, item.event_ids)}
+                      onMouseEnter={() => menu.focus(r, i)}
+                      className={`tv-focusable flex w-[21vw] shrink-0 flex-col overflow-hidden
+                                  rounded-lg border border-paper/[0.12] bg-paper/[0.08] text-left
+                                  ${focused ? 'tv-focused bg-paper/[0.14]' : ''}`}
+                    >
+                      <div className="flex min-h-0 flex-1 items-center justify-center overflow-hidden bg-paper/5">
+                        {item.thumb ? (
+                          <img
+                            src={mediaUrl(item.thumb)}
+                            alt=""
+                            className="h-full w-full object-cover transition-[filter] duration-200"
+                            style={{ filter: `brightness(${focused ? 1 : 0.62})` }}
+                          />
+                        ) : (
+                          // 사진이 아직 없는 사건도 목록에 남긴다. 감추면 그 기억은
+                          // TV에서 다시 사라진다 — 빈 칸으로 두면 고장으로 보인다
+                          <span className="tv-caption text-paper/40">사진이 아직 없어요</span>
+                        )}
+                      </div>
+                      <div className="shrink-0 px-[1vw] py-[1.1vh]">
+                        <p className="tv-heading truncate text-paper">{item.label}</p>
+                        <p className="tv-caption mt-[0.3vh] truncate text-paper/55">
+                          {item.sublabel}
+                        </p>
+                      </div>
+                    </button>
+                  )
+                })}
+              </div>
+            </section>
+          ))}
         </div>
 
-        <div className="mt-[3vh]">
+        <div className="mt-[2vh]">
           <RemoteHint
             hints={[
-              { key: '◀ ▶ ▲ ▼', label: '고르기' },
+              { key: '◀ ▶', label: '고르기' },
+              { key: '▲ ▼', label: '줄 옮기기' },
               { key: 'OK', label: '재생' },
               { key: 'BACK', label: '대기화면' },
             ]}

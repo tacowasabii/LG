@@ -589,6 +589,22 @@ _BRACKET_MARK = re.compile(
     r"|연결된\s*사진의\s*장면\s*설명"
     r")\s*\]"
 )
+# 프롬프트에 넘긴 사실 목록을 본문에 그대로 베껴 오는 경우.
+#
+# 실제로 거실 화면(TV)의 이야기가 이렇게 시작했다:
+#   사건: 1998 부산 가족여행
+#   날짜: 1998-08-13
+#   장소: 부산 광안리 해수욕장
+#   참여: 김하늘, 박서연, 이준석
+# 이것은 이야기가 아니라 표다. 날짜·장소·사건명은 이미 자막에 있고, 3m 떨어져
+# 보는 화면에서 같은 것이 두 번 나오면 읽을 것이 아니라 치울 것이 된다.
+#
+# 줄 전체가 "이름: 값"인 것만 떼어낸다. 문장 중간의 콜론은 건드리지 않는다 —
+# 사람이 쓴 기억에도 콜론이 나온다.
+_FACT_LINE = re.compile(
+    r"^[ \t]*(?:사건|날짜|장소|참여|주제|사진들|[가-힣]{2,5}의\s*기억)\s*:[^\n]*$",
+    re.MULTILINE,
+)
 # 대괄호를 소괄호로 바꿔 적어 오는 경우. 소괄호는 정상 문장에도 쓰이므로
 # 프롬프트에서 온 것이 분명한 문구만 본다.
 _PAREN_MARK = re.compile(r"\(\s*사진에서\s*확인[^)]*\)")
@@ -604,7 +620,7 @@ def strip_prompt_marks(text: Optional[str]) -> str:
     if not text:
         return text or ""
 
-    cleaned = _PAREN_MARK.sub("", _BRACKET_MARK.sub("", text))
+    cleaned = _FACT_LINE.sub("", _PAREN_MARK.sub("", _BRACKET_MARK.sub("", text)))
     # 표시를 뗀 자리에 공백이 겹치거나 구두점이 떨어져 남는다 ("…기억합니다 .")
     cleaned = re.sub(r"[ \t]{2,}", " ", cleaned)
     cleaned = re.sub(r"[ \t]+([.,!?…])", r"\1", cleaned)

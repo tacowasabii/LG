@@ -22,6 +22,7 @@
 
 from __future__ import annotations
 
+import hashlib
 from datetime import date
 from pathlib import Path
 from typing import Optional
@@ -37,6 +38,17 @@ from backend.services import (
 )
 from backend.services.graph_manager import graph_manager
 from backend.models.graph_models import MediaType, NodeType
+
+# 한 번 쓴 이야기는 다시 쓰지 않는다 — 같은 기록이면 같은 문장.
+#
+# Film을 다시 열거나 거실 화면(TV)이 같은 사건을 물을 때 새로 쓰면 문장이 매번
+# 달라진다. 추모하는 자리에서 같은 기억이 매번 다르게 이야기되는 것은 이 제품이
+# 지키려는 것과 정반대고, 모델을 부르는 값도 그만큼 나간다.
+#
+# 열쇠는 프롬프트에 실제로 들어간 것이다 (사실 목록 + 맥락 + 대상 세대). 기억이
+# 더해지거나 고쳐지면 열쇠가 달라져 다시 쓴다. 공개 범위로 걸러진 뒤의 목록이라
+# 보는 사람이 달라도 열쇠가 달라진다.
+_stories: dict[str, str] = {}
 
 # 사진 한 장이 화면에 머무는 기본 시간 (초)
 PHOTO_SEC = 8
@@ -138,16 +150,12 @@ def _request_clip(photo: dict, event: dict, place_name: Optional[str]) -> bool:
     return motion_clips.request(photo["id"], _photo_file(photo), prompt)
 
 
-async def compose(
-    event_id: str,
-    length_sec: int = 45,
-    audience: str = "adult",
-    viewer_id: Optional[str] = None,
-) -> Optional[dict]:
-    """사건 하나로 Film 스토리보드를 만든다
+def _record(event_id: str, viewer_id: Optional[str] = None) -> Optional[dict]:
+    """이 사건의 기록 — 장면과 이야기가 같은 것을 본다
 
-    보는 사람이 볼 수 없는 원본은 장면으로도, 내레이션의 근거로도 쓰지 않는다.
-    비공개로 바꾼 사진이 영상에서 다시 나오면 설정이 무의미해진다 (기획안 08장).
+    보는 사람이 볼 수 없는 원본은 장면으로도, 내레이션의 근거로도 쓰지 않는다
+    (기획안 08장). 그래서 걸러내는 자리는 하나여야 한다 — 이야기만 따로 뽑는
+    story()가 다른 목록을 보면, 화면에 없는 사진을 근거로 이야기하게 된다.
     """
     event = graph_manager.get_node(event_id)
     if not event or event.get("node_type") != NodeType.EVENT:
@@ -160,16 +168,73 @@ async def compose(
     memories = visibility.filter_memories(
         [n for n in connected if n.get("node_type") == NodeType.MEMORY], viewer_id
     )
-    persons = [n for n in connected if n.get("node_type") == NodeType.PERSON]
-    place = graph_manager.get_node(event.get("location_id") or "")
+
+    return {
+        "event": event,
+        "media": media,
+        "memories": memories,
+        "persons": [n for n in connected if n.get("node_type") == NodeType.PERSON],
+        "place": graph_manager.get_node(event.get("location_id") or ""),
+        "contexts": memory_context.from_memories(memories, {m["id"] for m in media}),
+    }
+
+
+async def story(
+    event_id: str,
+    audience: str = "adult",
+    viewer_id: Optional[str] = None,
+) -> str:
+    """이 사건의 Film 이야기 — 문장만
+
+    compose()를 부르지 않는다. 그쪽은 장면을 짜고 미세 모션 클립 생성까지
+    맡기는데(40초·비용), TV는 만들지 않는다. 필요한 것은 문장뿐이다.
+
+    같은 기록이면 같은 문장이 나온다 (_narration의 캐시). 그래서 앱에서 본 Film과
+    거실에서 듣는 이야기가 글자까지 같다 — 같은 사건을 두 화면이 다르게
+    이야기하면, 어느 쪽이 그 가족의 기억인지 알 수 없다.
+    """
+    record = _record(event_id, viewer_id)
+    if not record:
+        return ""
+
+    place = record["place"]
+    return await _narration(
+        record["event"],
+        record["memories"],
+        record["persons"],
+        place.get("name") if place else None,
+        audience,
+        record["contexts"],
+    )
+
+
+async def compose(
+    event_id: str,
+    length_sec: int = 45,
+    audience: str = "adult",
+    viewer_id: Optional[str] = None,
+) -> Optional[dict]:
+    """사건 하나로 Film 스토리보드를 만든다
+
+    보는 사람이 볼 수 없는 원본은 장면으로도, 내레이션의 근거로도 쓰지 않는다.
+    비공개로 바꾼 사진이 영상에서 다시 나오면 설정이 무의미해진다 (기획안 08장).
+    """
+    record = _record(event_id, viewer_id)
+    if not record:
+        return None
+
+    event = record["event"]
+    media = record["media"]
+    memories = record["memories"]
+    persons = record["persons"]
+    place = record["place"]
+    # 가족이 기억을 더할 때 그 문장에서 뽑아 둔 맥락 (services/memory_context.py).
+    # 없으면 지금까지와 똑같이 동작한다 — 맥락은 얹히는 값이고 전제가 아니다.
+    contexts = record["contexts"]
 
     photos = [m for m in media if m.get("media_type") == MediaType.PHOTO]
     videos = [m for m in media if m.get("media_type") == MediaType.VIDEO]
     audios = [m for m in media if m.get("media_type") == MediaType.AUDIO]
-
-    # 가족이 기억을 더할 때 그 문장에서 뽑아 둔 맥락 (services/memory_context.py).
-    # 없으면 지금까지와 똑같이 동작한다 — 맥락은 얹히는 값이고 전제가 아니다.
-    contexts = memory_context.from_memories(memories, {m["id"] for m in media})
     # 맥락이 가리키는 사진을 앞으로 옮긴다. 빼지는 않는다 (memory_context.prioritize).
     photos = memory_context.prioritize(photos, contexts)
 
@@ -500,8 +565,15 @@ async def _narration(
 
     context_lines = "\n".join(memory_context.prompt_line(c) for c in contexts or [])
 
+    key = hashlib.sha1(
+        "\n".join([*facts, context_lines, audience]).encode("utf-8")
+    ).hexdigest()
+    if key in _stories:
+        return _stories[key]
+
     if not llm_client.is_enabled():
-        return _plain_narration(event, memories, persons, place, contexts)
+        _stories[key] = _plain_narration(event, memories, persons, place, contexts)
+        return _stories[key]
 
     messages = [
         {
@@ -526,10 +598,13 @@ async def _narration(
 
     narration = await llm_client.complete(messages, max_tokens=300)
     if not narration:
+        # 모델에 닿지 못한 것은 담아 두지 않는다. 사실만 적은 문장으로 이번 화면을
+        # 채우고, 다음에는 다시 물어본다.
         return _plain_narration(event, memories, persons, place, contexts)
-    # 프롬프트 제목을 베껴 오면 떼어낸다. 프롬프트에 "옮기지 마라"를 적어도
-    # 막히지 않는다 (interview_engine._clean_question과 같은 판단이다).
-    return memory_context.strip_prompt_marks(narration)
+    # 프롬프트 제목과 넘긴 사실 목록을 베껴 오면 떼어낸다. 프롬프트에 "옮기지
+    # 마라"를 적어도 막히지 않는다 (interview_engine._clean_question과 같은 판단).
+    _stories[key] = memory_context.strip_prompt_marks(narration)
+    return _stories[key]
 
 
 def _plain_narration(
