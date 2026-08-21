@@ -74,6 +74,14 @@ def main() -> int:
     # 매 부팅에 돌려도 되는 일이다 (있으면 아무것도 하지 않는다).
     _run("build_video_posters.py", ["--install-only"])
 
+    # 아무것도 걸리지 않은 장소를 치운다. 추억을 지울 때 장소를 남겨 두던 시절에
+    # 생긴 것들이다 — 배포된 그래프에 "강원 홍천"과 "경기 수원"이 아무것도 걸리지
+    # 않은 점으로 떠 있었다. 지우는 자리는 고쳤지만
+    # (services/event_resolver.prune_orphan_places) 이미 남아 있는 것에는
+    # 소급되지 않으므로, 영상 썸네일과 같은 이유로 여기서 한 번 훑는다.
+    # 치울 것이 없으면 아무것도 하지 않는다.
+    _run("prune_orphan_places.py", ["--delete", "--quiet"])
+
     if _profiles_ready():
         print("[boot] 프로필이 이미 있습니다. 생성을 건너뜁니다.")
     else:

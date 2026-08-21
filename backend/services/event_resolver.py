@@ -59,6 +59,75 @@ def resolve_place(lat: float, lng: float, event_id: Optional[str] = None) -> Opt
     return place.id
 
 
+def place_is_orphan(place_id: str, referenced: Optional[set] = None) -> bool:
+    """이 장소를 가리키는 것이 하나도 없는가
+
+    장소는 파생 노드다. 사진의 EXIF 좌표에서 짐작한 지명이 추억의 장소 칸에
+    채워지고(routers/media.py의 place_guess -> memories._resolve_place_by_name),
+    그 추억이 가리키는 동안만 존재할 이유가 있다. 스스로 열리는 화면이 없다 —
+    지도는 사건을 그리고 사진첩은 원본을 그린다.
+
+    가리키는 것을 두 가지로 본다. 엣지(LOCATED_AT · TAKEN_AT)와 사건의
+    location_id다. 둘째를 빠뜨리면 엣지 없이 location_id로만 이어진 장소를
+    "아무도 안 쓴다"고 읽어 지운다 — 지우는 판정이므로 넓게 잡는 편이 맞다.
+
+    Args:
+        referenced: 미리 모아 둔 location_id 집합. 여러 장소를 볼 때 사건 목록을
+            매번 다시 읽지 않게 한다. 없으면 여기서 읽는다.
+    """
+    node = graph_manager.get_node(place_id)
+    if not node or node.get("node_type") != NodeType.PLACE:
+        return False
+    if graph_manager.get_connected_nodes(place_id):
+        return False
+    if referenced is None:
+        referenced = _referenced_place_ids()
+    return place_id not in referenced
+
+
+def _referenced_place_ids() -> set:
+    """사건이 대표 장소로 지목한 장소 id"""
+    return {
+        event.get("location_id")
+        for event in graph_manager.get_events()
+        if event.get("location_id")
+    }
+
+
+def orphan_places() -> list[dict]:
+    """아무것도 걸리지 않은 장소 전부
+
+    이미 남아 있는 것을 찾는 자리다 (scripts/prune_orphan_places.py). 배포된
+    그래프에 "강원 홍천"과 "경기 수원"이 아무것도 걸리지 않은 점으로 떠 있었다 —
+    그 추억을 지웠는데 장소만 남은 것이다.
+    """
+    referenced = _referenced_place_ids()
+    return [
+        place
+        for place in graph_manager.get_places()
+        if place_is_orphan(place["id"], referenced)
+    ]
+
+
+def prune_orphan_places(place_ids: list[str]) -> list[str]:
+    """이 중 아무것도 걸리지 않게 된 장소를 거둔다
+
+    사건·원본을 지운 자리에서 그 뒤에 부른다 (memories.delete_event). 아직
+    가리키는 것이 있으면 손대지 않는다 — 장소는 한 추억만의 것이 아니다.
+
+    Returns:
+        실제로 지운 장소 id
+    """
+    referenced = _referenced_place_ids()
+    pruned = []
+    for place_id in place_ids:
+        if not place_is_orphan(place_id, referenced):
+            continue
+        if graph_manager.delete_node(place_id):
+            pruned.append(place_id)
+    return pruned
+
+
 def _ensure_event_place_edge(event_id: str, place_id: str):
     """이벤트 → 장소 엣지가 없으면 생성"""
     edges = graph_manager.get_all_edges()
