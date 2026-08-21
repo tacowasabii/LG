@@ -7,6 +7,7 @@
     POST /api/memories             추억 만들기 (즉시 게시)
     GET  /api/memories/feed        기억 이어가기 목록
     GET  /api/memories/{id}        추억 상세
+    PUT  /api/memories/{id}        추억 정보 고치기 (제목·날짜·장소·함께한 사람)
     POST /api/memories/{id}/echo   나도 기억나요 (토글)
     POST /api/memories/{id}/memory 내 기억 더하기
     DEL  /api/memories/{id}/memory/{memory_id}  내가 남긴 기억 지우기
@@ -25,6 +26,7 @@ from backend.models.schemas import (
     MemoryCreateRequest,
     MemoryDraftRequest,
     MemoryMediaRequest,
+    MemoryUpdateRequest,
 )
 from backend.services import (
     memories,
@@ -133,6 +135,107 @@ async def memory_detail(
     if not detail:
         raise HTTPException(status_code=404, detail="추억을 찾을 수 없습니다.")
     return detail
+
+
+@router.put("/{event_id}")
+async def update_memory(
+    event_id: str,
+    request: MemoryUpdateRequest,
+    actor: Optional[dict] = Depends(current_actor),
+):
+    """추억의 정보 고치기 — 제목 · 날짜 · 장소 · 함께한 사람 (만든 사람이나 가족 관리자만)
+
+    만들 때 AI 초안을 고쳐 저장했더라도 뒤늦게 어긋난 것이 나온다 — 사진의 촬영
+    날짜가 EXIF에 없어 올린 날로 들어갔거나, 좌표에서 짐작한 지명이 옆 동네였거나,
+    얼굴 인식이 놓친 할머니가 "함께한 사람"에 없다. 그때 지우고 다시 만들게 하면
+    가족이 그 추억에 남긴 기억과 "나도 기억나요"가 함께 사라진다.
+
+    기억 문장은 이 요청으로 바뀌지 않는다. 제목·날짜·장소는 가족이 함께 보는
+    기록이고, 기억 문장은 그 말을 한 사람의 것이다.
+
+    남이 만든 추억을 고치려 하면 서버가 이유를 밝히며 막는다(403) — 지우기와 같은
+    판정이다(permissions.require_owner_of). 화면은 단추를 미리 감추지 않는다.
+
+    응답은 무엇이 바뀌었는지 밝힌다. "저장했습니다" 한 마디로 끝내면, 장소를
+    옮기다 예전 장소가 함께 거둬진 것도, 뗀 사람이 사진 지목 때문에 되돌아올
+    것도 사용자는 알 수 없다.
+    """
+    event = graph_manager.get_node(event_id)
+    if not event or event.get("node_type") != NodeType.EVENT:
+        raise HTTPException(status_code=404, detail="그 추억을 찾을 수 없습니다.")
+
+    permissions.require_owner_of(event, actor, what="추억", action="고칠")
+
+    if not (request.title or "").strip():
+        raise HTTPException(
+            status_code=400,
+            detail="제목은 비울 수 없습니다. 목록·지도·이야기가 모두 제목으로 이 추억을 부릅니다.",
+        )
+
+    viewer = _viewer(None, actor)
+    result = memories.update_memory(
+        event_id,
+        title=request.title,
+        date_start=request.date_start,
+        place_id=request.place_id,
+        place_name=request.place_name,
+        person_ids=request.person_ids,
+    )
+    if not result:
+        raise HTTPException(status_code=404, detail="그 추억을 찾을 수 없습니다.")
+
+    # "제목을 'X'로"처럼 쓰지 않는다. 받침에 따라 조사가 갈리는데(로/으로) 제목과
+    # 장소 이름은 사용자가 적은 것이라 여기서 고를 수 없다. "제목은 이제 'X'입니다"는
+    # 어느 이름에도 붙는다.
+    changed = result["changed"]
+    parts: list[str] = []
+    if "title" in changed:
+        parts.append(f"제목은 이제 '{result['title']}'입니다.")
+    if "date_start" in changed:
+        parts.append(
+            f"날짜는 {result['date_start']}입니다."
+            if result["date_start"]
+            else "날짜를 비웠습니다 (날짜 미상)."
+        )
+    if "place" in changed:
+        parts.append(
+            f"장소는 {result['place']['name']}입니다."
+            if result["place"]
+            else "장소 연결을 끊었습니다."
+        )
+    if result["added_participants"]:
+        names = " · ".join(p["name"] for p in result["added_participants"])
+        parts.append(f"{names}님을 함께한 사람에 더했습니다.")
+    if result["removed_participants"]:
+        names = " · ".join(p["name"] for p in result["removed_participants"])
+        parts.append(f"{names}님을 함께한 사람에서 뺐습니다.")
+
+    if result["deleted_places"]:
+        # 장소는 파생 노드다. 아무 추억도 걸리지 않으면 지도에 지울 수 없는 점이
+        # 남으므로 함께 거둔다 (delete_event와 같은 처리다)
+        parts.append(
+            f"아무 추억도 걸리지 않게 된 예전 장소 {len(result['deleted_places'])}곳은"
+            " 함께 거뒀습니다."
+        )
+    if result["still_tagged"]:
+        # 사진 지목이 참여자를 다시 세는 근거다. 여기서 뗀 것만으로는 돌아온다
+        names = " · ".join(p["name"] for p in result["still_tagged"])
+        parts.append(
+            f"다만 {names}님은 이 추억의 사진에 지목되어 있습니다 — "
+            "사진첩에서 지목을 떼지 않으면 함께한 사람으로 다시 올라옵니다."
+        )
+
+    message = (
+        "추억의 정보를 고쳤습니다. " + " ".join(parts) if parts else "바뀐 것이 없습니다."
+    )
+
+    return {
+        **result,
+        # 고친 뒤의 상세를 함께 준다. 제목·날짜·장소·사람이 한꺼번에 움직이므로
+        # 화면이 칸마다 맞춰 넣으면 서버와 어긋난다
+        "memory": memories.detail(event_id, viewer),
+        "message": message,
+    }
 
 
 @router.post("/{event_id}/echo")

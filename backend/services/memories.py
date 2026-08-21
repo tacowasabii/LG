@@ -180,6 +180,25 @@ def _resolve_place_by_name(name: str) -> Optional[str]:
     return place.id
 
 
+def _resolve_place(place_id: Optional[str], place_name: Optional[str]) -> Optional[str]:
+    """화면이 보낸 장소를 id 하나로 만든다 (없으면 None)
+
+    화면은 둘 중 하나를 보낸다 — 목록에서 고르면 id, 새로 적으면 이름이다.
+    id가 그래프에 없거나 장소가 아니면 이름을 본다. 화면이 예전에 받아 둔 장소가
+    그새 거둬졌을 수 있고(prune_orphan_places), 그때 사용자가 적어 넣은 이름까지
+    버리면 저장은 됐는데 장소만 조용히 비는 일이 생긴다.
+
+    만들 때와 고칠 때가 같은 함수를 쓴다. 규칙이 두 벌이면 같은 이름을 적었는데
+    경로에 따라 장소가 하나 더 생긴다 — 지도에 점이 겹친다.
+    """
+    place_id = (place_id or "").strip()
+    if place_id:
+        node = graph_manager.get_node(place_id)
+        if node and node.get("node_type") == NodeType.PLACE:
+            return node["id"]
+    return _resolve_place_by_name(place_name or "")
+
+
 def create_memory(
     author_id: Optional[str],
     title: str,
@@ -204,10 +223,7 @@ def create_memory(
     title = (title or "").strip() or "제목 없는 추억"
     description = (description or "").strip()
 
-    if not place_id and place_name:
-        place_id = _resolve_place_by_name(place_name)
-    if place_id and not graph_manager.get_node(place_id):
-        place_id = None
+    place_id = _resolve_place(place_id, place_name)
     if place_id and lat is not None and lng is not None:
         place = graph_manager.get_node(place_id) or {}
         if place.get("lat") is None or place.get("lng") is None:
@@ -299,6 +315,138 @@ def attach_media(event_id: str, media_ids: list[str]) -> list[str]:
         event_resolver.sync_participants_of_event(event_id)
 
     return attached
+
+
+# --- 정보 고치기 -------------------------------------------------------------
+
+
+def update_memory(
+    event_id: str,
+    title: str,
+    date_start: Optional[str] = None,
+    place_id: Optional[str] = None,
+    place_name: Optional[str] = None,
+    person_ids: Optional[list[str]] = None,
+) -> Optional[dict]:
+    """추억의 정보를 고친다 — 제목 · 날짜 · 장소 · 함께한 사람
+
+    상세 화면의 정보 칸을 통째로 받는다. 온 값이 그 칸의 새 내용이고, 빈 값은
+    "지운다"는 뜻이다 — 날짜를 비우면 '날짜 미상'이 되고, 장소를 비우면 연결이
+    끊긴다. 일부만 보내는 방식을 쓰지 않은 이유는 "장소를 비웠다"와 "장소는
+    건드리지 않았다"가 같은 null로 도착해 구분되지 않기 때문이다.
+
+    기억 문장은 여기서 바꾸지 않는다. 제목·날짜·장소는 가족이 함께 보는 기록이고
+    기억 문장은 그 말을 한 사람의 것이다 — 더한 기억이 원본을 덮지 않는 것과 같은
+    이유다(add_contribution). 자기 문장을 고치려면 지우고 다시 남긴다.
+
+    제목이 비어 오면 지금 제목을 그대로 둔다. 목록·지도·이야기가 모두 제목으로
+    이 추억을 부르므로 이름 없는 추억을 만들 수 없다 — 화면에는 라우터가 이유를
+    밝히며 막는다(400). 여기서 조용히 "제목 없는 추억"으로 바꾸면 사용자는 자기
+    추억의 이름이 왜 사라졌는지 알 수 없다.
+
+    장소를 바꾸면 예전 장소에 아무것도 걸리지 않게 될 수 있다. 그때 함께 거둔다
+    (event_resolver.prune_orphan_places) — 추억을 지울 때와 같은 처리다. 지도에
+    아무 추억도 없는 점이 남으면 사용자는 그것을 지울 자리를 찾을 수 없다.
+
+    새 이름으로 만든 장소에는 좌표가 없어 지도에 점이 찍히지 않는다. 그래서 화면은
+    이미 있는 장소 이름을 먼저 권한다 — 같은 이름이면 그 장소를 다시 쓴다.
+
+    함께한 사람에서 뺀 사람이 이 추억의 사진에 지목되어 있으면 still_tagged로
+    밝힌다. 사진 지목은 참여자를 다시 세는 근거이므로
+    (event_resolver.sync_participants_of_event), 사진에서 떼지 않으면 다음 정리에서
+    그 사람이 되돌아온다. 여기서 참여자 규칙을 한 벌 더 만들어 막지 않고 알려
+    주는 쪽을 골랐다 — 규칙이 두 벌이면 한쪽만 고쳐졌을 때 화면의 약속이 깨진다.
+
+    Returns:
+        무엇이 바뀌었는지. 그 id의 추억이 없으면 None.
+    """
+    event = graph_manager.get_node(event_id)
+    if not event or event.get("node_type") != NodeType.EVENT:
+        return None
+
+    title = (title or "").strip() or (event.get("title") or "")
+    date_start = (date_start or "").strip() or None
+    old_place_id = event.get("location_id") or None
+    new_place_id = _resolve_place(place_id, place_name)
+
+    changed: list[str] = []
+    if title != (event.get("title") or ""):
+        changed.append("title")
+    if date_start != (event.get("date_start") or None):
+        changed.append("date_start")
+    if new_place_id != old_place_id:
+        changed.append("place")
+
+    # 사람은 최종 목록으로 맞춘다. 더하기만 두면 잘못 넣은 사람을 뗄 수 없고,
+    # 함께한 사람은 Film·TV의 이야기와 공개 범위 판정에까지 쓰인다.
+    wanted = _valid_persons(person_ids)
+    current = [
+        edge["source"]
+        for edge in graph_manager.get_all_edges()
+        if edge["target"] == event_id and edge["relation"] == RelationType.PARTICIPATED_IN
+    ]
+    added = [person_id for person_id in wanted if person_id not in current]
+    removed = [person_id for person_id in current if person_id not in wanted]
+    if added or removed:
+        changed.append("participants")
+
+    with graph_manager.batch():
+        updates: dict = {}
+        if "title" in changed:
+            updates["title"] = title
+        if "date_start" in changed:
+            updates["date_start"] = date_start
+        if "place" in changed:
+            updates["location_id"] = new_place_id
+        if updates:
+            graph_manager.update_node(event_id, updates)
+
+        if "place" in changed:
+            if old_place_id:
+                # 관계 하나만 뗀다. remove_edge는 두 노드 사이를 모두 지운다
+                event_resolver.unlink(event_id, old_place_id, RelationType.LOCATED_AT)
+            if new_place_id:
+                graph_manager.add_edge(Edge(
+                    source=event_id, target=new_place_id, relation=RelationType.LOCATED_AT,
+                ))
+
+        for person_id in added:
+            # via를 붙이지 않는다. 사람이 직접 넣은 참여자여서, 사진 지목을 따라
+            # 도는 정리가 이것을 떼면 안 된다 (PARTICIPANT_VIA_MEDIA).
+            graph_manager.add_edge(Edge(
+                source=person_id,
+                target=event_id,
+                relation=RelationType.PARTICIPATED_IN,
+                properties={"role": "참여자"},
+            ))
+        for person_id in removed:
+            event_resolver.unlink(person_id, event_id, RelationType.PARTICIPATED_IN)
+
+        # 장소를 옮긴 뒤에 판정한다 — 먼저 보면 이 추억이 아직 예전 장소를
+        # 가리키고 있어 "쓰이는 중"으로 읽힌다 (delete_event와 같은 순서다)
+        deleted_places = (
+            event_resolver.prune_orphan_places([old_place_id])
+            if "place" in changed and old_place_id
+            else []
+        )
+
+    depicted = event_resolver.depicted_in_event(event_id) if removed else set()
+    place = graph_manager.get_node(new_place_id or "") if new_place_id else None
+
+    return {
+        "event_id": event_id,
+        "title": title,
+        "date_start": date_start,
+        "place": {"id": place["id"], "name": place.get("name", "")} if place else None,
+        # 실제로 달라진 칸만. 화면이 "무엇을 고쳤습니다"를 적을 때 쓴다
+        "changed": changed,
+        "added_participants": [_person_ref(p) for p in added],
+        "removed_participants": [_person_ref(p) for p in removed],
+        # 뗐지만 사진에 지목되어 있어 다음 정리에서 되돌아올 사람
+        "still_tagged": [_person_ref(p) for p in removed if p in depicted],
+        # 아무것도 걸리지 않게 되어 함께 거둔 장소
+        "deleted_places": deleted_places,
+    }
 
 
 # --- 기억 더하기 -------------------------------------------------------------

@@ -12,6 +12,8 @@
     5. 남긴 기억은 거둘 수 있다. 목소리는 함께 지워지고 사진은 추억에 남는다
     6. 추억도 거둘 수 있다. 기억·사진·영상·목소리와 원본 파일까지 함께 지워진다.
        다른 추억에도 붙어 있는 원본만 남는다
+    7. 정보(제목·날짜·장소·함께한 사람)는 뒤늦게 고칠 수 있다. 고쳐도 가족이 남긴
+       기억과 "나도 기억나요"는 그대로 있다
 
 그래프를 실제로 바꾸므로 만든 것은 끝에서 지운다. 데모 데이터를 더럽히지 않는다.
 
@@ -42,6 +44,7 @@ from backend.services.graph_manager import graph_manager  # noqa: E402
 EVENT = "E01"  # 1998 부산 가족여행 (시드에 김민수의 기억 M001이 하나 붙어 있다)
 AUTHOR = "P01"  # 김민수
 OTHER = "P02"  # 박서연
+THIRD = "P03"  # 김하늘 (기억을 남기지 않은 사람 — 참여자로 더하는 자리에 쓴다)
 
 _created: list[str] = []
 _temp_files: list = []
@@ -718,6 +721,173 @@ def test_photos_are_not_erased_with_the_memory():
         _cleanup()
 
 
+def test_info_can_be_fixed_without_losing_what_the_family_left():
+    """제목·날짜·장소·함께한 사람은 뒤늦게 고칠 수 있다 — 남긴 것은 그대로
+
+    만들 때 AI 초안을 고쳐 저장했더라도 어긋난 것이 뒤늦게 나온다: EXIF에 촬영
+    날짜가 없어 올린 날이 들어갔거나, 좌표에서 짐작한 지명이 옆 동네였거나, 얼굴
+    인식이 놓친 사람이 "함께한 사람"에 없다. 그때 지우고 다시 만들게 하면 가족이
+    그 추억에 남긴 기억과 "나도 기억나요"가 함께 사라진다.
+
+    기억 문장은 이 경로로 바뀌지 않는다 — 제목·날짜·장소는 가족이 함께 보는
+    기록이고 기억 문장은 그 말을 한 사람의 것이다.
+
+    제목을 비워 보내면 지금 제목을 그대로 둔다. 목록·지도·이야기가 모두 제목으로
+    이 추억을 부르므로 이름 없는 추억을 만들 수 없다 (화면에는 라우터가 400으로
+    이유를 밝힌다).
+    """
+    event = memories.create_memory(
+        author_id=AUTHOR,
+        title="테스트 추억 (정보 고치기 전)",
+        description="처음 남긴 기억입니다.",
+        date_start="2020-01-01",
+        place_name="테스트 장소 (고치기 전)",
+        person_ids=[AUTHOR],
+    )
+    _created.append(event["id"])
+    _created.append(event["location_id"])
+
+    added = memories.add_contribution(event["id"], OTHER, "저도 여기 있었습니다.")
+    assert added, "기억을 더하지 못했다"
+    _created.append(added["id"])
+    memories.toggle_echo(event["id"], OTHER)
+
+    try:
+        result = memories.update_memory(
+            event["id"],
+            title="테스트 추억 (고친 뒤)",
+            date_start="2019-05-05",
+            place_name="테스트 장소 (고친 뒤)",
+            # 기억을 남긴 OTHER는 이미 참여자다 (add_contribution). 얼굴 인식이
+            # 놓친 사람을 뒤늦게 더하는 자리를 보려면 아무 말도 남기지 않은
+            # 사람이 필요하다
+            person_ids=[AUTHOR, OTHER, THIRD],
+        )
+        assert result, "정보를 고치지 못했다"
+        _created.append(result["place"]["id"])
+        assert set(result["changed"]) == {"title", "date_start", "place", "participants"}, (
+            result["changed"]
+        )
+        assert [p["id"] for p in result["added_participants"]] == [THIRD], (
+            result["added_participants"]
+        )
+        assert result["removed_participants"] == [], result["removed_participants"]
+        assert result["still_tagged"] == [], result["still_tagged"]
+
+        detail = memories.detail(event["id"], AUTHOR)
+        assert detail["title"] == "테스트 추억 (고친 뒤)", detail["title"]
+        assert detail["date_start"] == "2019-05-05", detail["date_start"]
+        assert detail["place"]["name"] == "테스트 장소 (고친 뒤)", detail["place"]
+        assert sorted(p["id"] for p in detail["participants"]) == sorted(
+            [AUTHOR, OTHER, THIRD]
+        ), detail["participants"]
+
+        # 가족이 남긴 것은 하나도 움직이지 않았다
+        assert detail["author_memory"]["content"] == "처음 남긴 기억입니다.", (
+            detail["author_memory"]
+        )
+        assert [m["content"] for m in detail["contributions"]] == ["저도 여기 있었습니다."], (
+            detail["contributions"]
+        )
+        assert detail["echo_count"] == 1, detail["echo_count"]
+
+        # 제목은 비울 수 없다 — 비워 보내면 지금 제목이 남는다
+        result = memories.update_memory(
+            event["id"], title="   ", date_start="2019-05-05",
+            place_name="테스트 장소 (고친 뒤)", person_ids=[AUTHOR, OTHER, THIRD],
+        )
+        assert result and result["changed"] == [], result["changed"]
+        assert memories.detail(event["id"], AUTHOR)["title"] == "테스트 추억 (고친 뒤)"
+        print("  정보 고치기 OK (기억·기억나요는 그대로)")
+    finally:
+        _cleanup()
+
+
+def test_place_left_behind_by_an_edit_is_collected():
+    """장소를 고쳐 옮기면 아무것도 걸리지 않게 된 예전 장소를 함께 거둔다
+
+    추억을 지울 때와 같은 처리다 (delete_event). 장소는 파생 노드여서 스스로
+    열리는 화면이 없고, 아무 추억도 가리키지 않으면 지도에 지울 수 없는 점으로만
+    남는다. 다른 추억이 아직 쓰는 장소는 그대로 둔다 — 장소는 한 추억만의 것이
+    아니다.
+    """
+    # 홍천 좌표. 시드된 장소 여덟 곳에서 모두 5km 넘게 떨어져 있어 새 장소가 된다
+    place_id = event_resolver.resolve_place(37.697, 127.889)
+    assert place_id, "장소를 만들지 못했다"
+    _created.append(place_id)
+
+    first = memories.create_memory(
+        author_id=AUTHOR, title="테스트 추억 (장소를 옮긴다 · 첫째)", place_id=place_id
+    )
+    _created.append(first["id"])
+    second = memories.create_memory(
+        author_id=AUTHOR, title="테스트 추억 (장소를 옮긴다 · 둘째)", place_id=place_id
+    )
+    _created.append(second["id"])
+
+    try:
+        # 첫째가 떠나도 둘째가 아직 쓰고 있다
+        result = memories.update_memory(
+            first["id"], title=first["title"], place_name="테스트 장소 (옮긴 뒤)"
+        )
+        assert result, "첫째의 장소를 옮기지 못했다"
+        _created.append(result["place"]["id"])
+        assert result["deleted_places"] == [], result["deleted_places"]
+        assert graph_manager.get_node(place_id), "아직 쓰이는 장소가 지워졌다"
+
+        # 마지막 추억이 떠나면 장소도 따라간다 (장소를 비운 경우다)
+        result = memories.update_memory(second["id"], title=second["title"])
+        assert result and result["place"] is None, result["place"]
+        assert result["deleted_places"] == [place_id], result["deleted_places"]
+        assert graph_manager.get_node(place_id) is None, "빈 장소가 남았다"
+        assert memories.detail(second["id"], AUTHOR)["place"] is None
+        print("  옮긴 뒤 빈 장소 거두기 OK (쓰이는 장소는 남는다)")
+    finally:
+        _cleanup()
+
+
+def test_a_removed_participant_who_is_still_in_a_photo_is_named():
+    """사진에 지목된 사람을 함께한 사람에서 빼면, 되돌아온다고 밝힌다
+
+    사진 지목이 참여자를 다시 세는 근거다
+    (event_resolver.sync_participants_of_event). 정보 칸에서 뗀 것만으로는 다음
+    정리에서 그 사람이 돌아온다 — 참여자 규칙을 한 벌 더 만들어 조용히 막지 않고,
+    어디서 떼야 하는지 알려 주는 쪽을 골랐다.
+
+    사람이 직접 넣은 참여자는 그 정리가 건드리지 않는다 (via가 없다). 둘을 한
+    자리에서 확인한다.
+    """
+    event = memories.create_memory(
+        author_id=AUTHOR,
+        title="테스트 추억 (사진에 지목된 사람)",
+        person_ids=[AUTHOR],
+    )
+    _created.append(event["id"])
+    photo = _make_temp_photo(event["id"])
+    event_resolver.set_media_persons(photo.id, [OTHER])
+
+    try:
+        before = sorted(p["id"] for p in memories.detail(event["id"], AUTHOR)["participants"])
+        assert before == sorted([AUTHOR, OTHER]), before
+
+        result = memories.update_memory(event["id"], title=event["title"], person_ids=[AUTHOR])
+        assert result, "참여자를 고치지 못했다"
+        assert [p["id"] for p in result["removed_participants"]] == [OTHER], (
+            result["removed_participants"]
+        )
+        assert [p["id"] for p in result["still_tagged"]] == [OTHER], result["still_tagged"]
+        after = [p["id"] for p in memories.detail(event["id"], AUTHOR)["participants"]]
+        assert after == [AUTHOR], after
+
+        # 밝힌 그대로다 — 사진에서 떼지 않으면 다음 정리에서 돌아온다
+        event_resolver.sync_participants_of_event(event["id"])
+        again = sorted(p["id"] for p in memories.detail(event["id"], AUTHOR)["participants"])
+        assert again == sorted([AUTHOR, OTHER]), again
+        print("  사진에 남은 지목 밝히기 OK (직접 넣은 참여자는 그대로)")
+    finally:
+        _cleanup()
+
+
 TESTS = [
     test_new_memory_is_published_immediately,
     test_contribution_does_not_overwrite_original,
@@ -736,6 +906,9 @@ TESTS = [
     test_voice_goes_with_the_memory_it_belongs_to,
     test_voice_stays_when_another_memory_still_leans_on_it,
     test_photos_are_not_erased_with_the_memory,
+    test_info_can_be_fixed_without_losing_what_the_family_left,
+    test_place_left_behind_by_an_edit_is_collected,
+    test_a_removed_participant_who_is_still_in_a_photo_is_named,
 ]
 
 

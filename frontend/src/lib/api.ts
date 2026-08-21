@@ -1559,6 +1559,60 @@ export async function getMemoryDetail(eventId: string): Promise<MemoryDetail> {
   return fetchJSON(withViewer(`${BASE_URL}/memories/${eventId}`));
 }
 
+export interface MemoryUpdateInput {
+  title: string;
+  /** 비우면 '날짜 미상'이 된다 */
+  date_start?: string | null;
+  /** 이미 있는 장소를 고르면 id, 새 이름을 적으면 place_name */
+  place_id?: string | null;
+  place_name?: string | null;
+  /** 함께한 사람의 최종 목록 (여기 없는 사람은 빠진다) */
+  person_ids?: string[];
+}
+
+/**
+ * 추억의 정보 고치기 — 제목 · 날짜 · 장소 · 함께한 사람.
+ *
+ * 정보 칸을 통째로 보낸다. 빈 값은 "지운다"는 뜻이다 — 날짜를 비우면 '날짜 미상',
+ * 장소를 비우면 연결이 끊긴다. 일부만 보내는 방식을 쓰지 않은 이유는 "비웠다"와
+ * "건드리지 않았다"가 같은 null로 도착해 구분되지 않기 때문이다.
+ *
+ * 기억 문장은 이것으로 바뀌지 않는다. 그것은 남긴 사람의 말이고, 고치려면 지우고
+ * 다시 남긴다 (deleteMemoryEntry · addMemoryContribution).
+ *
+ * 남이 만든 추억이면 403이 온다 (readDetail로 그 이유를 읽는다). 제목을 비워
+ * 보내면 400이다 — 목록·지도·이야기가 모두 제목으로 이 추억을 부른다.
+ *
+ * 응답은 무엇이 바뀌었는지 밝힌다. 장소를 옮기다 예전 장소가 함께 거둬졌거나
+ * (deleted_places), 뗀 사람이 사진 지목 때문에 되돌아올 것(still_tagged)을
+ * 화면이 말해야 한다.
+ */
+export async function updateMemory(
+  eventId: string,
+  input: MemoryUpdateInput,
+): Promise<{
+  event_id: string;
+  title: string;
+  date_start?: string | null;
+  place?: PlaceOption | null;
+  /** 실제로 달라진 칸 — 'title' | 'date_start' | 'place' | 'participants' */
+  changed: string[];
+  added_participants: PersonRef[];
+  removed_participants: PersonRef[];
+  /** 뺐지만 이 추억의 사진에 지목되어 있어 다시 올라올 사람 */
+  still_tagged: PersonRef[];
+  /** 아무 추억도 걸리지 않게 되어 함께 거둔 장소 */
+  deleted_places: string[];
+  /** 고친 뒤의 상세. 칸마다 맞춰 넣지 않고 이것으로 갈아 끼운다 */
+  memory: MemoryDetail;
+  message: string;
+}> {
+  return fetchJSON(`${BASE_URL}/memories/${eventId}`, {
+    method: 'PUT',
+    body: JSON.stringify(input),
+  });
+}
+
 /** 나도 기억나요 (다시 부르면 취소된다) */
 export async function echoMemory(
   eventId: string,

@@ -110,6 +110,7 @@ Base URL: `http://localhost:8000`
 | POST | `/api/memories` | 추억 만들기 (저장 즉시 게시) |
 | GET | `/api/memories/feed` | 기억 이어가기 목록 |
 | GET | `/api/memories/{id}` | 추억 상세 |
+| PUT | `/api/memories/{id}` | 추억 정보 고치기 (제목·날짜·장소·함께한 사람) |
 | POST | `/api/memories/{id}/echo` | 나도 기억나요 (토글) |
 | POST | `/api/memories/{id}/memory` | 내 기억 더하기 |
 | POST | `/api/memories/{id}/media` | 기존 추억에 사진·영상 추가 |

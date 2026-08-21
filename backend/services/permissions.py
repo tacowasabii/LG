@@ -112,11 +112,17 @@ def require_admin(actor: Optional[dict]) -> None:
     )
 
 
-def require_owner_of(node: dict, actor: Optional[dict], what: str = "기록") -> None:
+def require_owner_of(
+    node: dict, actor: Optional[dict], what: str = "기록", action: str = "지울"
+) -> None:
     """되돌릴 수 없는 행위 — 그 기록의 소유자나 가족 관리자만
 
     소유자가 비어 있는 기록(권한 개념이 생기기 전에 들어온 것)은 관리자와
     기록자가 정리할 수 있게 둔다. 그마저 막으면 시드 데이터를 아무도 못 지운다.
+
+    지우는 것만이 아니다. 남의 추억의 제목·날짜·장소를 덮어쓰는 것도 같은 판정을
+    지나야 한다 (routers/memories.update_memory). 판정은 하나로 두고 문장만
+    바꾼다(action) — 규칙을 두 벌로 두면 한쪽만 고쳐졌을 때 남의 기록이 바뀐다.
     """
     role = _role(actor)
     # 기억 문장의 주인은 그것을 남긴 사람이다. 원본(미디어)은 owner_id에 올린
@@ -131,7 +137,7 @@ def require_owner_of(node: dict, actor: Optional[dict], what: str = "기록") ->
         if owner_id:
             raise HTTPException(
                 status_code=403,
-                detail=f"이 {what}은 올린 사람만 지울 수 있습니다. 사용할 사람을 먼저 고르세요.",
+                detail=f"이 {what}은 올린 사람만 {action} 수 있습니다. 사용할 사람을 먼저 고르세요.",
             )
         return
 
@@ -140,7 +146,7 @@ def require_owner_of(node: dict, actor: Optional[dict], what: str = "기록") ->
             status_code=403,
             detail=(
                 f"{actor.get('name', '')}님은 {ROLE_LABEL.get(role, role)}입니다. "
-                f"{what}을 지울 수 없습니다."
+                f"{what}을 {action} 수 없습니다."
             ),
         )
 
@@ -153,7 +159,7 @@ def require_owner_of(node: dict, actor: Optional[dict], what: str = "기록") ->
     owner_name = owner.get("name", "") if owner else owner_id
     raise HTTPException(
         status_code=403,
-        detail=f"이 {what}은 {owner_name}님이 올렸습니다. 올린 사람이나 가족 관리자만 지울 수 있습니다.",
+        detail=f"이 {what}은 {owner_name}님이 올렸습니다. 올린 사람이나 가족 관리자만 {action} 수 있습니다.",
     )
 
 

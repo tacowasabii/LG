@@ -606,6 +606,7 @@ JSON 파일은 그대로 남습니다. `DATABASE_URL`을 지우면 다시 파일
 | | `POST /api/memories` | 추억 만들기 (저장 즉시 게시, 승인 없음) |
 | | `GET /api/memories/feed` | 기억 이어가기 목록 |
 | | `GET /api/memories/{id}` | 추억 상세 (작성자의 기억 + 가족이 더한 기억) |
+| | `PUT /api/memories/{id}` | 추억 정보 고치기 (제목·날짜·장소·함께한 사람. 기억 문장은 그대로) |
 | | `POST /api/memories/{id}/echo` | 나도 기억나요 (토글) |
 | | `POST /api/memories/{id}/memory` | 내 기억 더하기 (글·목소리·사진, 원본 보존) |
 | | `POST /api/memories/{id}/media` | 기존 추억에 사진·영상 추가 |
@@ -663,6 +664,7 @@ JSON 파일은 그대로 남습니다. `DATABASE_URL`을 지우면 다시 파일
 
 ## 참고 문서
 
+- `docs/TECH_SPEC.md` — 기술 명세 (AI 활용 지점, 제공자 분리, GPS, 안전장치, 배포)
 - `docs/USER_GUIDE.md` — 사용법 (화면별 조작, TV 리모컨, 막혔을 때)
 - `docs/MVP_DESIGN.md` — 설계 상세 (Graph 스키마, API, 화면 구성)
 - `docs/SPEC_SUMMARY.md` — API 호출 형식 전체 정리

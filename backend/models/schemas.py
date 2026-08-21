@@ -243,6 +243,25 @@ class MemoryCreateRequest(BaseModel):
     author_id: Optional[str] = None
 
 
+class MemoryUpdateRequest(BaseModel):
+    """추억의 정보 고치기 (제목 · 날짜 · 장소 · 함께한 사람)
+
+    상세 화면의 정보 칸을 통째로 담아 보낸다. 빈 값은 "지운다"는 뜻이다 —
+    날짜를 비우면 '날짜 미상'이 되고, 장소를 비우면 연결이 끊긴다. 일부만 보내는
+    방식을 쓰지 않은 이유는 "비웠다"와 "건드리지 않았다"가 같은 null로 도착해
+    구분되지 않기 때문이다.
+
+    기억 문장은 여기에 없다. 그것은 남긴 사람의 말이고, 고치려면 지우고 다시
+    남긴다 (ContributionRequest).
+    """
+    title: str
+    date_start: Optional[str] = None
+    # 그래프에 있는 장소를 고르면 place_id, 새 이름을 적으면 place_name
+    place_id: Optional[str] = None
+    place_name: Optional[str] = None
+    person_ids: list[str] = []
+
+
 class ContributionRequest(BaseModel):
     """내 기억 더하기 (원본을 덮어쓰지 않는다)"""
     content: str

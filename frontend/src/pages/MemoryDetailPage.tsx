@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { Link, useParams } from 'react-router-dom'
-import { Heart, Plus, Sparkles, Trash2 } from 'lucide-react'
+import { Heart, Pencil, Plus, Sparkles, Trash2 } from 'lucide-react'
 import {
   MemoryDetail,
   MemoryEntry,
@@ -16,6 +16,7 @@ import AudioClip from '../components/AudioClip'
 import MemoryDeleteButton from '../components/MemoryDeleteButton'
 import MemoryComposer from '../components/MemoryComposer'
 import MemoryContextNote from '../components/MemoryContextNote'
+import MemoryInfoEditor from '../components/MemoryInfoEditor'
 import { STATE_CONFIG } from '../components/StatusPill'
 import { Page, PageHeader } from '../components/Page'
 import { invalidateEvents, invalidateVoiceClips } from '../lib/useGraphData'
@@ -26,7 +27,7 @@ import { invalidateEvents, invalidateVoiceClips } from '../lib/useGraphData'
  * 위에서 아래로 이 순서다.
  *
  *   사진 · 영상
- *   제목 · 날짜 · 장소 · 함께한 사람
+ *   제목 · 날짜 · 장소 · 함께한 사람 (고칠 수 있다 — MemoryInfoEditor)
  *   최초 작성자의 기억
  *   나도 기억나요 · + 내 기억 더하기
  *   가족이 더한 기억 (사진 · 영상 · 목소리 포함)
@@ -150,6 +151,10 @@ export default function MemoryDetailPage() {
   const [gone, setGone] = useState<string | null>(null)
   const [confirmingEvent, setConfirmingEvent] = useState(false)
   const [deletingEvent, setDeletingEvent] = useState(false)
+  /* 정보 칸을 고치는 중인가 */
+  const [editingInfo, setEditingInfo] = useState(false)
+  /* 고친 뒤 서버가 밝힌 것 — 무엇이 바뀌었고, 뗀 사람이 왜 돌아오는지 */
+  const [edited, setEdited] = useState<string | null>(null)
 
   const load = () => {
     if (!eventId) return Promise.resolve()
@@ -368,25 +373,79 @@ export default function MemoryDetailPage() {
         </div>
       )}
 
-      {/* 2. 제목 · 날짜 · 장소 · 함께한 사람 */}
-      <div className="mt-8 flex flex-wrap gap-x-10 gap-y-4">
-        <span>
-          <span className="t-eyebrow block text-ink-300">날짜</span>
-          <span className="t-body-sm text-ink-700">{detail.date_start || '날짜 미상'}</span>
-        </span>
-        <span>
-          <span className="t-eyebrow block text-ink-300">장소</span>
-          <span className="t-body-sm text-ink-700">{detail.place?.name || '기록 없음'}</span>
-        </span>
-        <span className="min-w-0">
-          <span className="t-eyebrow block text-ink-300">함께한 사람</span>
-          <span className="t-body-sm text-ink-700">
-            {detail.participants.length > 0
-              ? detail.participants.map((p) => p.name).join(' · ')
-              : '아직 기록되지 않았습니다'}
+      {/*
+        2. 제목 · 날짜 · 장소 · 함께한 사람 — 읽던 자리에서 고친다.
+
+        고치는 화면을 따로 두지 않은 이유는 값을 다시 찾게 하지 않기 위해서다.
+        EXIF에 촬영 날짜가 없어 올린 날이 들어갔거나 좌표에서 짐작한 지명이 옆
+        동네인 것은 이 줄을 읽다가 알아차린다.
+
+        기억 문장을 고치는 길은 여기에 없다. 그것은 남긴 사람의 말이고, 거두는
+        자리는 그 문장 아래에 있다 (MemoryDeleteButton).
+      */}
+      {editingInfo ? (
+        <div className="mt-8">
+          <MemoryInfoEditor
+            detail={detail}
+            onCancel={() => setEditingInfo(false)}
+            onSaved={(result) => {
+              // 제목·날짜·장소·사람이 한꺼번에 움직인다. 칸마다 맞춰 넣지 않고
+              // 서버가 준 상세로 갈아 끼운다 (기억 지우기와 같은 이유다)
+              setDetail(result.memory)
+              setEdited(result.message)
+              setEditingInfo(false)
+              // 홈·지도·TV·Film이 세는 제목·날짜·장소·사람도 함께 바뀌어야 한다
+              invalidateEvents()
+            }}
+          />
+        </div>
+      ) : (
+        <div className="mt-8 flex flex-wrap items-start gap-x-10 gap-y-4">
+          <span>
+            <span className="t-eyebrow block text-ink-300">날짜</span>
+            <span className="t-body-sm text-ink-700">{detail.date_start || '날짜 미상'}</span>
           </span>
-        </span>
-      </div>
+          <span>
+            <span className="t-eyebrow block text-ink-300">장소</span>
+            <span className="t-body-sm text-ink-700">{detail.place?.name || '기록 없음'}</span>
+          </span>
+          <span className="min-w-0">
+            <span className="t-eyebrow block text-ink-300">함께한 사람</span>
+            <span className="t-body-sm text-ink-700">
+              {detail.participants.length > 0
+                ? detail.participants.map((p) => p.name).join(' · ')
+                : '아직 기록되지 않았습니다'}
+            </span>
+          </span>
+          {/*
+            권한으로 감추지 않는다. 남이 만든 추억이면 저장할 때 서버가 이유를
+            밝히며 막는다 — 왜 못 고치는지가 단추가 없는 것보다 쓸모 있고, 권한
+            규칙을 화면과 서버 두 곳에 두면 어긋난다 (지우기와 같은 방식이다).
+          */}
+          <button
+            onClick={() => {
+              setEditingInfo(true)
+              setEdited(null)
+              setError(null)
+            }}
+            className="btn-link ml-auto flex items-center gap-1 text-[11px]"
+          >
+            <Pencil size={12} />
+            정보 고치기
+          </button>
+        </div>
+      )}
+
+      {/*
+        고친 뒤 서버가 밝힌 것을 그대로 적는다. "저장했습니다" 한 마디로 끝내면,
+        장소를 옮기다 예전 장소가 함께 거둬진 것도, 사진에 지목된 사람을 뺐다가
+        다시 올라오는 것도 사용자는 모른다.
+      */}
+      {edited && (
+        <p className="t-body-sm m-0 mt-4" style={{ color: 'var(--accent-ink)' }}>
+          {edited}
+        </p>
+      )}
 
       {/* 가족이 남긴 목소리 (추억에 직접 붙은 녹음) */}
       {audios.length > 0 && (
